@@ -1,4 +1,3 @@
-import pbkdf2
 import hmac
 import hashlib
 

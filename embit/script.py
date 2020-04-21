@@ -26,8 +26,12 @@ class Script:
             d = network["p2sh"] + data[2:22]
             return base58.encode_check(d)
 
-        if script_type=="p2wpkh" or script_type=="p2wsh":
-            return bech32.encode(network["bech32"], data[0], data[2:])
+        if script_type in ["p2wpkh", "p2wsh"]:
+            ver = data[0]
+            # FIXME: should be one of OP_N
+            if ver > 0:
+                ver = ver % 0x50
+            return bech32.encode(network["bech32"], ver, data[2:])
 
         # we should never get here
         raise ValueError("Unsupported script type")
