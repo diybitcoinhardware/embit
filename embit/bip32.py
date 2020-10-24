@@ -5,21 +5,21 @@ from .util import hashlib
 import io
 from .util import secp256k1
 from . import hashes
+from binascii import hexlify
 
-# ugly copy of the bytes
-def _copy(b):
-    if len(b) > 0:
-        return b[:1] + b[1:]
-    else:
-        return b''
 
 class HDKey:
     """ HD Private or Public key """
-    def __init__(self, key, chain_code, 
-                 version=None,
-                 depth=0,
-                 fingerprint=b'\x00\x00\x00\x00',
-                 child_number=0):
+
+    def __init__(
+        self,
+        key,
+        chain_code: bytes,
+        version=None,
+        depth: int = 0,
+        fingerprint: bytes = b"\x00\x00\x00\x00",
+        child_number: int = 0,
+    ):
         self.key = key
         if len(key.serialize()) != 32 and len(key.serialize()) != 33:
             raise ValueError("Invalid key. Should be private or compressed public")
@@ -27,9 +27,9 @@ class HDKey:
             self.version = version[:]
         else:
             if len(key.serialize()) == 32:
-                version = NETWORKS["main"]["xprv"]
+                self.version = NETWORKS["main"]["xprv"]
             else:
-                version = NETWORKS["main"]["xpub"]
+                self.version = NETWORKS["main"]["xpub"]
         self.chain_code = chain_code[:]
         self.depth = depth
         self.fingerprint = fingerprint[:]
@@ -41,40 +41,41 @@ class HDKey:
             raise ValueError("Invalid version")
 
     @classmethod
-    def from_seed(cls, seed, version=NETWORKS["main"]["xprv"]):
-        raw = hashlib.hmac_sha512(b'Bitcoin seed', seed)
+    def from_seed(cls, seed: bytes, version=NETWORKS["main"]["xprv"]):
+        """Creates a root private key from 64-byte seed"""
+        raw = hashlib.hmac_sha512(b"Bitcoin seed", seed)
         private_key = ec.PrivateKey(raw[:32])
         chain_code = raw[32:]
         return cls(private_key, chain_code, version=version)
 
     @classmethod
-    def from_base58(cls, s):
+    def from_base58(cls, s: str):
         b = base58.decode_check(s)
         return cls.parse(b)
 
     @property
-    def is_private(self):
+    def is_private(self) -> bool:
         """ checks if the HDKey is private or public """
-        return (len(self.key.serialize())==32)
+        return len(self.key.serialize()) == 32
 
-    def serialize(self, version=None):
+    def serialize(self, version=None) -> bytes:
         if version is None:
             version = self.version
         b = version + bytes([self.depth]) + self.fingerprint
-        b += self.child_number.to_bytes(4, 'big')
+        b += self.child_number.to_bytes(4, "big")
         b += self.chain_code
         if self.is_private:
-            b += b'\x00' + self.key.serialize()
+            b += b"\x00" + self.key.serialize()
         else:
             b += self.key.serialize()
         return b
 
-    def to_base58(self, version=None):
+    def to_base58(self, version=None) -> str:
         b = self.serialize(version)
         return base58.encode_check(b)
 
     @classmethod
-    def parse(cls, b):
+    def parse(cls, b: bytes):
         stream = io.BytesIO(b)
         hd = cls.read_from(stream)
         if len(stream.read(1)) > 0:
@@ -86,7 +87,7 @@ class HDKey:
         version = stream.read(4)
         depth = stream.read(1)[0]
         fingerprint = stream.read(4)
-        child_number = int.from_bytes(stream.read(4), 'big')
+        child_number = int.from_bytes(stream.read(4), "big")
         chain_code = stream.read(32)
         k = stream.read(33)
         if k[0] == 0:
@@ -96,10 +97,14 @@ class HDKey:
 
         if len(version) < 4 or len(fingerprint) < 4 or len(chain_code) < 32:
             raise ValueError("Not enough bytes")
-        hd = cls(key, chain_code,
-            version=version, depth=depth, 
-            fingerprint=fingerprint, child_number=child_number
-            )
+        hd = cls(
+            key,
+            chain_code,
+            version=version,
+            depth=depth,
+            fingerprint=fingerprint,
+            child_number=child_number,
+        )
         subver = hd.to_base58()[1:4]
         if subver != "prv" and subver != "pub":
             raise ValueError("Invalid version")
@@ -117,18 +122,24 @@ class HDKey:
                         version = NETWORKS[net][k.replace("prv", "pub")]
                         break
         if version is None:
-            raise RuntimeError("Can't find proper version. Provide it with version keyword")
-        return self.__class__(self.key.get_public_key(), self.chain_code, 
-                 version=version,
-                 depth=self.depth,
-                 fingerprint=self.fingerprint,
-                 child_number=self.child_number)
+            raise RuntimeError(
+                "Can't find proper version. Provide it with version keyword"
+            )
+        return self.__class__(
+            self.key.get_public_key(),
+            self.chain_code,
+            version=version,
+            depth=self.depth,
+            fingerprint=self.fingerprint,
+            child_number=self.child_number,
+        )
 
-    def sec(self):
-        """Sec serialization of the public key"""
+    def sec(self) -> bytes:
+        """Returns SEC serialization of the public key"""
         return self.key.sec()
 
-    def child(self, index, hardened=False):
+    def child(self, index: int, hardened: bool = False):
+        """Derives a child HDKey"""
         if index > 0xFFFFFFFF:
             raise ValueError("Index should be less then 2^32")
         if hardened and index < 0x80000000:
@@ -142,32 +153,32 @@ class HDKey:
         sec = self.sec()
         fingerprint = hashes.hash160(sec)[:4]
         if hardened:
-            data = b'\x00' + self.key.serialize() + index.to_bytes(4, 'big')
+            data = b"\x00" + self.key.serialize() + index.to_bytes(4, "big")
         else:
-            data = sec + index.to_bytes(4, 'big')
+            data = sec + index.to_bytes(4, "big")
         raw = hashlib.hmac_sha512(self.chain_code, data)
         secret = raw[:32]
         chain_code = raw[32:]
         if self.is_private:
-            secp256k1.ec_privkey_tweak_add(secret,self.key.serialize())
+            secp256k1.ec_privkey_tweak_add(secret, self.key.serialize())
             key = ec.PrivateKey(secret)
         else:
             # copy of internal secp256k1 point structure
-            point = _copy(self.key._point)
+            point = self.key._point[:]
             secp256k1.ec_pubkey_tweak_add(point, secret)
             key = ec.PublicKey(point)
         return HDKey(
             key,
             chain_code,
-            version=_copy(self.version),
-            depth=self.depth+1,
+            version=self.version[:],
+            depth=self.depth + 1,
             fingerprint=fingerprint,
-            child_number=index
+            child_number=index,
         )
 
     def derive(self, path):
         """ path: int array or a string starting with m/ """
-        if "/" in path:
+        if isinstance(path, str):
             # string of the form m/44h/0'/ind
             path = parse_path(path)
         child = self
@@ -175,13 +186,14 @@ class HDKey:
             child = child.child(idx)
         return child
 
-    def sign(self, msg_hash):
+    def sign(self, msg_hash: bytes) -> ec.Signature:
         """signs a hash of the message with the private key"""
         if not self.is_private:
             raise RuntimeError("HD public key can't sign")
         return self.key.sign(msg_hash)
 
-    def verify(self, sig, msg_hash):
+    def verify(self, sig: ec.Signature, msg_hash: bytes) -> bool:
+        """Verifies a signature agains 32-byte message hash"""
         if self.is_private:
             return self.key.get_public_key().verify(sig, msg_hash)
         else:
@@ -192,42 +204,62 @@ class HDKey:
 
     def __eq__(self, other):
         # skip version
-        return self.serialize()[4:]==other.serialize()[4:]
+        return self.serialize()[4:] == other.serialize()[4:]
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
 
-def detect_version(path:str, default="xprv"):
-    """Trying to be smart, use if you want, but with care"""
+def detect_version(path: str, default="xprv", network=None) -> bytes:
+    """
+    Detects slip-132? version from the path for certain network.
+    Trying to be smart, use if you want, but with care.
+    """
     key = default
-    network = NETWORKS["main"]
+    net = network
+    if network is None:
+        net = NETWORKS["main"]
     arr = parse_path(path)
-    if arr[0] == 0x80000000+84:
-        key = "z"+default[1:]
-    elif arr[0] == 0x80000000+49:
-        key = "y"+default[1:]
-    elif arr[0] == 0x80000000+48:
+    if len(arr) == 0:
+        return network[key]
+    if arr[0] == 0x80000000 + 84:
+        key = "z" + default[1:]
+    elif arr[0] == 0x80000000 + 49:
+        key = "y" + default[1:]
+    elif arr[0] == 0x80000000 + 48:
         if len(arr) >= 4:
-            if arr[3] == 0x80000000+1:
-                key = "Y"+default[1:]
-            elif arr[3] == 0x80000000+2:
-                key = "Z"+default[1:]
-    if len(arr)>1 and arr[1]==0x80000000+1:
-        network = NETWORKS["test"]
-    return network[key]
+            if arr[3] == 0x80000000 + 1:
+                key = "Y" + default[1:]
+            elif arr[3] == 0x80000000 + 2:
+                key = "Z" + default[1:]
+    if network is None and len(arr) > 1 and arr[1] == 0x80000000 + 1:
+        net = NETWORKS["test"]
+    return net[key]
 
-def parse_path(path:str):
+
+def parse_path(path: str) -> list:
     """converts derivation path of the form m/44h/1'/0'/0/32 to int array"""
     arr = path.split("/")
     if arr[0] == "m":
         arr = arr[1:]
+    if len(arr) == 0:
+        return []
     if arr[-1] == "":
         # trailing slash
         arr = arr[:-1]
     for i, e in enumerate(arr):
         if e[-1] == "h" or e[-1] == "'":
-            arr[i] = int(e[:-1])+0x80000000
+            arr[i] = int(e[:-1]) + 0x80000000
         else:
             arr[i] = int(e)
     return arr
+
+
+def path_to_str(path: list, fingerprint=None) -> str:
+    s = "m" if fingerprint is None else hexlify(fingerprint).decode()
+    for el in path:
+        if el >= 0x80000000:
+            s += "/%dh" % (el - 0x80000000)
+        else:
+            s += "/%d" % el
+    return s
