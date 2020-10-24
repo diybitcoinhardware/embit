@@ -81,7 +81,23 @@ def _init(flags = (CONTEXT_SIGN | CONTEXT_VERIFY)):
 
     secp256k1.secp256k1_ec_pubkey_combine.argtypes = [c_void_p, c_char_p, c_void_p, c_size_t]
     secp256k1.secp256k1_ec_pubkey_combine.restype = c_int
-    
+
+    # recoverable module
+    secp256k1.secp256k1_ecdsa_sign_recoverable.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p, c_void_p, c_void_p]
+    secp256k1.secp256k1_ecdsa_sign_recoverable.restype = c_int
+
+    secp256k1.secp256k1_ecdsa_recoverable_signature_parse_compact.argtypes = [c_void_p, c_char_p, c_char_p, c_int]
+    secp256k1.secp256k1_ecdsa_recoverable_signature_parse_compact.restype = c_int
+
+    secp256k1.secp256k1_ecdsa_recoverable_signature_serialize_compact.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_ecdsa_recoverable_signature_serialize_compact.restype = c_int
+
+    secp256k1.secp256k1_ecdsa_recoverable_signature_convert.argtypes = [c_void_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_ecdsa_recoverable_signature_convert.restype = c_int
+
+    secp256k1.secp256k1_ecdsa_recover.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_ecdsa_recover.restype = c_int
+
     secp256k1.ctx = secp256k1.secp256k1_context_create(flags)
     
     r = secp256k1.secp256k1_context_randomize(secp256k1.ctx, os.urandom(32))
@@ -247,4 +263,54 @@ def ec_pubkey_combine(*args, context=_secp.ctx):
     r = _secp.secp256k1_ec_pubkey_combine(context, pub, pubkeys, len(args))
     if r == 0:
         raise ValueError("Failed to negate pubkey")
+    return pub
+
+def ecdsa_sign_recoverable(msg, secret, context=_secp.ctx):
+    if len(msg)!=32:
+        raise ValueError("Message should be 32 bytes long")
+    if len(secret)!=32:
+        raise ValueError("Secret key should be 32 bytes long")
+    sig = bytes(65)
+    r = _secp.secp256k1_ecdsa_sign_recoverable(context, sig, msg, secret, None, None)
+    if r == 0:
+        raise ValueError("Failed to sign")
+    return sig
+
+def ecdsa_recoverable_signature_serialize_compact(sig, context=_secp.ctx):
+    if len(sig)!=65:
+        raise ValueError("Recoverable signature should be 65 bytes long")
+    ser = bytes(64)
+    idx = bytes(1)
+    r = _secp.secp256k1_ecdsa_recoverable_signature_serialize_compact(context, ser, idx, sig)
+    if r == 0:
+        raise ValueError("Failed serializing der signature")
+    return ser, idx[0]
+    
+def ecdsa_recoverable_signature_parse_compact(compact_sig, recid, context=_secp.ctx):
+    if len(compact_sig)!=64:
+        raise ValueError("Signature should be 64 bytes long")
+    sig = bytes(65)
+    r = _secp.secp256k1_ecdsa_recoverable_signature_parse_compact(context, sig, compact_sig, recid)
+    if r == 0:
+        raise ValueError("Failed parsing compact signature")
+    return sig
+
+def ecdsa_recoverable_signature_convert(sigin, context=_secp.ctx):
+    if len(compact_sig)!=65:
+        raise ValueError("Recoverable signature should be 65 bytes long")
+    sig = bytes(64)
+    r = _secp.secp256k1_ecdsa_recoverable_signature_convert(context, sig, sigin)
+    if r == 0:
+        raise ValueError("Failed converting signature")
+    return sig
+
+def ecdsa_recover(sig, msghash, context=_secp.ctx):
+    if len(sig)!=65:
+        raise ValueError("Recoverable signature should be 65 bytes long")
+    if len(msghash)!=32:
+        raise ValueError("Message should be 32 bytes long")
+    pub = bytes(64)
+    r = _secp.secp256k1_ecdsa_recover(context, pub, sig, msghash)
+    if r == 0:
+        raise ValueError("Failed converting signature")
     return pub
