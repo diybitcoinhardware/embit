@@ -20,7 +20,7 @@ def _init(flags = (CONTEXT_SIGN | CONTEXT_VERIFY)):
     library_path = ctypes.util.find_library('libsecp256k1')
     # library search failed
     if not library_path:
-        if platform.system() == "Linux":
+        if platform.system() == "Linux" and os.path.isfile("/usr/local/lib/libsecp256k1.so.0"):
             library_path = "/usr/local/lib/libsecp256k1.so.0"
     # meh, can't find library
     if not library_path:
@@ -242,6 +242,25 @@ def ec_pubkey_tweak_add(pub, tweak, context=_secp.ctx):
         raise ValueError("Tweak should be 32 bytes long")
     if _secp.secp256k1_ec_pubkey_tweak_add(context, pub, tweak) == 0:
         raise ValueError("Failed to tweak the public key")
+
+def ec_privkey_add(secret, tweak, context=_secp.ctx):
+    if len(secret)!=32 or len(tweak)!=32:
+        raise ValueError("Secret and tweak should both be 32 bytes long")
+    # ugly copy that works in mpy and py
+    s = secret[:1]+secret[1:]
+    if _secp.secp256k1_ec_privkey_tweak_add(context, s, tweak) == 0:
+        raise ValueError("Failed to tweak the secret")
+    return s
+
+def ec_pubkey_add(pub, tweak, context=_secp.ctx):
+    if len(pub)!=64:
+        raise ValueError("Public key should be 64 bytes long")
+    if len(tweak)!=32:
+        raise ValueError("Tweak should be 32 bytes long")
+    p = pub[:1]+pub[1:]
+    if _secp.secp256k1_ec_pubkey_tweak_add(context, p, tweak) == 0:
+        raise ValueError("Failed to tweak the public key")
+    return p
 
 def ec_privkey_tweak_mul(secret, tweak, context=_secp.ctx):
     if len(secret)!=32 or len(tweak)!=32:

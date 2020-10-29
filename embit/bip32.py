@@ -160,12 +160,12 @@ class HDKey:
         secret = raw[:32]
         chain_code = raw[32:]
         if self.is_private:
-            secp256k1.ec_privkey_tweak_add(secret, self.key.serialize())
+            secret = secp256k1.ec_privkey_add(secret, self.key.serialize())
             key = ec.PrivateKey(secret)
         else:
             # copy of internal secp256k1 point structure
             point = self.key._point[:]
-            secp256k1.ec_pubkey_tweak_add(point, secret)
+            point = secp256k1.ec_pubkey_add(point, secret)
             key = ec.PublicKey(point)
         return HDKey(
             key,
