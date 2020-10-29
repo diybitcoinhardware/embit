@@ -6,7 +6,7 @@ except:
     # we are in python
     try:
         # try ctypes bindings
-        from . import ctypes_secp256k1 as secp256k1
+        from .ctypes_secp256k1 import *
     except:
         # fallback to python version
-        from . import py_secp256k1 as secp256k1
+        from .py_secp256k1 import *

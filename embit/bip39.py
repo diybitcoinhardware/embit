@@ -5,7 +5,7 @@ from .util import const
 
 PBKDF2_ROUNDS = const(2048)
 
-def mnemonic_to_bytes(mnemonic:str):
+def mnemonic_to_bytes(mnemonic:str, ignore_checksum=False):
     # this function is copied from Jimmy Song's HDPrivateKey.from_mnemonic() method
     
     words = mnemonic.strip().split()
@@ -56,7 +56,7 @@ def mnemonic_to_bytes(mnemonic:str):
 
     # ignore the last bits_to_ignore bits
     computed_checksum[-1] &= 256 - (1 << (bits_to_ignore + 1) - 1)
-    if checksum != bytes(computed_checksum):
+    if not ignore_checksum and checksum != bytes(computed_checksum):
         raise ValueError('Checksum verification failed')
     return data
 
