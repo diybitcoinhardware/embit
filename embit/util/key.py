@@ -2,6 +2,8 @@
 Copy-paste from key.py in bitcoin test_framework.
 This is a fallback option if the library can't do ctypes bindings to secp256k1 library.
 """
+import random
+import hmac
 
 def modinv(a, n):
     """Compute the modular inverse of a modulo n using the extended Euclidean
@@ -378,8 +380,7 @@ class ECKey():
         ECDSA signer algorithm."""
         assert(self.valid)
         z = int.from_bytes(msg, 'big')
-        # Note: no RFC6979, but a simple random nonce (some tests rely on distinct transactions for the same operation)
-        k = random.randrange(1, SECP256K1_ORDER)
+        k = deterministic_k(self.secret, z)
         R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, k)]))
         r = R[0] % SECP256K1_ORDER
         s = (modinv(k, SECP256K1_ORDER) * (z + self.secret * r)) % SECP256K1_ORDER
@@ -391,6 +392,26 @@ class ECKey():
         rb = r.to_bytes((r.bit_length() + 8) // 8, 'big')
         sb = s.to_bytes((s.bit_length() + 8) // 8, 'big')
         return b'\x30' + bytes([4 + len(rb) + len(sb), 2, len(rb)]) + rb + bytes([2, len(sb)]) + sb
+
+def deterministic_k(secret, z):
+    # RFC6979, optimized for secp256k1
+    k = b'\x00' * 32
+    v = b'\x01' * 32
+    if z > SECP256K1_ORDER:
+        z -= SECP256K1_ORDER
+    z_bytes = z.to_bytes(32, 'big')
+    secret_bytes = secret.to_bytes(32, 'big')
+    k = hmac.new(k, v + b'\x00' + secret_bytes + z_bytes, "sha256").digest()
+    v = hmac.new(k, v, "sha256").digest()
+    k = hmac.new(k, v + b'\x01' + secret_bytes + z_bytes, "sha256").digest()
+    v = hmac.new(k, v, "sha256").digest()
+    while True:
+        v = hmac.new(k, v, "sha256").digest()
+        candidate = int.from_bytes(v, 'big')
+        if candidate >= 1 and candidate < SECP256K1_ORDER:
+            return candidate
+        k = hmac.new(k, v + b'\x00', "sha256").digest()
+        v = hmac.new(k, v, "sha256").digest()
 
 def compute_xonly_pubkey(key):
     """Compute an x-only (32 byte) public key from a (32 byte) private key.

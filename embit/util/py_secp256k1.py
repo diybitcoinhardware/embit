@@ -54,6 +54,7 @@ def ec_pubkey_parse(sec, context=None):
             raise ValueError("Uncompressed pubkey should start with 0x04")
     pub = _key.ECPubKey()
     pub.set(sec)
+    pub.compressed = False
     if not pub.is_valid:
         raise ValueError("Failed parsing public key")
     return _pubkey_serialize(pub)
