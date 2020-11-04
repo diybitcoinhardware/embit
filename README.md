@@ -20,6 +20,6 @@ To install copy the content of `embit` folder to the board. To save some space y
 
 Can use [libsecp256k1](https://github.com/bitcoin-core/secp256k1) with ctypes if it is installed in the system. Otherwise uses pure python implementation.
 
-To install run `pip3 install .`.
+To install run `pip3 install embit`.
 
-To install in development mode (editable) run `pip3 install -e .`
+To install in development mode (editable) clone and run `pip3 install -e .` from the root folder.
