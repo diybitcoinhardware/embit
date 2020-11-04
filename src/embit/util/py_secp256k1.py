@@ -209,7 +209,8 @@ def ec_pubkey_add(pub, tweak, context=None):
         raise ValueError("Tweak should be 32 bytes long")
     pubkey = _pubkey_parse(pub)
     pubkey.compressed = True
-    Q = _key.SECP256K1.affine(_key.SECP256K1.mul([(_key.SECP256K1_G, t), (pubkey, 1)]))
+    t = int.from_bytes(tweak, 'big')
+    Q = _key.SECP256K1.affine(_key.SECP256K1.mul([(_key.SECP256K1_G, t), (pubkey.p, 1)]))
     if Q is None:
         return None
     return Q[0].to_bytes(32, 'little')+Q[1].to_bytes(32, 'little')
