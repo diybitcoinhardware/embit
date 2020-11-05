@@ -315,7 +315,7 @@ def ecdsa_recoverable_signature_parse_compact(compact_sig, recid, context=_secp.
     return sig
 
 def ecdsa_recoverable_signature_convert(sigin, context=_secp.ctx):
-    if len(compact_sig)!=65:
+    if len(sigin)!=65:
         raise ValueError("Recoverable signature should be 65 bytes long")
     sig = bytes(64)
     r = _secp.secp256k1_ecdsa_recoverable_signature_convert(context, sig, sigin)
@@ -331,5 +331,5 @@ def ecdsa_recover(sig, msghash, context=_secp.ctx):
     pub = bytes(64)
     r = _secp.secp256k1_ecdsa_recover(context, pub, sig, msghash)
     if r == 0:
-        raise ValueError("Failed converting signature")
+        raise ValueError("Failed to recover public key")
     return pub

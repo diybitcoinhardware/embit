@@ -29,7 +29,7 @@ def _pubkey_serialize(pub):
     return _reverse64(b)
 
 def _pubkey_parse(b):
-    """Returns pubkey representation like secp library"""
+    """Returns pubkey class instance"""
     pub = _key.ECPubKey()
     pub.set(b"\x04"+_reverse64(b))
     return pub
@@ -243,52 +243,73 @@ def ec_pubkey_add(pub, tweak, context=None):
 #         raise ValueError("Failed to negate pubkey")
 #     return pub
 
-# def ecdsa_sign_recoverable(msg, secret, context=None):
-#     if len(msg)!=32:
-#         raise ValueError("Message should be 32 bytes long")
-#     if len(secret)!=32:
-#         raise ValueError("Secret key should be 32 bytes long")
-#     sig = bytes(65)
-#     r = _secp.secp256k1_ecdsa_sign_recoverable(context, sig, msg, secret, None, None)
-#     if r == 0:
-#         raise ValueError("Failed to sign")
-#     return sig
+def ecdsa_sign_recoverable(msg, secret, context=None):
+    sig = ecdsa_sign(msg, secret)
+    pub = ec_pubkey_create(secret)
+    # Search for correct index. Not efficient but I am lazy.
+    # For efficiency use c-bindings to libsecp256k1
+    for i in range(4):
+        if ecdsa_recover(sig+bytes([i]), msg) == pub:
+            return sig+bytes([i])
+    raise ValueError("Failed to sign")
 
-# def ecdsa_recoverable_signature_serialize_compact(sig, context=None):
-#     if len(sig)!=65:
-#         raise ValueError("Recoverable signature should be 65 bytes long")
-#     ser = bytes(64)
-#     idx = bytes(1)
-#     r = _secp.secp256k1_ecdsa_recoverable_signature_serialize_compact(context, ser, idx, sig)
-#     if r == 0:
-#         raise ValueError("Failed serializing der signature")
-#     return ser, idx[0]
-    
-# def ecdsa_recoverable_signature_parse_compact(compact_sig, recid, context=None):
-#     if len(compact_sig)!=64:
-#         raise ValueError("Signature should be 64 bytes long")
-#     sig = bytes(65)
-#     r = _secp.secp256k1_ecdsa_recoverable_signature_parse_compact(context, sig, compact_sig, recid)
-#     if r == 0:
-#         raise ValueError("Failed parsing compact signature")
-#     return sig
+def ecdsa_recoverable_signature_serialize_compact(sig, context=None):
+    if len(sig)!=65:
+        raise ValueError("Recoverable signature should be 65 bytes long")
+    compact = ecdsa_signature_serialize_compact(sig[:64])
+    return compact, sig[65]
 
-# def ecdsa_recoverable_signature_convert(sigin, context=None):
-#     if len(compact_sig)!=65:
-#         raise ValueError("Recoverable signature should be 65 bytes long")
-#     sig = bytes(64)
-#     r = _secp.secp256k1_ecdsa_recoverable_signature_convert(context, sig, sigin)
-#     if r == 0:
-#         raise ValueError("Failed converting signature")
-#     return sig
+def ecdsa_recoverable_signature_parse_compact(compact_sig, recid, context=None):
+    if len(compact_sig)!=64:
+        raise ValueError("Signature should be 64 bytes long")
+    # TODO: also check r value so recid > 2 makes sense
+    if recid < 0 or recid > 4:
+        raise ValueError("Failed parsing compact signature")
+    return ecdsa_signature_parse_compact(compact_sig)+bytes([recid])
 
-# def ecdsa_recover(sig, msghash, context=None):
-#     if len(sig)!=65:
-#         raise ValueError("Recoverable signature should be 65 bytes long")
-#     if len(msghash)!=32:
-#         raise ValueError("Message should be 32 bytes long")
-#     pub = bytes(64)
-#     r = _secp.secp256k1_ecdsa_recover(context, pub, sig, msghash)
-#     if r == 0:
-#         raise ValueError("Failed converting signature")
-#     return pub
+def ecdsa_recoverable_signature_convert(sigin, context=None):
+    if len(sigin)!=65:
+        raise ValueError("Recoverable signature should be 65 bytes long")
+    return sigin[:64]
+
+def ecdsa_recover(sig, msghash, context=None):
+    if len(sig)!=65:
+        raise ValueError("Recoverable signature should be 65 bytes long")
+    if len(msghash)!=32:
+        raise ValueError("Message should be 32 bytes long")
+    idx = sig[-1]
+    r = int.from_bytes(sig[:32], 'little')
+    s = int.from_bytes(sig[32:64], 'little')
+    z = int.from_bytes(msghash, 'big')
+    # r = Rx mod N, so R can be 02x, 03x, 02(N+x), 03(N+x)
+    # two latter cases only if N+x < P
+    r_candidates = [
+        b"\x02"+r.to_bytes(32,'big'),
+        b"\x03"+r.to_bytes(32,'big'),
+    ]
+    if r+_key.SECP256K1_ORDER < _key.SECP256K1_FIELD_SIZE:
+        r2 = r+_key.SECP256K1_ORDER
+        r_candidates = r_candidates + [
+            b"\x02"+r2.to_bytes(32,'big'),
+            b"\x03"+r2.to_bytes(32,'big'),
+        ]
+    if idx >= len(r_candidates):
+        raise ValueError("Failed to recover public key")
+    R = _key.ECPubKey()
+    R.set(r_candidates[idx])
+    # s = (z + d * r)/k
+    # (R*s/r - z/r*G) = P
+    rinv = _key.modinv(r, _key.SECP256K1_ORDER)
+    u1 = (s*rinv) % _key.SECP256K1_ORDER
+    u2 = (z*rinv) % _key.SECP256K1_ORDER
+    P1 = _key.SECP256K1.mul([(R.p, u1)])
+    P2 = _key.SECP256K1.negate(_key.SECP256K1.mul([(_key.SECP256K1_G, u2)]))
+    P = _key.SECP256K1.affine(_key.SECP256K1.add(P1, P2))
+    result = P[0].to_bytes(32, 'little') + P[1].to_bytes(32, 'little')
+    # verify signature at the end
+    pubkey = _pubkey_parse(result)
+    if not pubkey.is_valid:
+        raise ValueError("Failed to recover public key")
+    if not ecdsa_verify(sig[:64], msghash, result):
+        raise ValueError("Failed to recover public key")
+    return result
