@@ -48,3 +48,17 @@ class BindingsTest(TestCase):
 
         self.assertEqual(py_secp256k1.ec_pubkey_add(pub1, b"9"*32),
                          ctypes_secp256k1.ec_pubkey_add(pub1, b"9"*32))
+
+    def test_recovery(self):
+        secret = b"1"*32
+        msg = b"2"*32
+        sig = ctypes_secp256k1.ecdsa_sign_recoverable(msg, secret)
+        sig2 = py_secp256k1.ecdsa_sign_recoverable(msg, secret)
+        self.assertEqual(sig, sig2)
+
+        # signature (r,s) = (4,4), which can be recovered with all 4 recids.
+        sig = (b"\x04"+b"\x00"*31)*2
+        for i in range(4):
+            pub = ctypes_secp256k1.ecdsa_recover(sig+bytes([i]), msg)
+            pub2 = py_secp256k1.ecdsa_recover(sig+bytes([i]), msg)
+            self.assertEqual(pub, pub2)
