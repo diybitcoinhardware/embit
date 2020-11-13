@@ -23,6 +23,7 @@ def read_string(stream) -> bytes:
 
 
 class PSBT:
+    MAGIC = b"psbt\xff"
     def __init__(self, tx=None):
         if tx is not None:
             self.tx = tx
@@ -37,7 +38,7 @@ class PSBT:
 
     def serialize(self) -> bytes:
         # magic bytes
-        r = b"psbt\xff"
+        r = self.MAGIC
         # unsigned tx flag
         r += b"\x01\x00"
         # write serialized tx
@@ -71,8 +72,8 @@ class PSBT:
         unknown = {}
         xpubs = OrderedDict()
         # check magic
-        if stream.read(5) != b"psbt\xff":
-            raise ValueError("Invalid PSBT")
+        if stream.read(len(cls.MAGIC)) != cls.MAGIC:
+            raise ValueError("Invalid PSBT magic")
         while True:
             key = read_string(stream)
             # separator
