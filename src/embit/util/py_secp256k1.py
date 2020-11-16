@@ -257,7 +257,7 @@ def ecdsa_recoverable_signature_serialize_compact(sig, context=None):
     if len(sig)!=65:
         raise ValueError("Recoverable signature should be 65 bytes long")
     compact = ecdsa_signature_serialize_compact(sig[:64])
-    return compact, sig[65]
+    return compact, sig[64]
 
 def ecdsa_recoverable_signature_parse_compact(compact_sig, recid, context=None):
     if len(compact_sig)!=64:
