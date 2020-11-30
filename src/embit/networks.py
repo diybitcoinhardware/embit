@@ -60,7 +60,7 @@ NETWORKS = {
 	    "wif":    b'\xD9',
 	    "p2pkh":  b'\x7D',
 	    "p2sh":   b'\x57',
-	    "bech32":  "sb",
+	    "bech32":  "tb",
 	    "xprv":   b'\x04\x35\x83\x94',
 	    "xpub":   b'\x04\x35\x87\xcf',
 	    "yprv":   b'\x04\x4a\x4e\x28',
