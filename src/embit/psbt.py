@@ -6,7 +6,7 @@ from .transaction import Transaction, TransactionOutput, _parse
 from . import compact
 from . import bip32
 from . import ec
-from .script import Script
+from .script import Script, Witness
 from . import script
 
 

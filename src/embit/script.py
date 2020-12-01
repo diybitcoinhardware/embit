@@ -90,7 +90,11 @@ class Witness:
 
     @classmethod
     def parse(cls, b):
-        return _parse(cls, b)
+        stream = io.BytesIO(b)
+        r = cls.read_from(stream)
+        if len(stream.read(1)) > 0:
+            raise ValueError("Byte array is too long")
+        return r
 
     @classmethod
     def read_from(cls, stream):
