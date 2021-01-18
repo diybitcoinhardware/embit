@@ -42,7 +42,6 @@ def _find_library():
 
 def _init(flags = (CONTEXT_SIGN | CONTEXT_VERIFY)):
     library_path = _find_library()
-    print(library_path)
     # meh, can't find library
     if not library_path:
         raise RuntimeError("Can't find libsecp256k1 library. Make sure to compile and install it.")
