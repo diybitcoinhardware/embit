@@ -11,6 +11,7 @@ setup(
     author_email = 'snigirev.stepan@gmail.com',
     packages=find_namespace_packages("src", include=["*"]),
     package_dir={"": "src"},
+    package_data={"embit": ["util/prebuilt/*"]},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

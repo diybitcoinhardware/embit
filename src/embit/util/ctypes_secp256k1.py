@@ -16,12 +16,33 @@ CONTEXT_NONE =   0b0000000001
 EC_COMPRESSED =   0b0100000010
 EC_UNCOMPRESSED = 0b0000000010
 
-def _init(flags = (CONTEXT_SIGN | CONTEXT_VERIFY)):
-    library_path = ctypes.util.find_library('libsecp256k1')
+def _find_library():
+    library_path = None
+    extension = ""
+    if platform.system() == "Darwin":
+        extension = ".dylib"
+    elif platform.system() == "Linux":
+        extension = ".so"
+    elif platform.system() == "Windows":
+        extension = ".dll"
+
+    path = os.path.join(os.path.dirname(__file__),
+                        "prebuilt/libsecp256k1_%s_%s%s" % (platform.system().lower(), platform.machine().lower(), extension))
+    if os.path.isfile(path):
+        return path
+    # try searching
+    if not library_path:
+        library_path = ctypes.util.find_library('libsecp256k1')
     # library search failed
     if not library_path:
         if platform.system() == "Linux" and os.path.isfile("/usr/local/lib/libsecp256k1.so.0"):
             library_path = "/usr/local/lib/libsecp256k1.so.0"
+    return library_path
+
+
+def _init(flags = (CONTEXT_SIGN | CONTEXT_VERIFY)):
+    library_path = _find_library()
+    print(library_path)
     # meh, can't find library
     if not library_path:
         raise RuntimeError("Can't find libsecp256k1 library. Make sure to compile and install it.")
