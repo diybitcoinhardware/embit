@@ -67,7 +67,7 @@ def get_policy(scope, scriptpubkey, xpubs):
     if script_type == "p2sh":
         if scope.witness_script is not None:
             script_type = "p2sh-p2wsh"
-        elif scope.redeem_script.script_type() == "p2wpkh":
+        elif scope.redeem_script is not None and scope.redeem_script.script_type() == "p2wpkh":
             script_type = "p2sh-p2wpkh"
     policy = { "type": script_type }
     # expected multisig
