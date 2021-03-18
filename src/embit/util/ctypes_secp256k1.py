@@ -54,6 +54,8 @@ def _init(flags = (CONTEXT_SIGN | CONTEXT_VERIFY)):
     secp256k1.secp256k1_context_randomize.argtypes = [c_void_p, c_char_p]
     secp256k1.secp256k1_context_randomize.restype = c_int
 
+    secp256k1.secp256k1_ec_seckey_verify.argtypes = [c_void_p, c_char_p]
+    secp256k1.secp256k1_ec_seckey_verify.restype = c_int
     
     secp256k1.secp256k1_ec_privkey_negate.argtypes = [c_void_p, c_char_p]
     secp256k1.secp256k1_ec_privkey_negate.restype = c_int
