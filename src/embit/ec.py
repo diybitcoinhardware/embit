@@ -1,40 +1,69 @@
-from .util import secp256k1
+import sys
+if sys.implementation.name == 'micropython':
+    import secp256k1
+else:
+    from .util import secp256k1
 from . import base58
 from .networks import NETWORKS
-from binascii import hexlify
+from .base import EmbitBase, EmbitError
+from binascii import hexlify, unhexlify
 
-class PublicKey:
-    def __init__(self, point, compressed:bool=True):
-        self._point = point[:]
+class ECError(EmbitError):
+    pass
+
+class PublicKey(EmbitBase):
+    def __init__(self, point:bytes, compressed:bool=True):
+        self._point = point
         self.compressed = compressed
 
     @classmethod
-    def parse(cls, sec):
-        point = secp256k1.ec_pubkey_parse(sec)
-        compressed = (sec[0]!=0x04)
+    def read_from(cls, stream):
+        b = stream.read(1)
+        if b not in [b"\x02", b"\x03", b"\x04"]:
+            raise ECError("Invalid public key")
+        if b == b"\x04":
+            b += stream.read(64)
+        else:
+            b += stream.read(32)
+        try:
+            point = secp256k1.ec_pubkey_parse(b)
+        except Exception as e:
+            raise ECError(str(e))
+        compressed = (b[0]!=0x04)
         return cls(point, compressed)
 
-    def sec(self):
+    def sec(self) -> bytes:
         """Sec representation of the key"""
         flag = secp256k1.EC_COMPRESSED if self.compressed else secp256k1.EC_UNCOMPRESSED
         return secp256k1.ec_pubkey_serialize(self._point, flag)
 
-    def serialize(self):
+    def write_to(self, stream) -> int:
+        return stream.write(self.sec())
+
+    def serialize(self) -> bytes:
         return self.sec()
 
-    def verify(self, sig, msg_hash):
-        return secp256k1.ecdsa_verify(sig._sig, msg_hash, self._point)
+    def verify(self, sig, msg_hash) -> bool:
+        return bool(secp256k1.ecdsa_verify(sig._sig, msg_hash, self._point))
+
+    @classmethod
+    def from_string(cls, s):
+        return cls.parse(unhexlify(s))
+
+    @property
+    def is_private(self) -> bool:
+        return False
+
+    def __str__(self):
+        return hexlify(self.sec()).decode()
 
     def __lt__(self, other):
         # for lexagraphic ordering
-        return self.serialize() < other.serialize()
+        return self.sec() < other.sec()
 
     def __gt__(self, other):
         # for lexagraphic ordering
-        return self.serialize() > other.serialize()
-
-    def __repr__(self):
-        return "PublicKey(%s)" % hexlify(self.serialize()).decode('utf-8')
+        return self.sec() > other.sec()
 
     def __eq__(self, other):
         return self._point == other._point
@@ -45,17 +74,17 @@ class PublicKey:
     def __hash__(self):
         return hash(self._point)
 
-class PrivateKey:
+class PrivateKey(EmbitBase):
     def __init__(self, secret, compressed:bool=True):
         """Creates a private key from 32-byte array"""
         if len(secret)!=32:
-            raise ValueError("Secret should be 32-byte array")
+            raise ECError("Secret should be 32-byte array")
         if not secp256k1.ec_seckey_verify(secret):
-            raise ValueError("Secret is not valid (larger then N?)")
+            raise ECError("Secret is not valid (larger then N?)")
         self.compressed = compressed
-        self._secret = secret[:]
+        self._secret = secret
 
-    def wif(self, network=NETWORKS["main"]):
+    def wif(self, network=NETWORKS["main"]) -> str:
         """Export private key as Wallet Import Format string.
         Prefix 0x80 is used for mainnet, 0xEF for testnet.
         This class doesn't store this information though.
@@ -66,7 +95,7 @@ class PrivateKey:
             b += bytes([0x01])
         return base58.encode_check(b)
 
-    def sec(self):
+    def sec(self) -> bytes:
         """Sec representation of the corresponding public key"""
         return self.get_public_key().sec()
 
@@ -77,16 +106,16 @@ class PrivateKey:
         secret = b[1:33]
         compressed = False
         if len(b) not in [33,34]:
-            raise ValueError("Wrong WIF length")
+            raise ECError("Wrong WIF length")
         if len(b) == 34:
             if b[-1] == 0x01:
                 compressed = True
             else:
-                raise ValueError("Wrong WIF compressed flag")
+                raise ECError("Wrong WIF compressed flag")
         return cls(secret, compressed)
 
     # to unify API
-    def to_base58(self, network=NETWORKS["main"]):
+    def to_base58(self, network=NETWORKS["main"]) -> str:
         return self.wif(network)
 
     @classmethod
@@ -99,28 +128,68 @@ class PrivateKey:
     def sign(self, msg_hash):
         return Signature(secp256k1.ecdsa_sign(msg_hash, self._secret))
 
-    def serialize(self):
+    def write_to(self, stream) -> int:
         # return a copy of the secret
-        return self._secret[:]
-
-    @classmethod
-    def parse(cls, b):
-        # just to unify the API (don't forget to copy)
-        return cls(b)
+        return stream.write(self._secret)
 
     @classmethod
     def read_from(cls, stream):
         # just to unify the API
         return cls(stream.read(32))
 
-class Signature:
-    def __init__(self, sig):
-        self._sig = sig[:]
+    @property
+    def is_private(self) -> bool:
+        return True
 
-    def serialize(self):
-        return secp256k1.ecdsa_signature_serialize_der(self._sig)
+    def __str__(self):
+        return self.wif()
 
     @classmethod
-    def parse(cls, der):
+    def from_string(cls, s):
+        return cls.from_wif(s)
+
+    def __eq__(self, other):
+        return self._secret == other._secret
+
+    def __ne__(self, other):
+        return self._secret != other._secret
+
+    def __lt__(self, other):
+        # for lexagraphic ordering
+        return self.sec() < other.sec()
+
+    def __gt__(self, other):
+        # for lexagraphic ordering
+        return self.sec() > other.sec()
+
+    def __hash__(self):
+        return hash(self._secret)
+
+class Signature(EmbitBase):
+    def __init__(self, sig):
+        self._sig = sig
+
+    def write_to(self, stream) -> int:
+        return stream.write(secp256k1.ecdsa_signature_serialize_der(self._sig))
+
+    @classmethod
+    def read_from(cls, stream):
+        der = stream.read(2)
+        der += stream.read(der[1])
         return cls(secp256k1.ecdsa_signature_parse_der(der))
 
+    def __str__(self):
+        return hexlify(self.serialize()).decode()
+
+    @classmethod
+    def from_string(cls, s):
+        return cls.parse(unhexlify(s))
+
+    def __eq__(self, other):
+        return self._sig == other._sig
+
+    def __ne__(self, other):
+        return self._sig != other._sig
+
+    def __hash__(self):
+        return hash(self._sig)

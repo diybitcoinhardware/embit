@@ -1,4 +1,8 @@
-from .util import const
+import sys
+if sys.implementation.name == 'micropython':
+    from micropython import const
+else:
+    from .util import const
 
 NETWORKS = {
     "main": {

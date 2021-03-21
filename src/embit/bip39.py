@@ -1,7 +1,10 @@
 # Mnemonic convertion to seed and to/from bytes
-
-from .util import hashlib
-from .util import const
+import sys
+if sys.implementation.name == 'micropython':
+    import hashlib
+    from micropython import const
+else:
+    from .util import hashlib, const
 
 PBKDF2_ROUNDS = const(2048)
 

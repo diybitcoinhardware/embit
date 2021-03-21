@@ -1,14 +1,19 @@
+import sys
+if sys.implementation.name == 'micropython':
+    import hashlib
+    import secp256k1
+else:
+    from .util import hashlib, secp256k1
 from . import ec
+from .base import EmbitBase, EmbitError
 from .networks import NETWORKS
 from . import base58
-from .util import hashlib
-import io
-from .util import secp256k1
 from . import hashes
 from binascii import hexlify
+import io
 
 
-class HDKey:
+class HDKey(EmbitBase):
     """ HD Private or Public key """
 
     def __init__(
@@ -56,7 +61,7 @@ class HDKey:
     @property
     def is_private(self) -> bool:
         """ checks if the HDKey is private or public """
-        return len(self.key.serialize()) == 32
+        return self.key.is_private
 
     def serialize(self, version=None) -> bytes:
         if version is None:
