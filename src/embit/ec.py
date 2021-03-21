@@ -5,13 +5,13 @@ else:
     from .util import secp256k1
 from . import base58
 from .networks import NETWORKS
-from .base import EmbitBase, EmbitError
+from .base import EmbitBase, EmbitError, EmbitKey
 from binascii import hexlify, unhexlify
 
 class ECError(EmbitError):
     pass
 
-class PublicKey(EmbitBase):
+class PublicKey(EmbitKey):
     def __init__(self, point:bytes, compressed:bool=True):
         self._point = point
         self.compressed = compressed
@@ -54,7 +54,7 @@ class PublicKey(EmbitBase):
     def is_private(self) -> bool:
         return False
 
-    def __str__(self):
+    def to_string(self):
         return hexlify(self.sec()).decode()
 
     def __lt__(self, other):
@@ -68,14 +68,11 @@ class PublicKey(EmbitBase):
     def __eq__(self, other):
         return self._point == other._point
 
-    def __ne__(self, other):
-        return self._point != other._point
-
     def __hash__(self):
         return hash(self._point)
 
-class PrivateKey(EmbitBase):
-    def __init__(self, secret, compressed:bool=True):
+class PrivateKey(EmbitKey):
+    def __init__(self, secret, compressed:bool=True, network=None):
         """Creates a private key from 32-byte array"""
         if len(secret)!=32:
             raise ECError("Secret should be 32-byte array")
@@ -83,12 +80,17 @@ class PrivateKey(EmbitBase):
             raise ECError("Secret is not valid (larger then N?)")
         self.compressed = compressed
         self._secret = secret
+        if network is None:
+            network = NETWORKS["main"]
+        self.network = network
 
-    def wif(self, network=NETWORKS["main"]) -> str:
+    def wif(self, network=None) -> str:
         """Export private key as Wallet Import Format string.
         Prefix 0x80 is used for mainnet, 0xEF for testnet.
         This class doesn't store this information though.
         """
+        if network is None:
+            network = self.network
         prefix = network["wif"]
         b = prefix+self._secret
         if self.compressed:
@@ -103,6 +105,11 @@ class PrivateKey(EmbitBase):
     def from_wif(cls, s):
         """Import private key from Wallet Import Format string."""
         b = base58.decode_check(s)
+        prefix = b[:1]
+        network = None
+        for net in NETWORKS:
+            if NETWORKS[net]["wif"] == prefix:
+                network = NETWORKS[net]
         secret = b[1:33]
         compressed = False
         if len(b) not in [33,34]:
@@ -112,10 +119,10 @@ class PrivateKey(EmbitBase):
                 compressed = True
             else:
                 raise ECError("Wrong WIF compressed flag")
-        return cls(secret, compressed)
+        return cls(secret, compressed, network)
 
     # to unify API
-    def to_base58(self, network=NETWORKS["main"]) -> str:
+    def to_base58(self, network=None) -> str:
         return self.wif(network)
 
     @classmethod
@@ -141,29 +148,12 @@ class PrivateKey(EmbitBase):
     def is_private(self) -> bool:
         return True
 
-    def __str__(self):
-        return self.wif()
+    def to_string(self, network=None) -> str:
+        return self.wif(network)
 
     @classmethod
     def from_string(cls, s):
         return cls.from_wif(s)
-
-    def __eq__(self, other):
-        return self._secret == other._secret
-
-    def __ne__(self, other):
-        return self._secret != other._secret
-
-    def __lt__(self, other):
-        # for lexagraphic ordering
-        return self.sec() < other.sec()
-
-    def __gt__(self, other):
-        # for lexagraphic ordering
-        return self.sec() > other.sec()
-
-    def __hash__(self):
-        return hash(self._secret)
 
 class Signature(EmbitBase):
     def __init__(self, sig):
@@ -178,18 +168,9 @@ class Signature(EmbitBase):
         der += stream.read(der[1])
         return cls(secp256k1.ecdsa_signature_parse_der(der))
 
-    def __str__(self):
+    def to_string(self):
         return hexlify(self.serialize()).decode()
 
     @classmethod
     def from_string(cls, s):
         return cls.parse(unhexlify(s))
-
-    def __eq__(self, other):
-        return self._sig == other._sig
-
-    def __ne__(self, other):
-        return self._sig != other._sig
-
-    def __hash__(self):
-        return hash(self._sig)

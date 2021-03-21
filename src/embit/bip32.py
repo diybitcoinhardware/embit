@@ -5,45 +5,47 @@ if sys.implementation.name == 'micropython':
 else:
     from .util import hashlib, secp256k1
 from . import ec
-from .base import EmbitBase, EmbitError
+from .base import EmbitKey, EmbitError
 from .networks import NETWORKS
 from . import base58
 from . import hashes
 from binascii import hexlify
 import io
 
+class HDError(EmbitError):
+    pass
 
-class HDKey(EmbitBase):
+class HDKey(EmbitKey):
     """ HD Private or Public key """
 
     def __init__(
         self,
         key,
         chain_code: bytes,
-        version=None,
+        version = None,
         depth: int = 0,
         fingerprint: bytes = b"\x00\x00\x00\x00",
         child_number: int = 0,
     ):
         self.key = key
         if len(key.serialize()) != 32 and len(key.serialize()) != 33:
-            raise ValueError("Invalid key. Should be private or compressed public")
+            raise HDError("Invalid key. Should be private or compressed public")
         if version is not None:
-            self.version = version[:]
+            self.version = version
         else:
             if len(key.serialize()) == 32:
                 self.version = NETWORKS["main"]["xprv"]
             else:
                 self.version = NETWORKS["main"]["xpub"]
-        self.chain_code = chain_code[:]
+        self.chain_code = chain_code
         self.depth = depth
-        self.fingerprint = fingerprint[:]
+        self.fingerprint = fingerprint
         self.child_number = child_number
         # check that base58[1:4] is "prv" or "pub"
         if self.is_private and self.to_base58()[1:4] != "prv":
-            raise ValueError("Invalid version")
+            raise HDError("Invalid version")
         if not self.is_private and self.to_base58()[1:4] != "pub":
-            raise ValueError("Invalid version")
+            raise HDError("Invalid version")
 
     @classmethod
     def from_seed(cls, seed: bytes, version=NETWORKS["main"]["xprv"]):
@@ -63,29 +65,29 @@ class HDKey(EmbitBase):
         """ checks if the HDKey is private or public """
         return self.key.is_private
 
-    def serialize(self, version=None) -> bytes:
+    def write_to(self, stream, version=None) -> int:
         if version is None:
             version = self.version
-        b = version + bytes([self.depth]) + self.fingerprint
-        b += self.child_number.to_bytes(4, "big")
-        b += self.chain_code
+        res = stream.write(version)
+        res += stream.write(bytes([self.depth]))
+        res += stream.write(self.fingerprint)
+        res += stream.write(self.child_number.to_bytes(4, "big"))
+        res += stream.write(self.chain_code)
         if self.is_private:
-            b += b"\x00" + self.key.serialize()
-        else:
-            b += self.key.serialize()
-        return b
+            res += stream.write(b"\x00")
+        res += stream.write(self.key.serialize())
+        return res
 
     def to_base58(self, version=None) -> str:
         b = self.serialize(version)
         return base58.encode_check(b)
 
     @classmethod
-    def parse(cls, b: bytes):
-        stream = io.BytesIO(b)
-        hd = cls.read_from(stream)
-        if len(stream.read(1)) > 0:
-            raise ValueError("Byte array is too long")
-        return hd
+    def from_string(cls, s: str):
+        return cls.from_base58(s)
+
+    def to_string(self, version=None):
+        return self.to_base58(version)
 
     @classmethod
     def read_from(cls, stream):
@@ -101,7 +103,7 @@ class HDKey(EmbitBase):
             key = ec.PublicKey.parse(k)
 
         if len(version) < 4 or len(fingerprint) < 4 or len(chain_code) < 32:
-            raise ValueError("Not enough bytes")
+            raise HDError("Not enough bytes")
         hd = cls(
             key,
             chain_code,
@@ -112,12 +114,12 @@ class HDKey(EmbitBase):
         )
         subver = hd.to_base58()[1:4]
         if subver != "prv" and subver != "pub":
-            raise ValueError("Invalid version")
+            raise HDError("Invalid version")
         return hd
 
     def to_public(self, version=None):
         if not self.is_private:
-            raise RuntimeError("Already public")
+            raise HDError("Already public")
         if version is None:
             # detect network
             for net in NETWORKS:
@@ -127,7 +129,7 @@ class HDKey(EmbitBase):
                         version = NETWORKS[net][k.replace("prv", "pub")]
                         break
         if version is None:
-            raise RuntimeError(
+            raise HDError(
                 "Can't find proper version. Provide it with version keyword"
             )
         return self.__class__(
@@ -146,13 +148,13 @@ class HDKey(EmbitBase):
     def child(self, index: int, hardened: bool = False):
         """Derives a child HDKey"""
         if index > 0xFFFFFFFF:
-            raise ValueError("Index should be less then 2^32")
+            raise HDError("Index should be less then 2^32")
         if hardened and index < 0x80000000:
             index += 0x80000000
         if index >= 0x80000000:
             hardened = True
         if hardened and not self.is_private:
-            raise ValueError("Can't do hardened with public key")
+            raise HDError("Can't do hardened with public key")
 
         # we need pubkey for fingerprint anyways
         sec = self.sec()
@@ -194,7 +196,7 @@ class HDKey(EmbitBase):
     def sign(self, msg_hash: bytes) -> ec.Signature:
         """signs a hash of the message with the private key"""
         if not self.is_private:
-            raise RuntimeError("HD public key can't sign")
+            raise HDError("HD public key can't sign")
         return self.key.sign(msg_hash)
 
     def verify(self, sig: ec.Signature, msg_hash: bytes) -> bool:
@@ -204,16 +206,12 @@ class HDKey(EmbitBase):
         else:
             return self.key.verify(sig, msg_hash)
 
-    def __hash__(self):
-        return hash(self.serialize())
-
     def __eq__(self, other):
         # skip version
         return self.serialize()[4:] == other.serialize()[4:]
 
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
+    def __hash__(self):
+        return hash(self.serialize())
 
 def detect_version(path: str, default="xprv", network=None) -> bytes:
     """

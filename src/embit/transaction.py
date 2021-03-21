@@ -1,8 +1,12 @@
+import sys
 import io
 from . import compact
 from .script import Script, Witness
 from . import hashes
-from .util import hashlib
+if sys.implementation.name == "micropython":
+    import hashlib
+else:
+    from .util import hashlib
 
 # only SIGHASH_ALL is currently supported
 SIGHASH_ALL = 1

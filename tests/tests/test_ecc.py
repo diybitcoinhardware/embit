@@ -1,7 +1,6 @@
 from binascii import unhexlify, hexlify
 from unittest import TestCase
-from embit.util import secp256k1
-from embit.ec import PublicKey, PrivateKey, Signature
+from embit.ec import PublicKey, PrivateKey, Signature, secp256k1
 from io import BytesIO
 
 class SECPTest(TestCase):
@@ -20,6 +19,7 @@ class SECPTest(TestCase):
             (b"1"*32, True, "036930f46dd0b16d866d59d1054aa63298b357499cd1862ef16f3f55f1cafceb82"),
             (b"\x00"*31+b"\x01", False, "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"),
         ]
+        pub2 = PublicKey.from_string("026930f46dd0b16d866d59d1054aa63298b357499cd1862ef16f3f55f1cafceb82")
         for secret, compressed, sec in valid_keys:
             priv = PrivateKey(secret, compressed=compressed)
             pub = priv.get_public_key()
@@ -42,3 +42,12 @@ class SECPTest(TestCase):
             self.assertTrue(pub.verify(sig, msg))
             # round trip
             self.assertEqual(Signature.parse(sig.serialize()), sig)
+            # checks of the operators
+            self.assertEqual(priv < pub, priv.sec() < pub.sec())
+            self.assertEqual(priv > pub, priv.sec() > pub.sec())
+            self.assertEqual(pub2 < pub, pub2 < priv)
+            self.assertEqual(pub2 > pub, pub2 > priv)
+            priv == priv
+            pub == pub
+            hash(priv)
+            hash(pub)

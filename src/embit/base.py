@@ -6,33 +6,69 @@ class EmbitError(Exception):
     pass
 
 class EmbitBase:
+
+    @classmethod
+    def read_from(cls, stream, *args, **kwargs):
+        """All classes should be readable from stream"""
+        raise NotImplementedError("%s doesn't implement reading from stream" % type(cls).__name__)
+
+    @classmethod
+    def parse(cls, s, *args, **kwargs):
+        """Parses a string or a byte sequence"""
+        if isinstance(s, str):
+            s = s.encode()
+        stream = BytesIO(s)
+        res = cls.read_from(stream, *args, **kwargs)
+        if len(stream.read(1)) > 0:
+            raise EmbitError("Unexpected extra bytes")
+        return res
+
+    def write_to(self, stream, *args, **kwargs):
+        """All classes should be writable to stream"""
+        raise NotImplementedError("%s doesn't implement writing to stream" % type(self).__name__)
+
+    def serialize(self, *args, **kwargs):
+        stream = BytesIO()
+        self.write_to(stream, *args, **kwargs)
+        return stream.getvalue()
+
+    def __str__(self):
+        """to_string() can accept kwargs with defaults so str() should work"""
+        return self.to_string()
+
     def __repr__(self):
         try:
             return type(self).__name__+"(%s)" % str(self)
         except:
             return type(self).__name__+"()"
 
-    @classmethod
-    def read_from(cls, stream):
-        """All classes should be readable from stream"""
-        raise NotImplementedError("%s doesn't implement reading from stream" % type(cls).__name__)
+    def __eq__(self, other):
+        return self.serialize() == other.serialize()
 
-    @classmethod
-    def parse(cls, s):
-        """Parses a string or a byte sequence"""
-        if isinstance(s, str):
-            s = s.encode()
-        stream = BytesIO(s)
-        res = cls.read_from(stream)
-        if len(stream.read(1)) > 0:
-            raise EmbitError("Unexpected extra bytes")
-        return res
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
-    def write_to(self, stream):
-        """All classes should be writable to stream"""
-        raise NotImplementedError("%s doesn't implement writing to stream" % type(self).__name__)
+    def __hash__(self):
+        return hash(self.serialize())
 
-    def serialize(self):
-        stream = BytesIO()
-        self.write_to(stream)
-        return stream.getvalue()
+class EmbitKey(EmbitBase):
+
+    def sec(self):
+        """Any EmbitKey should implement sec() method that returns sec-serialized public key"""
+        raise NotImplementedError("%s doesn't implement sec() method" % type(self).__name__)
+
+    @property
+    def is_private(self) -> bool:
+        """Any EmbitKey should implement is_private property"""
+        raise NotImplementedError("%s doesn't implement is_private property" % type(self).__name__)
+
+    def __lt__(self, other):
+        # for lexagraphic ordering
+        return self.sec() < other.sec()
+
+    def __gt__(self, other):
+        # for lexagraphic ordering
+        return self.sec() > other.sec()
+
+    def __hash__(self):
+        return hash(self.serialize())

@@ -77,11 +77,12 @@ def mnemonic_to_seed(mnemonic:str, password:str=""):
     mnemonic_to_bytes(mnemonic)
     # from hashlib.c usermodule
     # mp_obj_t password, mp_obj_t salt, mp_obj_t iterations, mp_obj_t len
-    return hashlib.pbkdf2_hmac_sha512(
-        mnemonic.encode('utf-8'),
-        ('mnemonic' + password).encode('utf-8'),
+    return hashlib.pbkdf2_hmac(
+        "sha512",
+        mnemonic.encode("utf-8"),
+        ("mnemonic" + password).encode("utf-8"),
         PBKDF2_ROUNDS,
-        64
+        64,
     )
 
 def _extract_index(bits, b, n):
