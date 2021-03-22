@@ -4,6 +4,7 @@ from . import compact
 from .script import Script, Witness
 from . import hashes
 from .base import EmbitBase, EmbitError
+
 if sys.implementation.name == "micropython":
     import hashlib
 else:
@@ -14,10 +15,13 @@ SIGHASH_ALL = 1
 SIGHASH_NONE = 2
 SIGHASH_SINGLE = 3
 
+
 class TransactionError(EmbitError):
     pass
 
+
 # API similar to bitcoin-cli decoderawtransaction
+
 
 class Transaction(EmbitBase):
     def __init__(self, version=2, vin=[], vout=[], locktime=0):

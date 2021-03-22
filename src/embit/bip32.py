@@ -1,5 +1,6 @@
 import sys
-if sys.implementation.name == 'micropython':
+
+if sys.implementation.name == "micropython":
     import hashlib
     import secp256k1
 else:
@@ -12,8 +13,10 @@ from . import hashes
 from binascii import hexlify
 import io
 
+
 class HDError(EmbitError):
     pass
+
 
 class HDKey(EmbitKey):
     """ HD Private or Public key """
@@ -22,7 +25,7 @@ class HDKey(EmbitKey):
         self,
         key,
         chain_code: bytes,
-        version = None,
+        version=None,
         depth: int = 0,
         fingerprint: bytes = b"\x00\x00\x00\x00",
         child_number: int = 0,
@@ -129,9 +132,7 @@ class HDKey(EmbitKey):
                         version = NETWORKS[net][k.replace("prv", "pub")]
                         break
         if version is None:
-            raise HDError(
-                "Can't find proper version. Provide it with version keyword"
-            )
+            raise HDError("Can't find proper version. Provide it with version keyword")
         return self.__class__(
             self.key.get_public_key(),
             self.chain_code,
@@ -212,6 +213,7 @@ class HDKey(EmbitKey):
 
     def __hash__(self):
         return hash(self.serialize())
+
 
 def detect_version(path: str, default="xprv", network=None) -> bytes:
     """

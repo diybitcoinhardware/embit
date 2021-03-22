@@ -3,6 +3,7 @@ from unittest import TestCase
 from embit.util import py_secp256k1
 from embit.util import ctypes_secp256k1
 
+
 class BindingsTest(TestCase):
     def test_identity(self):
         """ 1 * G """
@@ -16,20 +17,24 @@ class BindingsTest(TestCase):
             self.assertEqual(answer, g_hex)
 
     def test_cross(self):
-        secret = b"5"*32
+        secret = b"5" * 32
         pub1 = ctypes_secp256k1.ec_pubkey_create(secret)
         pub2 = py_secp256k1.ec_pubkey_create(secret)
         self.assertEqual(pub1, pub2)
         der = ctypes_secp256k1.ec_pubkey_serialize(pub1)
         self.assertEqual(der, py_secp256k1.ec_pubkey_serialize(pub1))
-        self.assertEqual(ctypes_secp256k1.ec_pubkey_parse(der), py_secp256k1.ec_pubkey_parse(der))
+        self.assertEqual(
+            ctypes_secp256k1.ec_pubkey_parse(der), py_secp256k1.ec_pubkey_parse(der)
+        )
 
-        msg = b"7"*32
+        msg = b"7" * 32
         sig = ctypes_secp256k1.ecdsa_sign(msg, secret)
         self.assertEqual(sig, py_secp256k1.ecdsa_sign(msg, secret))
         compact = py_secp256k1.ecdsa_signature_serialize_compact(sig)
         der = py_secp256k1.ecdsa_signature_serialize_der(sig)
-        self.assertEqual(compact, ctypes_secp256k1.ecdsa_signature_serialize_compact(sig))
+        self.assertEqual(
+            compact, ctypes_secp256k1.ecdsa_signature_serialize_compact(sig)
+        )
         self.assertEqual(der, ctypes_secp256k1.ecdsa_signature_serialize_der(sig))
 
         self.assertEqual(sig, ctypes_secp256k1.ecdsa_signature_parse_compact(compact))
@@ -40,25 +45,29 @@ class BindingsTest(TestCase):
         self.assertEqual(py_secp256k1.ecdsa_verify(sig, msg, pub1), True)
         self.assertEqual(ctypes_secp256k1.ecdsa_verify(sig, msg, pub1), True)
 
-        self.assertEqual(py_secp256k1.ecdsa_verify(sig, b"a"*32, pub1), False)
-        self.assertEqual(ctypes_secp256k1.ecdsa_verify(sig, b"a"*32, pub1), False)
+        self.assertEqual(py_secp256k1.ecdsa_verify(sig, b"a" * 32, pub1), False)
+        self.assertEqual(ctypes_secp256k1.ecdsa_verify(sig, b"a" * 32, pub1), False)
 
-        self.assertEqual(py_secp256k1.ec_privkey_add(secret, b"9"*32),
-                         ctypes_secp256k1.ec_privkey_add(secret, b"9"*32))
+        self.assertEqual(
+            py_secp256k1.ec_privkey_add(secret, b"9" * 32),
+            ctypes_secp256k1.ec_privkey_add(secret, b"9" * 32),
+        )
 
-        self.assertEqual(py_secp256k1.ec_pubkey_add(pub1, b"9"*32),
-                         ctypes_secp256k1.ec_pubkey_add(pub1, b"9"*32))
+        self.assertEqual(
+            py_secp256k1.ec_pubkey_add(pub1, b"9" * 32),
+            ctypes_secp256k1.ec_pubkey_add(pub1, b"9" * 32),
+        )
 
     def test_recovery(self):
-        secret = b"1"*32
-        msg = b"2"*32
+        secret = b"1" * 32
+        msg = b"2" * 32
         sig = ctypes_secp256k1.ecdsa_sign_recoverable(msg, secret)
         sig2 = py_secp256k1.ecdsa_sign_recoverable(msg, secret)
         self.assertEqual(sig, sig2)
 
         # signature (r,s) = (4,4), which can be recovered with all 4 recids.
-        sig = (b"\x04"+b"\x00"*31)*2
+        sig = (b"\x04" + b"\x00" * 31) * 2
         for i in range(4):
-            pub = ctypes_secp256k1.ecdsa_recover(sig+bytes([i]), msg)
-            pub2 = py_secp256k1.ecdsa_recover(sig+bytes([i]), msg)
+            pub = ctypes_secp256k1.ecdsa_recover(sig + bytes([i]), msg)
+            pub2 = py_secp256k1.ecdsa_recover(sig + bytes([i]), msg)
             self.assertEqual(pub, pub2)

@@ -11,8 +11,10 @@ from . import script
 from .base import EmbitBase, EmbitError
 from binascii import b2a_base64, a2b_base64, hexlify
 
+
 class PSBTError(EmbitError):
     pass
+
 
 def ser_string(stream, s: bytes) -> int:
     return stream.write(compact.to_bytes(len(s))) + stream.write(s)
@@ -28,6 +30,7 @@ def read_string(stream) -> bytes:
 
 class PSBT(EmbitBase):
     MAGIC = b"psbt\xff"
+
     def __init__(self, tx=None):
         if tx is not None:
             self.tx = tx

@@ -1,5 +1,6 @@
 import sys
-if sys.implementation.name == 'micropython':
+
+if sys.implementation.name == "micropython":
     import secp256k1
 else:
     from .util import secp256k1
@@ -8,11 +9,13 @@ from .networks import NETWORKS
 from .base import EmbitBase, EmbitError, EmbitKey
 from binascii import hexlify, unhexlify
 
+
 class ECError(EmbitError):
     pass
 
+
 class PublicKey(EmbitKey):
-    def __init__(self, point:bytes, compressed:bool=True):
+    def __init__(self, point: bytes, compressed: bool = True):
         self._point = point
         self.compressed = compressed
 
@@ -29,7 +32,7 @@ class PublicKey(EmbitKey):
             point = secp256k1.ec_pubkey_parse(b)
         except Exception as e:
             raise ECError(str(e))
-        compressed = (b[0]!=0x04)
+        compressed = b[0] != 0x04
         return cls(point, compressed)
 
     def sec(self) -> bytes:
@@ -71,10 +74,11 @@ class PublicKey(EmbitKey):
     def __hash__(self):
         return hash(self._point)
 
+
 class PrivateKey(EmbitKey):
-    def __init__(self, secret, compressed:bool=True, network=None):
+    def __init__(self, secret, compressed: bool = True, network=None):
         """Creates a private key from 32-byte array"""
-        if len(secret)!=32:
+        if len(secret) != 32:
             raise ECError("Secret should be 32-byte array")
         if not secp256k1.ec_seckey_verify(secret):
             raise ECError("Secret is not valid (larger then N?)")
@@ -92,7 +96,7 @@ class PrivateKey(EmbitKey):
         if network is None:
             network = self.network
         prefix = network["wif"]
-        b = prefix+self._secret
+        b = prefix + self._secret
         if self.compressed:
             b += bytes([0x01])
         return base58.encode_check(b)
@@ -112,7 +116,7 @@ class PrivateKey(EmbitKey):
                 network = NETWORKS[net]
         secret = b[1:33]
         compressed = False
-        if len(b) not in [33,34]:
+        if len(b) not in [33, 34]:
             raise ECError("Wrong WIF length")
         if len(b) == 34:
             if b[-1] == 0x01:

@@ -2,16 +2,20 @@
 from io import BytesIO
 from binascii import hexlify, unhexlify
 
+
 class EmbitError(Exception):
     """Generic Embit error"""
+
     pass
 
-class EmbitBase:
 
+class EmbitBase:
     @classmethod
     def read_from(cls, stream, *args, **kwargs):
         """All classes should be readable from stream"""
-        raise NotImplementedError("%s doesn't implement reading from stream" % type(cls).__name__)
+        raise NotImplementedError(
+            "%s doesn't implement reading from stream" % type(cls).__name__
+        )
 
     @classmethod
     def parse(cls, s, *args, **kwargs):
@@ -26,7 +30,9 @@ class EmbitBase:
 
     def write_to(self, stream, *args, **kwargs):
         """All classes should be writable to stream"""
-        raise NotImplementedError("%s doesn't implement writing to stream" % type(self).__name__)
+        raise NotImplementedError(
+            "%s doesn't implement writing to stream" % type(self).__name__
+        )
 
     def serialize(self, *args, **kwargs):
         stream = BytesIO()
@@ -52,9 +58,9 @@ class EmbitBase:
 
     def __repr__(self):
         try:
-            return type(self).__name__+"(%s)" % str(self)
+            return type(self).__name__ + "(%s)" % str(self)
         except:
-            return type(self).__name__+"()"
+            return type(self).__name__ + "()"
 
     def __eq__(self, other):
         return self.serialize() == other.serialize()
@@ -65,16 +71,20 @@ class EmbitBase:
     def __hash__(self):
         return hash(self.serialize())
 
-class EmbitKey(EmbitBase):
 
+class EmbitKey(EmbitBase):
     def sec(self):
         """Any EmbitKey should implement sec() method that returns sec-serialized public key"""
-        raise NotImplementedError("%s doesn't implement sec() method" % type(self).__name__)
+        raise NotImplementedError(
+            "%s doesn't implement sec() method" % type(self).__name__
+        )
 
     @property
     def is_private(self) -> bool:
         """Any EmbitKey should implement is_private property"""
-        raise NotImplementedError("%s doesn't implement is_private property" % type(self).__name__)
+        raise NotImplementedError(
+            "%s doesn't implement is_private property" % type(self).__name__
+        )
 
     def __lt__(self, other):
         # for lexagraphic ordering

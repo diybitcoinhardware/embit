@@ -5,5 +5,6 @@ from .test_bech32 import *
 from .test_bip32 import *
 from .test_psbt import *
 from .test_bip39 import *
-if sys.implementation.name != 'micropython':
-	from .test_bindings import *
+
+if sys.implementation.name != "micropython":
+    from .test_bindings import *
