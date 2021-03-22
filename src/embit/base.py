@@ -1,5 +1,6 @@
 """Base classes"""
 from io import BytesIO
+from binascii import hexlify, unhexlify
 
 class EmbitError(Exception):
     """Generic Embit error"""
@@ -31,6 +32,19 @@ class EmbitBase:
         stream = BytesIO()
         self.write_to(stream, *args, **kwargs)
         return stream.getvalue()
+
+    def to_string(self, *args, **kwargs):
+        """Default string representation is hex of serialized instance or base58 if available"""
+        if hasattr(self, "to_base58"):
+            return self.to_base58(*args, **kwargs)
+        return hexlify(self.serialize(*args, **kwargs)).decode()
+
+    @classmethod
+    def from_string(cls, s, *args, **kwargs):
+        """Default string representation is hex of serialized instance or base58 if availabe"""
+        if hasattr(self, "from_base58"):
+            return self.from_base58(*args, **kwargs)
+        return cls.parse(unhexlify(s))
 
     def __str__(self):
         """to_string() can accept kwargs with defaults so str() should work"""

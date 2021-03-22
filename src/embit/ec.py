@@ -148,12 +148,6 @@ class PrivateKey(EmbitKey):
     def is_private(self) -> bool:
         return True
 
-    def to_string(self, network=None) -> str:
-        return self.wif(network)
-
-    @classmethod
-    def from_string(cls, s):
-        return cls.from_wif(s)
 
 class Signature(EmbitBase):
     def __init__(self, sig):
@@ -167,10 +161,3 @@ class Signature(EmbitBase):
         der = stream.read(2)
         der += stream.read(der[1])
         return cls(secp256k1.ecdsa_signature_parse_der(der))
-
-    def to_string(self):
-        return hexlify(self.serialize()).decode()
-
-    @classmethod
-    def from_string(cls, s):
-        return cls.parse(unhexlify(s))

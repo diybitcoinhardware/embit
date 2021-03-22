@@ -3,6 +3,7 @@ import io
 from . import compact
 from .script import Script, Witness
 from . import hashes
+from .base import EmbitBase, EmbitError
 if sys.implementation.name == "micropython":
     import hashlib
 else:
@@ -13,26 +14,17 @@ SIGHASH_ALL = 1
 SIGHASH_NONE = 2
 SIGHASH_SINGLE = 3
 
-# FIXME: better to have a parent class
-#        that has common methods
-def _parse(cls, b: bytes):
-    stream = io.BytesIO(b)
-    r = cls.read_from(stream)
-    if len(stream.read(1)) > 0:
-        raise ValueError("Byte array is too long")
-    return r
-
+class TransactionError(EmbitError):
+    pass
 
 # API similar to bitcoin-cli decoderawtransaction
 
-
-class Transaction:
+class Transaction(EmbitBase):
     def __init__(self, version=2, vin=[], vout=[], locktime=0):
         self.version = version
         self.locktime = locktime
-        # should we copy these?
-        self.vin = vin[:]
-        self.vout = vout[:]
+        self.vin = vin
+        self.vout = vout
 
     @property
     def is_segwit(self):
@@ -42,21 +34,21 @@ class Transaction:
                 return True
         return False
 
-    def serialize(self):
+    def write_to(self, stream):
         """Returns the byte serialization of the transaction"""
-        res = self.version.to_bytes(4, "little")
+        res = stream.write(self.version.to_bytes(4, "little"))
         if self.is_segwit:
-            res += b"\x00\x01"  # segwit marker and flag
-        res += compact.to_bytes(len(self.vin))
+            res += stream.write(b"\x00\x01")  # segwit marker and flag
+        res += stream.write(compact.to_bytes(len(self.vin)))
         for inp in self.vin:
-            res += inp.serialize()
-        res += compact.to_bytes(len(self.vout))
+            res += inp.write_to(stream)
+        res += stream.write(compact.to_bytes(len(self.vout)))
         for out in self.vout:
-            res += out.serialize()
+            res += out.write_to(stream)
         if self.is_segwit:
             for inp in self.vin:
-                res += inp.witness.serialize()
-        res += self.locktime.to_bytes(4, "little")
+                res += inp.witness.write_to(stream)
+        res += stream.write(self.locktime.to_bytes(4, "little"))
         return res
 
     def txid(self):
@@ -73,10 +65,6 @@ class Transaction:
         return bytes(reversed(hsh))
 
     @classmethod
-    def parse(cls, b):
-        return _parse(cls, b)
-
-    @classmethod
     def read_from(cls, stream):
         ver = int.from_bytes(stream.read(4), "little")
         num_vin = compact.read_from(stream)
@@ -85,7 +73,7 @@ class Transaction:
         if is_segwit:
             marker = stream.read(1)
             if marker != b"\x01":
-                raise ValueError("Invalid segwit marker")
+                raise TransactionError("Invalid segwit marker")
             num_vin = compact.read_from(stream)
         vin = []
         for i in range(num_vin):
@@ -154,7 +142,7 @@ class Transaction:
         return hashlib.sha256(h.digest()).digest()
 
 
-class TransactionInput:
+class TransactionInput(EmbitBase):
     def __init__(self, txid, vout, script_sig=None, sequence=0xFFFFFFFF, witness=None):
         if script_sig is None:
             script_sig = Script(b"")
@@ -170,19 +158,15 @@ class TransactionInput:
     def is_segwit(self):
         return not (self.witness.serialize() == b"\x00")
 
-    def serialize(self, script_sig=None):
-        res = bytes(reversed(self.txid))
-        res += self.vout.to_bytes(4, "little")
+    def write_to(self, stream, script_sig=None):
+        res = stream.write(bytes(reversed(self.txid)))
+        res += stream.write(self.vout.to_bytes(4, "little"))
         if script_sig is None:
-            res += self.script_sig.serialize()
+            res += stream.write(self.script_sig.serialize())
         else:
-            res += script_sig.serialize()
-        res += self.sequence.to_bytes(4, "little")
+            res += stream.write(script_sig.serialize())
+        res += stream.write(self.sequence.to_bytes(4, "little"))
         return res
-
-    @classmethod
-    def parse(cls, b):
-        return _parse(cls, b)
 
     @classmethod
     def read_from(cls, stream):
@@ -193,17 +177,15 @@ class TransactionInput:
         return cls(txid, vout, script_sig, sequence)
 
 
-class TransactionOutput:
+class TransactionOutput(EmbitBase):
     def __init__(self, value, script_pubkey):
         self.value = int(value)
         self.script_pubkey = script_pubkey
 
-    def serialize(self):
-        return self.value.to_bytes(8, "little") + self.script_pubkey.serialize()
-
-    @classmethod
-    def parse(cls, b):
-        return _parse(cls, b)
+    def write_to(self, stream):
+        res = stream.write(self.value.to_bytes(8, "little"))
+        res += stream.write(self.script_pubkey.serialize())
+        return res
 
     @classmethod
     def read_from(cls, stream):

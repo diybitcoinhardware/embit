@@ -3,13 +3,14 @@ from . import base58
 from . import bech32
 from . import hashes
 from . import compact
+from .base import EmbitBase, EmbitError
 import io
 
 SIGHASH_ALL = 1
 
-class Script:
+class Script(EmbitBase):
     def __init__(self, data):
-        self.data = data[:]
+        self.data = data
 
     def address(self, network=NETWORKS["main"]):
         script_type = self.script_type()
@@ -53,16 +54,10 @@ class Script:
         # unknown type
         return None
 
-    def serialize(self):
-        return compact.to_bytes(len(self.data))+self.data
-
-    @classmethod
-    def parse(cls, b):
-        stream = io.BytesIO(b)
-        script = cls.read_from(stream)
-        if len(stream.read(1)) > 0:
-            raise ValueError("Too many bytes")
-        return script
+    def write_to(self, stream):
+        res = stream.write(compact.to_bytes(len(self.data)))
+        res += stream.write(self.data)
+        return res
 
     @classmethod
     def read_from(cls, stream):
@@ -78,23 +73,16 @@ class Script:
     def __ne__(self, other):
         return self.data != other.data
 
-class Witness:
+class Witness(EmbitBase):
     def __init__(self, items):
         self.items = items[:]
 
-    def serialize(self):
-        res = compact.to_bytes(len(self.items))
+    def write_to(self, stream):
+        res = stream.write(compact.to_bytes(len(self.items)))
         for item in self.items:
-            res += compact.to_bytes(len(item)) + item
+            res += stream.write(compact.to_bytes(len(item)))
+            res += stream.write(item)
         return res
-
-    @classmethod
-    def parse(cls, b):
-        stream = io.BytesIO(b)
-        r = cls.read_from(stream)
-        if len(stream.read(1)) > 0:
-            raise ValueError("Byte array is too long")
-        return r
 
     @classmethod
     def read_from(cls, stream):

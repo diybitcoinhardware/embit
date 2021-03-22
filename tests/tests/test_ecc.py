@@ -49,5 +49,7 @@ class SECPTest(TestCase):
             self.assertEqual(pub2 > pub, pub2 > priv)
             priv == priv
             pub == pub
+            self.assertEqual(str(priv), priv.wif())
+            self.assertEqual(str(priv), priv.to_base58())
             hash(priv)
             hash(pub)
