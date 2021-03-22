@@ -7,6 +7,7 @@ from .base import DescriptorBase
 from .miniscript import Miniscript
 from .arguments import Key
 
+
 class Descriptor(DescriptorBase):
     def __init__(self, miniscript=None, sh=False, wsh=True, key=None, wpkh=True):
         if key is None and miniscript is None:
@@ -24,7 +25,9 @@ class Descriptor(DescriptorBase):
                         branch = b
                     else:
                         if len(branch) != len(b):
-                            raise DescriptorError("All branches should have the same length")
+                            raise DescriptorError(
+                                "All branches should have the same length"
+                            )
         self.sh = sh
         self.wsh = wsh
         self.key = key
@@ -32,7 +35,12 @@ class Descriptor(DescriptorBase):
         self.wpkh = wpkh
 
     @property
-    def is_nested(self):
+    def num_branches(self):
+        branches = [k.branches for k in self.keys if k.branches is not None]
+        return 1 if len(branches) == 0 else len(branches[0])
+
+    @property
+    def is_wrapped(self):
         return self.sh
 
     @property
@@ -41,7 +49,7 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_pkh(self):
-        return self.key is not None    
+        return self.key is not None
 
     @property
     def is_basic_multisig(self):
@@ -49,13 +57,52 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_sorted(self):
-        return self.is_basic_multisig and self.miniscript.NAME == "sortedmulti"    
+        return self.is_basic_multisig and self.miniscript.NAME == "sortedmulti"
+
+    @property
+    def brief_policy(self):
+        if self.key:
+            return "single key"
+        if self.is_basic_multisig:
+            return (
+                str(self.miniscript.args[0])
+                + " of "
+                + str(len(self.keys))
+                + " multisig"
+                + (" (sorted)" if self.is_sorted else "")
+            )
+        return "miniscript"
+
+    @property
+    def full_policy(self):
+        if self.key or self.is_basic_multisig:
+            return self.brief_policy
+        s = str(self.miniscript)
+        for i, k in enumerate(self.keys):
+            s = s.replace(str(k), chr(65 + i))
+        return s
 
     def derive(self, idx, branch_index=None):
         if self.miniscript:
-            return type(self)(self.miniscript.derive(idx, branch_index), self.sh, self.wsh, None, self.wpkh)
+            return type(self)(
+                self.miniscript.derive(idx, branch_index),
+                self.sh,
+                self.wsh,
+                None,
+                self.wpkh,
+            )
         else:
-            return type(self)(None, self.sh, self.wsh, self.key.derive(idx, branch_index), self.wpkh)
+            return type(self)(
+                None, self.sh, self.wsh, self.key.derive(idx, branch_index), self.wpkh
+            )
+
+    def check_derivation(self, derivation_path):
+        for k in self.keys:
+            # returns a tuple branch_idx, idx
+            der = k.check_derivation(derivation_path)
+            if der is not None:
+                return der
+        return None
 
     def witness_script(self):
         if self.wsh and self.miniscript is not None:
@@ -84,7 +131,7 @@ class Descriptor(DescriptorBase):
             return script.p2wpkh(self.key)
         return script.p2pkh(self.key)
 
-    def address(self, network=NETWORKS['main']):
+    def address(self, network=NETWORKS["main"]):
         return self.script_pubkey().address(network)
 
     @property
@@ -134,13 +181,13 @@ class Descriptor(DescriptorBase):
         if is_miniscript:
             miniscript = Miniscript.read_from(s)
             key = None
-            nbrackets = int(sh)+int(wsh)
+            nbrackets = int(sh) + int(wsh)
         else:
             miniscript = None
             key = Key.read_from(s)
             nbrackets = 1 + int(sh)
         end = s.read(nbrackets)
-        if end != b")"*nbrackets:
+        if end != b")" * nbrackets:
             raise ValueError("Invalid descriptor")
         return cls(miniscript, sh=sh, wsh=wsh, key=key, wpkh=wpkh)
 

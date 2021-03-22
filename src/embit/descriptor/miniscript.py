@@ -6,6 +6,7 @@ from .errors import MiniscriptError
 from .base import DescriptorBase
 from .arguments import *
 
+
 class Miniscript(DescriptorBase):
     def __init__(self, *args):
         self.args = args
@@ -20,10 +21,16 @@ class Miniscript(DescriptorBase):
 
     @property
     def keys(self):
-        return sum([arg.keys for arg in self.args if isinstance(arg, Miniscript)], [k for k in self.args if isinstance(k, Key) or isinstance(k, KeyHash)])
+        return sum(
+            [arg.keys for arg in self.args if isinstance(arg, Miniscript)],
+            [k for k in self.args if isinstance(k, Key) or isinstance(k, KeyHash)],
+        )
 
     def derive(self, idx, branch_index=None):
-        args = [arg.derive(idx, branch_index) if hasattr(arg, "derive") else arg for arg in self.args]
+        args = [
+            arg.derive(idx, branch_index) if hasattr(arg, "derive") else arg
+            for arg in self.args
+        ]
         return type(self)(*args)
 
     @property
@@ -72,23 +79,27 @@ class Miniscript(DescriptorBase):
                 elif char == b")":
                     break
                 else:
-                    raise MiniscriptError("Expected , or ), got: %s" % (char+s.read()))
+                    raise MiniscriptError(
+                        "Expected , or ), got: %s" % (char + s.read())
+                    )
         else:
             for i in range(cls.NARGS):
                 args.append(cls.ARGCLS.read_from(s))
-                if i < cls.NARGS-1:
+                if i < cls.NARGS - 1:
                     char = s.read(1)
                     if char != b",":
                         raise MiniscriptError("Missing arguments, %s" % char)
             char = s.read(1)
             if char != b")":
-                raise MiniscriptError("Expected ) got %s" % (char+s.read()))
+                raise MiniscriptError("Expected ) got %s" % (char + s.read()))
         return args
 
     def __str__(self):
-        return type(self).NAME+"("+",".join([str(arg) for arg in self.args])+")"
+        return type(self).NAME + "(" + ",".join([str(arg) for arg in self.args]) + ")"
+
 
 ########### Known fragments (miniscript operators) ##############
+
 
 class OneArg(Miniscript):
     NARGS = 1
@@ -101,14 +112,17 @@ class OneArg(Miniscript):
     def carg(self):
         return self.arg.compile()
 
+
 class PkK(OneArg):
     # <key>
     NAME = "pk_k"
     ARGCLS = Key
     TYPE = "K"
     PROPS = "ondu"
+
     def inner_compile(self):
         return self.carg
+
 
 class PkH(OneArg):
     # DUP HASH160 <HASH160(key)> EQUALVERIFY
@@ -116,8 +130,10 @@ class PkH(OneArg):
     ARGCLS = KeyHash
     TYPE = "K"
     PROPS = "ndu"
+
     def inner_compile(self):
         return b"\x76\xa9" + self.carg + b"\x88"
+
 
 class Older(OneArg):
     # <n> CHECKSEQUENCEVERIFY
@@ -125,19 +141,25 @@ class Older(OneArg):
     ARGCLS = Number
     TYPE = "B"
     PROPS = "z"
+
     def inner_compile(self):
         return self.carg + b"\xb2"
 
     def verify(self):
         super().verify()
         if (self.arg.num < 1) or (self.arg.num >= 0x80000000):
-            raise MiniscriptError("%s should have an argument in range [1, 0x80000000)" % self.NAME)
+            raise MiniscriptError(
+                "%s should have an argument in range [1, 0x80000000)" % self.NAME
+            )
+
 
 class After(Older):
     # <n> CHECKLOCKTIMEVERIFY
     NAME = "after"
+
     def inner_compile(self):
         return self.carg + b"\xb1"
+
 
 class Sha256(OneArg):
     # SIZE <32> EQUALVERIFY SHA256 <h> EQUAL
@@ -145,27 +167,35 @@ class Sha256(OneArg):
     ARGCLS = Raw32
     TYPE = "B"
     PROPS = "ondu"
+
     def inner_compile(self):
         return b"\x82" + Number(32).compile() + b"\x88\xa8" + self.carg + b"\x87"
+
 
 class Hash256(Sha256):
     # SIZE <32> EQUALVERIFY HASH256 <h> EQUAL
     NAME = "hash256"
+
     def inner_compile(self):
         return b"\x82" + Number(32).compile() + b"\x88\xaa" + self.carg + b"\x87"
+
 
 class Ripemd160(Sha256):
     # SIZE <32> EQUALVERIFY RIPEMD160 <h> EQUAL
     NAME = "ripemd160"
     ARGCLS = Raw20
+
     def inner_compile(self):
         return b"\x82" + Number(32).compile() + b"\x88\xa6" + self.carg + b"\x87"
+
 
 class Hash160(Ripemd160):
     # SIZE <32> EQUALVERIFY HASH160 <h> EQUAL
     NAME = "hash160"
+
     def inner_compile(self):
         return b"\x82" + Number(32).compile() + b"\x88\xa9" + self.carg + b"\x87"
+
 
 class AndOr(Miniscript):
     # [X] NOTIF [Z] ELSE [Y] ENDIF
@@ -198,22 +228,33 @@ class AndOr(Miniscript):
         px, py, pz = [arg.properties for arg in self.args]
         if "z" in px and "z" in py and "z" in pz:
             props += "z"
-        if ("z" in px and "o" in py and "o" in pz) or ("o" in px and "z" in py and "z" in pz):
+        if ("z" in px and "o" in py and "o" in pz) or (
+            "o" in px and "z" in py and "z" in pz
+        ):
             props += "o"
         if "u" in py and "u" in pz:
             props += "u"
         if "d" in pz:
             props += "d"
         return props
-    
+
     def inner_compile(self):
-        return self.args[0].compile() + b"\x64" + self.args[2].compile() + b"\x67" + self.args[1].compile() + b"\x68"
+        return (
+            self.args[0].compile()
+            + b"\x64"
+            + self.args[2].compile()
+            + b"\x67"
+            + self.args[1].compile()
+            + b"\x68"
+        )
+
 
 class AndV(Miniscript):
     # [X] [Y]
     NAME = "and_v"
     NARGS = 2
     ARGCLS = Miniscript
+
     def inner_compile(self):
         return self.args[0].compile() + self.args[1].compile()
 
@@ -245,12 +286,14 @@ class AndV(Miniscript):
             props += "u"
         return props
 
+
 class AndB(Miniscript):
     # [X] [Y] BOOLAND
     NAME = "and_b"
     NARGS = 2
     ARGCLS = Miniscript
     TYPE = "B"
+
     def inner_compile(self):
         return self.args[0].compile() + self.args[1].compile() + b"\x9a"
 
@@ -276,7 +319,8 @@ class AndB(Miniscript):
         if "d" in px and "d" in py:
             props += "d"
         props += "u"
-        return props    
+        return props
+
 
 class AndN(Miniscript):
     # [X] NOTIF 0 ELSE [Y] ENDIF
@@ -284,8 +328,16 @@ class AndN(Miniscript):
     NAME = "and_n"
     NARGS = 2
     ARGCLS = Miniscript
+
     def inner_compile(self):
-        return self.args[0].compile() + b"\x64" + Number(0).compile() + b"\x67" + self.args[1].compile() + b"\x68"
+        return (
+            self.args[0].compile()
+            + b"\x64"
+            + Number(0).compile()
+            + b"\x67"
+            + self.args[1].compile()
+            + b"\x68"
+        )
 
     @property
     def type(self):
@@ -311,7 +363,9 @@ class AndN(Miniscript):
         pz = "zud"
         if "z" in px and "z" in py and "z" in pz:
             props += "z"
-        if ("z" in px and "o" in py and "o" in pz) or ("o" in px and "z" in py and "z" in pz):
+        if ("z" in px and "o" in py and "o" in pz) or (
+            "o" in px and "z" in py and "z" in pz
+        ):
             props += "o"
         if "u" in py and "u" in pz:
             props += "u"
@@ -319,12 +373,14 @@ class AndN(Miniscript):
             props += "d"
         return props
 
+
 class OrB(Miniscript):
     # [X] [Z] BOOLOR
     NAME = "or_b"
     NARGS = 2
     ARGCLS = Miniscript
     TYPE = "B"
+
     def inner_compile(self):
         return self.args[0].compile() + self.args[1].compile() + b"\x9b"
 
@@ -359,6 +415,7 @@ class OrC(Miniscript):
     NARGS = 2
     ARGCLS = Miniscript
     TYPE = "V"
+
     def inner_compile(self):
         return self.args[0].compile() + b"\x64" + self.args[1].compile() + b"\x68"
 
@@ -384,12 +441,14 @@ class OrC(Miniscript):
             props += "o"
         return props
 
+
 class OrD(Miniscript):
     # [X] IFDUP NOTIF [Z] ENDIF
     NAME = "or_d"
     NARGS = 2
     ARGCLS = Miniscript
     TYPE = "B"
+
     def inner_compile(self):
         return self.args[0].compile() + b"\x73\x64" + self.args[1].compile() + b"\x68"
 
@@ -419,13 +478,21 @@ class OrD(Miniscript):
             props += "u"
         return props
 
+
 class OrI(Miniscript):
     # IF [X] ELSE [Z] ENDIF
     NAME = "or_i"
     NARGS = 2
     ARGCLS = Miniscript
+
     def inner_compile(self):
-        return b"\x63" + self.args[0].compile() + b"\x67" + self.args[1].compile() + b"\x68"
+        return (
+            b"\x63"
+            + self.args[0].compile()
+            + b"\x67"
+            + self.args[1].compile()
+            + b"\x68"
+        )
 
     def verify(self):
         # both are B, K, or V
@@ -452,20 +519,31 @@ class OrI(Miniscript):
             props += "d"
         return props
 
+
 class Thresh(Miniscript):
     # [X1] [X2] ADD ... [Xn] ADD ... <k> EQUAL
     NAME = "thresh"
     NARGS = None
     ARGCLS = (Number, Miniscript)
     TYPE = "B"
+
     def inner_compile(self):
-        return self.args[1].compile() + b"\x93".join([arg.compile() for arg in self.args[2:]]) + b"\x93" + self.args[0].compile() + b"\x87"
+        return (
+            self.args[1].compile()
+            + b"\x93".join([arg.compile() for arg in self.args[2:]])
+            + b"\x93"
+            + self.args[0].compile()
+            + b"\x87"
+        )
 
     def verify(self):
         # 1 < k < n; X1 is Bdu; others are Wdu
         super().verify()
-        if self.args[0].num <= 1 or self.args[0].num >= (len(self.args)-1):
-            raise MiniscriptError("thresh: Invalid k! Should be 1 < k < %d, got %d" % (len(self.args)-1, self.args[0].num))
+        if self.args[0].num <= 1 or self.args[0].num >= (len(self.args) - 1):
+            raise MiniscriptError(
+                "thresh: Invalid k! Should be 1 < k < %d, got %d"
+                % (len(self.args) - 1, self.args[0].num)
+            )
         if self.args[1].type != "B":
             raise MiniscriptError("thresh: X1 should be B")
         px = self.args[1].properties
@@ -473,10 +551,10 @@ class Thresh(Miniscript):
             raise MiniscriptError("thresh: X1 should be du")
         for i, arg in enumerate(self.args[2:]):
             if arg.type != "W":
-                raise MiniscriptError("thresh: X%d should be W" % (i+1))
+                raise MiniscriptError("thresh: X%d should be W" % (i + 1))
             p = arg.properties
             if "d" not in p or "u" not in p:
-                raise MiniscriptError("thresh: X%d should be du" % (i+1))
+                raise MiniscriptError("thresh: X%d should be du" % (i + 1))
 
     def properties(self):
         # z=all are z; o=all are z except one is o; d; u
@@ -491,6 +569,7 @@ class Thresh(Miniscript):
         props += "du"
         return props
 
+
 class Multi(Miniscript):
     # <k> <key1> ... <keyn> <n> CHECKMULTISIG
     NAME = "multi"
@@ -498,19 +577,34 @@ class Multi(Miniscript):
     ARGCLS = (Number, Key)
     TYPE = "B"
     PROPS = "ndu"
+
     def inner_compile(self):
-        return b"".join([arg.compile() for arg in self.args]) + Number(len(self.args)-1).compile() + b"\xae"
+        return (
+            b"".join([arg.compile() for arg in self.args])
+            + Number(len(self.args) - 1).compile()
+            + b"\xae"
+        )
 
     def verify(self):
         super().verify()
-        if self.args[0].num < 1 or self.args[0].num > (len(self.args)-1):
-            raise MiniscriptError("multi: 1 <= k <= %d, got %d" % ((len(self.args)-1), self.args[0].num))
+        if self.args[0].num < 1 or self.args[0].num > (len(self.args) - 1):
+            raise MiniscriptError(
+                "multi: 1 <= k <= %d, got %d" % ((len(self.args) - 1), self.args[0].num)
+            )
+
 
 class Sortedmulti(Multi):
     # <k> <key1> ... <keyn> <n> CHECKMULTISIG
     NAME = "sortedmulti"
+
     def inner_compile(self):
-        return self.args[0].compile() + b"".join(sorted([arg.compile() for arg in self.args[1:]])) + Number(len(self.args)-1).compile() + b"\xae"
+        return (
+            self.args[0].compile()
+            + b"".join(sorted([arg.compile() for arg in self.args[1:]]))
+            + Number(len(self.args) - 1).compile()
+            + b"\xae"
+        )
+
 
 class Pk(OneArg):
     # <key> CHECKSIG
@@ -518,8 +612,10 @@ class Pk(OneArg):
     ARGCLS = Key
     TYPE = "B"
     PROPS = "ondu"
+
     def inner_compile(self):
         return self.carg + b"\xac"
+
 
 class Pkh(OneArg):
     # DUP HASH160 <HASH160(key)> EQUALVERIFY CHECKSIG
@@ -527,12 +623,38 @@ class Pkh(OneArg):
     ARGCLS = KeyHash
     TYPE = "B"
     PROPS = "ndu"
+
     def inner_compile(self):
         return b"\x76\xa9" + self.carg + b"\x88\xac"
+
     # TODO: 0, 1 - they are without brackets, so it should be different...
 
-OPERATORS = [ PkK, PkH, Older, After, Sha256, Hash256, Ripemd160, Hash160, AndOr, AndV, AndB, AndN, OrB, OrC, OrD, OrI, Thresh, Multi, Sortedmulti, Pk, Pkh]
+
+OPERATORS = [
+    PkK,
+    PkH,
+    Older,
+    After,
+    Sha256,
+    Hash256,
+    Ripemd160,
+    Hash160,
+    AndOr,
+    AndV,
+    AndB,
+    AndN,
+    OrB,
+    OrC,
+    OrD,
+    OrI,
+    Thresh,
+    Multi,
+    Sortedmulti,
+    Pk,
+    Pkh,
+]
 OPERATOR_NAMES = [cls.NAME for cls in OPERATORS]
+
 
 class Wrapper(OneArg):
     ARGCLS = Miniscript
@@ -548,9 +670,11 @@ class Wrapper(OneArg):
         # we are the last wrapper
         return self.op + ":" + str(self.arg)
 
+
 class A(Wrapper):
     # TOALTSTACK [X] FROMALTSTACK
     TYPE = "W"
+
     def inner_compile(self):
         return b"\x6b" + self.carg + b"\x6c"
 
@@ -569,9 +693,11 @@ class A(Wrapper):
             props += "u"
         return props
 
+
 class S(Wrapper):
     # SWAP [X]
     TYPE = "W"
+
     def inner_compile(self):
         return b"\x7c" + self.carg
 
@@ -592,9 +718,11 @@ class S(Wrapper):
             props += "u"
         return props
 
+
 class C(Wrapper):
     # [X] CHECKSIG
     TYPE = "B"
+
     def inner_compile(self):
         return self.carg + b"\xac"
 
@@ -607,15 +735,17 @@ class C(Wrapper):
     def properties(self):
         props = ""
         px = self.arg.properties
-        for p in ["o","n","d"]:
+        for p in ["o", "n", "d"]:
             if p in px:
                 props += p
         props += "u"
         return props
 
+
 class T(Wrapper):
     # [X] 1
     TYPE = "B"
+
     def inner_compile(self):
         return self.carg + Number(1).compile()
 
@@ -635,9 +765,11 @@ class T(Wrapper):
             props += "u"
         return props
 
+
 class D(Wrapper):
     # DUP IF [X] ENDIF
     TYPE = "B"
+
     def inner_compile(self):
         return b"\x76\x63" + self.carg + b"\x68"
 
@@ -656,13 +788,15 @@ class D(Wrapper):
             props += "o"
         return props
 
+
 class V(Wrapper):
     # [X] VERIFY (or VERIFY version of last opcode in [X])
     TYPE = "V"
+
     def inner_compile(self):
-        """Checks last check code and makes it verify""" 
-        if self.carg[-1] in [0xac, 0xae, 0x9c, 0x87]:
-            return self.carg[:-1] + bytes([self.carg[-1]+1])
+        """Checks last check code and makes it verify"""
+        if self.carg[-1] in [0xAC, 0xAE, 0x9C, 0x87]:
+            return self.carg[:-1] + bytes([self.carg[-1] + 1])
         return self.carg + b"\x69"
 
     def verify(self):
@@ -674,14 +808,16 @@ class V(Wrapper):
     def properties(self):
         props = ""
         px = self.arg.properties
-        for p in ["z", "o","n"]:
+        for p in ["z", "o", "n"]:
             if p in px:
                 props += p
         return props
 
+
 class J(Wrapper):
     # SIZE 0NOTEQUAL IF [X] ENDIF
     TYPE = "B"
+
     def inner_compile(self):
         return b"\x82\x92\x63" + self.carg + b"\x68"
 
@@ -696,14 +832,16 @@ class J(Wrapper):
     def properties(self):
         props = "nd"
         px = self.arg.properties
-        for p in ["o","u"]:
+        for p in ["o", "u"]:
             if p in px:
                 props += p
         return props
 
+
 class N(Wrapper):
     # [X] 0NOTEQUAL
     TYPE = "B"
+
     def inner_compile(self):
         return self.carg + b"\x92"
 
@@ -716,14 +854,16 @@ class N(Wrapper):
     def properties(self):
         props = "u"
         px = self.arg.properties
-        for p in ["z","o","n","d"]:
+        for p in ["z", "o", "n", "d"]:
             if p in px:
                 props += p
         return props
 
+
 class L(Wrapper):
     # IF 0 ELSE [X] ENDIF
     TYPE = "B"
+
     def inner_compile(self):
         return b"\x63" + Number(0).compile() + b"\x67" + self.carg + b"\x68"
 
@@ -744,10 +884,12 @@ class L(Wrapper):
             props += "u"
         return props
 
+
 class U(L):
     # IF [X] ELSE 0 ENDIF
     def inner_compile(self):
-        return b"\x63" + self.carg + b"\x67" + Number(0).compile() + b"\x68",
+        return (b"\x63" + self.carg + b"\x67" + Number(0).compile() + b"\x68",)
+
 
 WRAPPERS = [A, S, C, T, D, V, J, N, L, U]
 WRAPPER_NAMES = [w.__name__.lower() for w in WRAPPERS]

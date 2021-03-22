@@ -1,5 +1,6 @@
 from io import BytesIO
 
+
 def read_until(s, chars=b",)(#"):
     res = b""
     chunk = b""
@@ -13,13 +14,16 @@ def read_until(s, chars=b",)(#"):
         res += chunk
     return res, None
 
+
 class DescriptorBase:
     def __repr__(self):
-        return type(self).__name__+"(%s)" % str(self)
+        return type(self).__name__ + "(%s)" % str(self)
 
     @classmethod
     def read_from(cls, stream):
-        raise NotImplementedError("%s doesn't implement reading from stream" % type(cls))
+        raise NotImplementedError(
+            "%s doesn't implement reading from stream" % type(cls)
+        )
 
     @classmethod
     def parse(cls, b):
@@ -32,4 +36,3 @@ class DescriptorBase:
 
     def __str__(self):
         return self.to_string()
-
