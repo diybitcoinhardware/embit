@@ -9,6 +9,7 @@ from . import ec
 from .script import Script, Witness
 from . import script
 from .base import EmbitBase, EmbitError
+from binascii import b2a_base64, a2b_base64, hexlify
 
 class PSBTError(EmbitError):
     pass
@@ -64,6 +65,27 @@ class PSBT(EmbitBase):
         for out in self.outputs:
             r += out.write_to(stream)
         return r
+
+    @classmethod
+    def from_base64(cls, b64):
+        raw = a2b_base64(b64)
+        return cls.parse(raw)
+
+    def to_base64(self):
+        return b2a_base64(self.serialize()).strip().decode()
+
+    def to_string(self, encoding="base64"):
+        if encoding == "base64":
+            return self.to_base64()
+        else:
+            return hexlify(self.serialize()).decode()
+
+    @classmethod
+    def from_string(cls, s):
+        if s.startswith("70736274ff"):
+            return cls.parse(unhexlify(s))
+        else:
+            return cls.from_base64(s)
 
     @classmethod
     def read_from(cls, stream):
