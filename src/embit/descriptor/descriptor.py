@@ -143,7 +143,11 @@ class Descriptor(DescriptorBase):
     @classmethod
     def from_string(cls, desc):
         s = BytesIO(desc.encode())
-        return cls.read_from(s)
+        res = cls.read_from(s)
+        left = s.read()
+        if len(left) > 0:
+            raise DescriptorError("Unexpected characters after descriptor: %r" % left)
+        return res
 
     @classmethod
     def read_from(cls, s):
