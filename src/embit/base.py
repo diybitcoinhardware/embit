@@ -48,8 +48,8 @@ class EmbitBase:
     @classmethod
     def from_string(cls, s, *args, **kwargs):
         """Default string representation is hex of serialized instance or base58 if availabe"""
-        if hasattr(self, "from_base58"):
-            return self.from_base58(*args, **kwargs)
+        if hasattr(cls, "from_base58"):
+            return cls.from_base58(*args, **kwargs)
         return cls.parse(unhexlify(s))
 
     def __str__(self):
