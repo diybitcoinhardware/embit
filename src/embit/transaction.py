@@ -1,34 +1,45 @@
+import sys
 import io
 from . import compact
 from .script import Script, Witness
 from . import hashes
-from .util import hashlib
+from .base import EmbitBase, EmbitError
 
-# only SIGHASH_ALL is currently supported
-SIGHASH_ALL = 1
-SIGHASH_NONE = 2
-SIGHASH_SINGLE = 3
+if sys.implementation.name == "micropython":
+    import hashlib
+else:
+    from .util import hashlib
 
-# FIXME: better to have a parent class
-#        that has common methods
-def _parse(cls, b: bytes):
-    stream = io.BytesIO(b)
-    r = cls.read_from(stream)
-    if len(stream.read(1)) > 0:
-        raise ValueError("Byte array is too long")
-    return r
+class TransactionError(EmbitError):
+    pass
 
+# micropython doesn't support typing and Enum
+class SIGHASH:
+    ALL = 1
+    NONE = 2
+    SINGLE = 3
+    ANYONECANPAY = 0x80
+
+    @classmethod
+    def check(cls, sighash: int):
+        anyonecanpay = False
+        if sighash & cls.ANYONECANPAY:
+            # remove ANYONECANPAY flag
+            sighash = sighash ^ cls.ANYONECANPAY
+            anyonecanpay = True
+        if sighash not in [cls.ALL, cls.NONE, cls.SINGLE]:
+            raise TransactionError("Invalid SIGHASH type")
+        return sighash, anyonecanpay
 
 # API similar to bitcoin-cli decoderawtransaction
 
 
-class Transaction:
+class Transaction(EmbitBase):
     def __init__(self, version=2, vin=[], vout=[], locktime=0):
         self.version = version
         self.locktime = locktime
-        # should we copy these?
-        self.vin = vin[:]
-        self.vout = vout[:]
+        self.vin = vin
+        self.vout = vout
 
     @property
     def is_segwit(self):
@@ -38,24 +49,24 @@ class Transaction:
                 return True
         return False
 
-    def serialize(self):
+    def write_to(self, stream):
         """Returns the byte serialization of the transaction"""
-        res = self.version.to_bytes(4, "little")
+        res = stream.write(self.version.to_bytes(4, "little"))
         if self.is_segwit:
-            res += b"\x00\x01"  # segwit marker and flag
-        res += compact.to_bytes(len(self.vin))
+            res += stream.write(b"\x00\x01")  # segwit marker and flag
+        res += stream.write(compact.to_bytes(len(self.vin)))
         for inp in self.vin:
-            res += inp.serialize()
-        res += compact.to_bytes(len(self.vout))
+            res += inp.write_to(stream)
+        res += stream.write(compact.to_bytes(len(self.vout)))
         for out in self.vout:
-            res += out.serialize()
+            res += out.write_to(stream)
         if self.is_segwit:
             for inp in self.vin:
-                res += inp.witness.serialize()
-        res += self.locktime.to_bytes(4, "little")
+                res += inp.witness.write_to(stream)
+        res += stream.write(self.locktime.to_bytes(4, "little"))
         return res
 
-    def txid(self):
+    def hash(self):
         h = hashlib.sha256()
         h.update(self.version.to_bytes(4, "little"))
         h.update(compact.to_bytes(len(self.vin)))
@@ -66,11 +77,10 @@ class Transaction:
             h.update(out.serialize())
         h.update(self.locktime.to_bytes(4, "little"))
         hsh = hashlib.sha256(h.digest()).digest()
-        return bytes(reversed(hsh))
+        return hsh
 
-    @classmethod
-    def parse(cls, b):
-        return _parse(cls, b)
+    def txid(self):
+        return bytes(reversed(self.hash()))
 
     @classmethod
     def read_from(cls, stream):
@@ -81,7 +91,7 @@ class Transaction:
         if is_segwit:
             marker = stream.read(1)
             if marker != b"\x01":
-                raise ValueError("Invalid segwit marker")
+                raise TransactionError("Invalid segwit marker")
             num_vin = compact.read_from(stream)
         vin = []
         for i in range(num_vin):
@@ -115,42 +125,86 @@ class Transaction:
             h.update(out.serialize())
         return h.digest()
 
-    def sighash_segwit(self, input_index, script_pubkey, value):
+    def sighash_segwit(self, input_index, script_pubkey, value, sighash=SIGHASH.ALL):
         """check out bip-143"""
-        # FIXME: refactor with hashlib.sha256() to reduce memory allocation
+        if input_index < 0 or input_index >= len(self.vin):
+            raise TransactionError("Invalid input index")
+        sh, anyonecanpay = SIGHASH.check(sighash)
         inp = self.vin[input_index]
+        zero = b"\x00"*32 # for sighashes
         h = hashlib.sha256()
         h.update(self.version.to_bytes(4, "little"))
-        h.update(hashlib.sha256(self.hash_prevouts()).digest())
-        h.update(hashlib.sha256(self.hash_sequence()).digest())
+        if anyonecanpay:
+            h.update(zero)
+        else:
+            h.update(hashlib.sha256(self.hash_prevouts()).digest())
+        if anyonecanpay or sh in [SIGHASH.NONE, SIGHASH.SINGLE]:
+            h.update(zero)
+        else:
+            h.update(hashlib.sha256(self.hash_sequence()).digest())
         h.update(bytes(reversed(inp.txid)))
         h.update(inp.vout.to_bytes(4, "little"))
         h.update(script_pubkey.serialize())
         h.update(int(value).to_bytes(8, "little"))
         h.update(inp.sequence.to_bytes(4, "little"))
-        h.update(hashlib.sha256(self.hash_outputs()).digest())
+        if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
+            h.update(hashlib.sha256(self.hash_outputs()).digest())
+        elif sh == SIGHASH.SINGLE and input_index < len(self.vout):
+            h.update(hashlib.sha256(
+                hashlib.sha256(self.vout[input_index].serialize()).digest()
+            ).digest())
+        else:
+            h.update(zero)
         h.update(self.locktime.to_bytes(4, "little"))
-        h.update(SIGHASH_ALL.to_bytes(4, "little"))
+        h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
-    def sighash_legacy(self, input_index, script_pubkey):
+    def sighash_legacy(self, input_index, script_pubkey, sighash=SIGHASH.ALL):
+        if input_index < 0 or input_index >= len(self.vin):
+            raise TransactionError("Invalid input index")
+        sh, anyonecanpay = SIGHASH.check(sighash)
+        # no corresponding output for this input, we sign 00...01
+        if sh == SIGHASH.SINGLE and input_index >= len(self.vout):
+            return b"\x00"*31+b"\x01"
+
         h = hashlib.sha256()
         h.update(self.version.to_bytes(4, "little"))
-        h.update(compact.to_bytes(len(self.vin)))
-        for i, inp in enumerate(self.vin):
-            if input_index == i:
-                h.update(inp.serialize(script_pubkey))
-            else:
-                h.update(inp.serialize(Script(b"")))
-        h.update(compact.to_bytes(len(self.vout)))
-        for out in self.vout:
-            h.update(out.serialize())
+        # ANYONECANPAY - only one input is serialized
+        if anyonecanpay:
+            h.update(compact.to_bytes(1))
+            h.update(self.vin[input_index].serialize(script_pubkey))
+        else:
+            h.update(compact.to_bytes(len(self.vin)))
+            for i, inp in enumerate(self.vin):
+                if input_index == i:
+                    h.update(inp.serialize(script_pubkey))
+                else:
+                    h.update(inp.serialize(Script(b""), sighash))
+        # no outputs
+        if sh == SIGHASH.NONE:
+            h.update(compact.to_bytes(0))
+        # one output on the same index, others are empty
+        elif sh == SIGHASH.SINGLE:
+            h.update(compact.to_bytes(input_index+1))
+            empty = TransactionOutput(0xFFFFFFFF, Script(b"")).serialize()
+            # this way we commit to input index
+            for i in range(input_index):
+                h.update(empty)
+            # last is ours
+            h.update(self.vout[input_index].serialize())
+        elif sh == SIGHASH.ALL:
+            h.update(compact.to_bytes(len(self.vout)))
+            for out in self.vout:
+                h.update(out.serialize())
+        else:
+            # shouldn't happen
+            raise TransactionError("Invalid sighash")
         h.update(self.locktime.to_bytes(4, "little"))
-        h.update(SIGHASH_ALL.to_bytes(4, "little"))
+        h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
 
-class TransactionInput:
+class TransactionInput(EmbitBase):
     def __init__(self, txid, vout, script_sig=None, sequence=0xFFFFFFFF, witness=None):
         if script_sig is None:
             script_sig = Script(b"")
@@ -166,19 +220,20 @@ class TransactionInput:
     def is_segwit(self):
         return not (self.witness.serialize() == b"\x00")
 
-    def serialize(self, script_sig=None):
-        res = bytes(reversed(self.txid))
-        res += self.vout.to_bytes(4, "little")
-        if script_sig is None:
-            res += self.script_sig.serialize()
+    def write_to(self, stream, script_sig=None, sighash=SIGHASH.ALL):
+        sh, anyonecanpay = SIGHASH.check(sighash)
+        if anyonecanpay or sh in [SIGHASH.SINGLE, SIGHASH.NONE]:
+            sequence = 0
         else:
-            res += script_sig.serialize()
-        res += self.sequence.to_bytes(4, "little")
+            sequence = self.sequence
+        res = stream.write(bytes(reversed(self.txid)))
+        res += stream.write(self.vout.to_bytes(4, "little"))
+        if script_sig is None:
+            res += stream.write(self.script_sig.serialize())
+        else:
+            res += stream.write(script_sig.serialize())
+        res += stream.write(sequence.to_bytes(4, "little"))
         return res
-
-    @classmethod
-    def parse(cls, b):
-        return _parse(cls, b)
 
     @classmethod
     def read_from(cls, stream):
@@ -189,17 +244,15 @@ class TransactionInput:
         return cls(txid, vout, script_sig, sequence)
 
 
-class TransactionOutput:
+class TransactionOutput(EmbitBase):
     def __init__(self, value, script_pubkey):
         self.value = int(value)
         self.script_pubkey = script_pubkey
 
-    def serialize(self):
-        return self.value.to_bytes(8, "little") + self.script_pubkey.serialize()
-
-    @classmethod
-    def parse(cls, b):
-        return _parse(cls, b)
+    def write_to(self, stream):
+        res = stream.write(self.value.to_bytes(8, "little"))
+        res += stream.write(self.script_pubkey.serialize())
+        return res
 
     @classmethod
     def read_from(cls, stream):

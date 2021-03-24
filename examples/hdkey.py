@@ -6,8 +6,9 @@ from binascii import unhexlify, hexlify
 import random
 
 # example of key and address derivations from mnemonic
-# you can check that everything works right 
+# you can check that everything works right
 # on https://iancoleman.io/bip39/
+
 
 def main():
     # generate 16 bytes of entropy and
@@ -70,5 +71,6 @@ def main():
         sc = script.p2sh(script.p2wpkh(pub))
         print(sc.address(NETWORKS["test"]))
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -9,11 +9,12 @@ from embit import bip39, bip32, psbt, script, ec
 from binascii import a2b_base64, b2a_base64
 from io import BytesIO
 
+
 def parse_multisig(sc):
     """Takes a script and extracts m,n and pubkeys from it"""
     # OP_m <len:pubkey> ... <len:pubkey> OP_n OP_CHECKMULTISIG
     # check min size
-    if len(sc.data) < 37 or sc.data[-1] != 0xae:
+    if len(sc.data) < 37 or sc.data[-1] != 0xAE:
         raise ValueError("Not a multisig script")
     m = sc.data[0] - 0x50
     if m < 1 or m > 16:
@@ -35,6 +36,7 @@ def parse_multisig(sc):
     if s.read() != sc.data[-2:]:
         raise ValueError("Invalid multisig script")
     return m, n, pubkeys
+
 
 def get_cosigners(pubkeys, derivations, xpubs):
     """Returns xpubs used to derive pubkeys using global xpub field from psbt"""
@@ -58,6 +60,7 @@ def get_cosigners(pubkeys, derivations, xpubs):
         raise RuntimeError("Can't get all cosigners")
     return sorted(cosigners)
 
+
 def get_policy(scope, scriptpubkey, xpubs):
     """Parse scope and get policy"""
     # we don't know the policy yet, let's parse it
@@ -67,18 +70,20 @@ def get_policy(scope, scriptpubkey, xpubs):
     if script_type == "p2sh":
         if scope.witness_script is not None:
             script_type = "p2sh-p2wsh"
-        elif scope.redeem_script is not None and scope.redeem_script.script_type() == "p2wpkh":
+        elif (
+            scope.redeem_script is not None
+            and scope.redeem_script.script_type() == "p2wpkh"
+        ):
             script_type = "p2sh-p2wpkh"
-    policy = { "type": script_type }
+    policy = {"type": script_type}
     # expected multisig
     if "p2wsh" in script_type and scope.witness_script is not None:
         m, n, pubkeys = parse_multisig(scope.witness_script)
         # check pubkeys are derived from cosigners
         cosigners = get_cosigners(pubkeys, scope.bip32_derivations, xpubs)
-        policy.update({
-            "m": m, "n": n, "cosigners": cosigners
-        })
+        policy.update({"m": m, "n": n, "cosigners": cosigners})
     return policy
+
 
 def main():
     # mnemonic we use
@@ -98,7 +103,7 @@ def main():
         "cHNidP8BAHICAAAAAXbva/K90EDzwdg6zLl0OfGrsaVWrR0PUpaB/6foypSKAQAAAAD9////Apw9XQUAAAAAF6kUJR3RFFeiWcO6R+XMo3F/5CFOApiHgJaYAAAAAAAWABTmav7/w4OOcfCiewfjsA7eaujhYAAAAAAAAQEgAOH1BQAAAAAXqRQzbKoT4IuWCAoytdgY1ZtKs7NnQocBBBYAFDiXH3OTD2wUHZd6xP1KcnyFSTWzIgYDoa+ASsEIqKUXghmMLQNLKL+QyIA/WlP3Ynb6aaTq538Yc8XaCjEAAIABAACAAAAAgAAAAAAAAAAAAAEAFgAUcL6x4EpQCUDp86uqZuGkmsVbjzUiAgKi/ImWxSYiSLXa78Wk0M3NAMEwR9DLEwKBNupjDYdahxhzxdoKMQAAgAEAAIAAAACAAQAAAAAAAAAAAA==",
     ]
     for i, b64psbt in enumerate(b64psbts):
-        print("\nTransaction #%d" % (i+1))
+        print("\nTransaction #%d" % (i + 1))
         raw = a2b_base64(b64psbt)
         tx = psbt.PSBT.parse(raw)
 
@@ -138,8 +143,8 @@ def main():
             # if policy is the same - probably change
             if out_policy == policy:
                 # double-check that it's change
-                # we already checked in get_cosigners and parse_multisig 
-                # that pubkeys are generated from cosigners, 
+                # we already checked in get_cosigners and parse_multisig
+                # that pubkeys are generated from cosigners,
                 # and witness script is corresponding multisig
                 # so we only need to check that scriptpubkey is generated from
                 # witness script
@@ -167,10 +172,14 @@ def main():
                 print("Change %d sats" % tx.tx.vout[i].value)
             else:
                 spending += tx.tx.vout[i].value
-                print("Spending %d sats to %s" % (tx.tx.vout[i].value, tx.tx.vout[i].script_pubkey.address()))
+                print(
+                    "Spending %d sats to %s"
+                    % (tx.tx.vout[i].value, tx.tx.vout[i].script_pubkey.address())
+                )
 
         fee = inp_amount - change - spending
         print("Fee: %d sats" % fee)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

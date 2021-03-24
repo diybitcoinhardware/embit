@@ -105,6 +105,9 @@ class Bip32Test(TestCase):
             self.assertTrue(act_xprv.is_private)
             self.assertEqual(act_xprv.to_base58(), exp_xprv)
             self.assertEqual(act_xpub.to_base58(), exp_xpub)
+            self.assertEqual(
+                act_xpub.derive([10, 20]), act_xprv.derive([10, 20]).to_public()
+            )
 
     def test_identity(self):
         xkeys = [

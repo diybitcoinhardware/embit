@@ -2,28 +2,36 @@
 
 from collections import OrderedDict
 
-from .transaction import Transaction, TransactionOutput, _parse
+from .transaction import Transaction, TransactionOutput, SIGHASH
 from . import compact
 from . import bip32
 from . import ec
+from . import hashes
 from .script import Script, Witness
 from . import script
+from .base import EmbitBase, EmbitError
+from binascii import b2a_base64, a2b_base64, hexlify
 
 
-def ser_string(s: bytes) -> bytes:
-    return compact.to_bytes(len(s)) + s
+class PSBTError(EmbitError):
+    pass
+
+
+def ser_string(stream, s: bytes) -> int:
+    return stream.write(compact.to_bytes(len(s))) + stream.write(s)
 
 
 def read_string(stream) -> bytes:
     l = compact.read_from(stream)
     s = stream.read(l)
     if len(s) != l:
-        raise ValueError("Failed to read %d bytes" % l)
+        raise PSBTError("Failed to read %d bytes" % l)
     return s
 
 
-class PSBT:
+class PSBT(EmbitBase):
     MAGIC = b"psbt\xff"
+
     def __init__(self, tx=None):
         if tx is not None:
             self.tx = tx
@@ -36,35 +44,63 @@ class PSBT:
         self.unknown = {}
         self.xpubs = OrderedDict()
 
-    def serialize(self) -> bytes:
+    def verify(self):
+        for i, inp in enumerate(self.inputs):
+            if inp.non_witness_utxo:
+                if inp.non_witness_utxo.txid() != self.tx.vin[i].txid:
+                    raise PSBTError("Invalid hash of the non witness utxo for input %d" % i)
+
+    def utxo(self, i):
+        if not (self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo):
+            raise PSBTError("Missing previous utxo on input %d" % i)
+        return self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo.vout[self.tx.vin[i].vout]
+
+    def write_to(self, stream) -> int:
         # magic bytes
-        r = self.MAGIC
+        r = stream.write(self.MAGIC)
         # unsigned tx flag
-        r += b"\x01\x00"
+        r += stream.write(b"\x01\x00")
         # write serialized tx
         tx = self.tx.serialize()
-        r += ser_string(tx)
+        r += ser_string(stream, tx)
         # xpubs
         for xpub in self.xpubs:
-            r += ser_string(b"\x01" + xpub.serialize())
-            r += ser_string(self.xpubs[xpub].serialize())
+            r += ser_string(stream, b"\x01" + xpub.serialize())
+            r += ser_string(stream, self.xpubs[xpub].serialize())
         # unknown
         for key in self.unknown:
-            r += ser_string(key)
-            r += ser_string(self.unknown[key])
+            r += ser_string(stream, key)
+            r += ser_string(stream, self.unknown[key])
         # separator
-        r += b"\x00"
+        r += stream.write(b"\x00")
         # inputs
         for inp in self.inputs:
-            r += inp.serialize()
+            r += inp.write_to(stream)
         # outputs
         for out in self.outputs:
-            r += out.serialize()
+            r += out.write_to(stream)
         return r
 
     @classmethod
-    def parse(cls, b: bytes):
-        return _parse(cls, b)
+    def from_base64(cls, b64):
+        raw = a2b_base64(b64)
+        return cls.parse(raw)
+
+    def to_base64(self):
+        return b2a_base64(self.serialize()).strip().decode()
+
+    def to_string(self, encoding="base64"):
+        if encoding == "base64":
+            return self.to_base64()
+        else:
+            return hexlify(self.serialize()).decode()
+
+    @classmethod
+    def from_string(cls, s):
+        if s.startswith("70736274ff"):
+            return cls.parse(unhexlify(s))
+        else:
+            return cls.from_base64(s)
 
     @classmethod
     def read_from(cls, stream):
@@ -73,7 +109,7 @@ class PSBT:
         xpubs = OrderedDict()
         # check magic
         if stream.read(len(cls.MAGIC)) != cls.MAGIC:
-            raise ValueError("Invalid PSBT magic")
+            raise PSBTError("Invalid PSBT magic")
         while True:
             key = read_string(stream)
             # separator
@@ -85,12 +121,12 @@ class PSBT:
                 if tx is None:
                     tx = Transaction.parse(value)
                 else:
-                    raise ValueError(
+                    raise PSBTError(
                         "Failed to parse PSBT - duplicated transaction field"
                     )
             else:
                 if key in unknown:
-                    raise ValueError("Duplicated key")
+                    raise PSBTError("Duplicated key")
                 unknown[key] = value
 
         psbt = cls(tx)
@@ -108,78 +144,97 @@ class PSBT:
         # output scopes
         for i in range(len(tx.vout)):
             psbt.outputs[i] = OutputScope.read_from(stream)
+        psbt.verify()
         return psbt
 
-    def sign_with(self, root) -> int:
+    def sign_with(self, root, sighash=SIGHASH.ALL) -> int:
         """
         Signs psbt with root key (HDKey or similar).
-        Returns number of signatures added to PSBT
+        Returns number of signatures added to PSBT.
+        Sighash kwarg is set to SIGHASH.ALL by default,
+        so if PSBT is asking to sign with a different sighash this function won't sign.
+        If you want to sign with sighashes provided in the PSBT - set sighash=None.
         """
-        fingerprint = root.child(0).fingerprint
+        # if WIF - fingerprint is None
+        fingerprint = None if not hasattr(root, "child") else root.child(0).fingerprint
+        if not fingerprint:
+            pub = root.get_public_key()
+            sec = pub.sec()
+            pkh = hashes.hash160(sec)
+
         counter = 0
         for i, inp in enumerate(self.inputs):
+            # check which sighash to use
+            inp_sighash = inp.sighash_type or sighash or SIGHASH.ALL
+            # if input sighash is set and is different from kwarg - skip input
+            if sighash is not None and inp_sighash != sighash:
+                continue
+
+            utxo = self.utxo(i)
+            value = utxo.value
+            sc = inp.witness_script or inp.redeem_script or utxo.script_pubkey
+
+            # detect if it is a segwit input
+            is_segwit = (inp.witness_script
+                        or inp.witness_utxo
+                        or utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
+                        or (
+                            inp.redeem_script
+                            and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
+                        )
+            )
+            # convert to p2pkh according to bip143
+            if sc.script_type() == "p2wpkh":
+                sc = script.p2pkh_from_p2wpkh(sc)
+            sig = None
+
+            # if we have individual private key
+            if not fingerprint:
+                sc = inp.witness_script or inp.redeem_script or self.utxo(i).script_pubkey
+                # check if we are included in the script
+                if sec in sc.data or pkh in sc.data:
+                    if is_segwit:
+                        h = self.tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
+                    else:
+                        h = self.tx.sighash_legacy(i, sc, sighash=inp_sighash)
+                    sig = root.sign(h)
+                    if sig is not None:
+                        # sig plus sighash_all
+                        inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
+                        counter += 1
+                continue
+
+            # if we use HDKey
             for pub in inp.bip32_derivations:
                 # check if it is root key
                 if inp.bip32_derivations[pub].fingerprint == fingerprint:
                     hdkey = root.derive(inp.bip32_derivations[pub].derivation)
                     mypub = hdkey.key.get_public_key()
                     if mypub != pub:
-                        raise ValueError("Derivation path doesn't look right")
+                        raise PSBTError("Derivation path doesn't look right")
                     sig = None
-                    utxo = None
-                    if inp.non_witness_utxo is not None:
-                        if inp.non_witness_utxo.txid() != self.tx.vin[i].txid:
-                            raise ValueError("Invalid utxo")
-                        utxo = inp.non_witness_utxo.vout[self.tx.vin[i].vout]
-                    elif inp.witness_utxo is not None:
-                        utxo = inp.witness_utxo
+                    if is_segwit:
+                        h = self.tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
                     else:
-                        raise ValueError("We need at least one utxo field")
-                    value = utxo.value
-                    sc = utxo.script_pubkey
-                    if inp.redeem_script is not None:
-                        sc = inp.redeem_script
-                    if inp.witness_script is not None:
-                        sc = inp.witness_script
-                    if sc.script_type() == "p2wpkh":
-                        sc = script.p2pkh_from_p2wpkh(sc)
-                    # detect if it is a segwit input
-                    # tx.input[i] doesn't have any info about that in raw psbt
-                    if (
-                        inp.witness_script is not None
-                        or inp.witness_utxo is not None
-                        or utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
-                        or (
-                            inp.redeem_script is not None
-                            and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
-                        )
-                    ):
-                        h = self.tx.sighash_segwit(i, sc, value)
-                    else:
-                        h = self.tx.sighash_legacy(i, sc)
+                        h = self.tx.sighash_legacy(i, sc, sighash=inp_sighash)
                     sig = hdkey.key.sign(h)
-                    counter += 1
                     if sig is not None:
-                        # sig plus sighash_all
-                        inp.partial_sigs[mypub] = sig.serialize() + b"\x01"
+                        # sig plus sighash flag
+                        inp.partial_sigs[mypub] = sig.serialize() + bytes([inp_sighash])
+                        counter += 1
         return counter
 
 
-class DerivationPath:
+class DerivationPath(EmbitBase):
     def __init__(self, fingerprint: bytes, derivation: list):
         self.fingerprint = fingerprint
         self.derivation = derivation
 
-    def serialize(self) -> bytes:
-        r = b""
-        r += self.fingerprint
+    def write_to(self, stream) -> int:
+        r = stream.write(self.fingerprint)
         for idx in self.derivation:
-            r += idx.to_bytes(4, "little")
+            r += stream.write(idx.to_bytes(4, "little"))
         return r
-
-    @classmethod
-    def parse(cls, b: bytes):
-        return _parse(cls, b)
 
     @classmethod
     def read_from(cls, stream):
@@ -190,28 +245,24 @@ class DerivationPath:
             if len(r) == 0:
                 break
             if len(r) < 4:
-                raise ValueError("Invalid length")
+                raise PSBTError("Invalid length")
             derivation.append(int.from_bytes(r, "little"))
         return cls(fingerprint, derivation)
 
 
-class PSBTScope:
+class PSBTScope(EmbitBase):
     def __init__(self, unknown: dict = {}):
         self.unknown = unknown
 
-    def serialize(self) -> bytes:
+    def write_to(self, stream) -> int:
         # unknown
-        r = b""
+        r = 0
         for key in self.unknown:
-            r += ser_string(key)
-            r += ser_string(self.unknown[key])
+            r += ser_string(stream, key)
+            r += ser_string(stream, self.unknown[key])
         # separator
-        r += b"\x00"
+        r += stream.write(b"\x00")
         return r
-
-    @classmethod
-    def parse(cls, b: bytes):
-        return _parse(cls, b)
 
     @classmethod
     def read_from(cls, stream):
@@ -223,7 +274,7 @@ class PSBTScope:
                 break
             value = read_string(stream)
             if key in unknown:
-                raise ValueError("Duplicated key")
+                raise PSBTError("Duplicated key")
             unknown[key] = value
         # now we can go through all the key-values and parse them
         return cls(unknown)
@@ -249,57 +300,57 @@ class InputScope(PSBTScope):
             # legacy utxo
             if k[0] == 0x00:
                 if len(k) != 1:
-                    raise ValueError("Invalid non-witness utxo key")
+                    raise PSBTError("Invalid non-witness utxo key")
                 elif self.non_witness_utxo is not None:
-                    raise ValueError("Duplicated utxo value")
+                    raise PSBTError("Duplicated utxo value")
                 else:
                     self.non_witness_utxo = Transaction.parse(self.unknown.pop(k))
             # witness utxo
             elif k[0] == 0x01:
                 if len(k) != 1:
-                    raise ValueError("Invalid witness utxo key")
+                    raise PSBTError("Invalid witness utxo key")
                 elif self.witness_utxo is not None:
-                    raise ValueError("Duplicated utxo value")
+                    raise PSBTError("Duplicated utxo value")
                 else:
                     self.witness_utxo = TransactionOutput.parse(self.unknown.pop(k))
             # partial signature
             elif k[0] == 0x02:
                 pub = ec.PublicKey.parse(k[1:])
                 if pub in self.partial_sigs:
-                    raise ValueError("Duplicated partial sig")
+                    raise PSBTError("Duplicated partial sig")
                 else:
                     self.partial_sigs[pub] = self.unknown.pop(k)
             # hash type
             elif k[0] == 0x03:
                 if len(k) != 1:
-                    raise ValueError("Invalid sighash type key")
+                    raise PSBTError("Invalid sighash type key")
                 elif self.sighash_type is None:
                     if len(self.unknown[k]) != 4:
-                        raise ValueError("Sighash type should be 4 bytes long")
-                    self.sighash_type = int.from_bytes(self.unknown.pop(k), "big")
+                        raise PSBTError("Sighash type should be 4 bytes long")
+                    self.sighash_type = int.from_bytes(self.unknown.pop(k), "little")
                 else:
-                    raise ValueError("Duplicated sighash type")
+                    raise PSBTError("Duplicated sighash type")
             # redeem script
             elif k[0] == 0x04:
                 if len(k) != 1:
-                    raise ValueError("Invalid redeem script key")
+                    raise PSBTError("Invalid redeem script key")
                 elif self.redeem_script is None:
                     self.redeem_script = Script(self.unknown.pop(k))
                 else:
-                    raise ValueError("Duplicated redeem script")
+                    raise PSBTError("Duplicated redeem script")
             # witness script
             elif k[0] == 0x05:
                 if len(k) != 1:
-                    raise ValueError("Invalid witness script key")
+                    raise PSBTError("Invalid witness script key")
                 elif self.witness_script is None:
                     self.witness_script = Script(self.unknown.pop(k))
                 else:
-                    raise ValueError("Duplicated witness script")
+                    raise PSBTError("Duplicated witness script")
             # bip32 derivation
             elif k[0] == 0x06:
                 pub = ec.PublicKey.parse(k[1:])
                 if pub in self.bip32_derivations:
-                    raise ValueError("Duplicated derivation path")
+                    raise PSBTError("Duplicated derivation path")
                 else:
                     self.bip32_derivations[pub] = DerivationPath.parse(
                         self.unknown.pop(k)
@@ -307,55 +358,55 @@ class InputScope(PSBTScope):
             # final scriptsig
             elif k[0] == 0x07:
                 if len(k) != 1:
-                    raise ValueError("Invalid final scriptsig key")
+                    raise PSBTError("Invalid final scriptsig key")
                 elif self.final_scriptsig is None:
                     self.final_scriptsig = Script(self.unknown.pop(k))
                 else:
-                    raise ValueError("Duplicated final scriptsig")
+                    raise PSBTError("Duplicated final scriptsig")
             # final script witness
             elif k[0] == 0x08:
                 if len(k) != 1:
-                    raise ValueError("Invalid final scriptwitness key")
+                    raise PSBTError("Invalid final scriptwitness key")
                 elif self.final_scriptwitness is None:
                     self.final_scriptwitness = Witness.parse(self.unknown.pop(k))
                 else:
-                    raise ValueError("Duplicated final scriptwitness")
+                    raise PSBTError("Duplicated final scriptwitness")
 
-    def serialize(self) -> bytes:
-        r = b""
+    def write_to(self, stream) -> int:
+        r = 0
         if self.non_witness_utxo is not None:
-            r += b"\x01\x00"
-            r += ser_string(self.non_witness_utxo.serialize())
+            r += stream.write(b"\x01\x00")
+            r += ser_string(stream, self.non_witness_utxo.serialize())
         if self.witness_utxo is not None:
-            r += b"\x01\x01"
-            r += ser_string(self.witness_utxo.serialize())
+            r += stream.write(b"\x01\x01")
+            r += ser_string(stream, self.witness_utxo.serialize())
         for pub in self.partial_sigs:
-            r += ser_string(b"\x02" + pub.serialize())
-            r += ser_string(self.partial_sigs[pub])
+            r += ser_string(stream, b"\x02" + pub.serialize())
+            r += ser_string(stream, self.partial_sigs[pub])
         if self.sighash_type is not None:
-            r += b"\x01\x03"
-            r += ser_string(self.sighash_type.to_bytes(4, "big"))
+            r += stream.write(b"\x01\x03")
+            r += ser_string(stream, self.sighash_type.to_bytes(4, "little"))
         if self.redeem_script is not None:
-            r += b"\x01\x04"
-            r += self.redeem_script.serialize()  # script serialization has length
+            r += stream.write(b"\x01\x04")
+            r += self.redeem_script.write_to(stream)  # script serialization has length
         if self.witness_script is not None:
-            r += b"\x01\x05"
-            r += self.witness_script.serialize()  # script serialization has length
+            r += stream.write(b"\x01\x05")
+            r += self.witness_script.write_to(stream)  # script serialization has length
         for pub in self.bip32_derivations:
-            r += ser_string(b"\x06" + pub.serialize())
-            r += ser_string(self.bip32_derivations[pub].serialize())
+            r += ser_string(stream, b"\x06" + pub.serialize())
+            r += ser_string(stream, self.bip32_derivations[pub].serialize())
         if self.final_scriptsig is not None:
-            r += b"\x01\x07"
-            r += self.final_scriptsig.serialize()
+            r += stream.write(b"\x01\x07")
+            r += self.final_scriptsig.write_to(stream)
         if self.final_scriptwitness is not None:
-            r += b"\x01\x08"
-            r += ser_string(self.final_scriptwitness.serialize())
+            r += stream.write(b"\x01\x08")
+            r += ser_string(stream, self.final_scriptwitness.serialize())
         # unknown
         for key in self.unknown:
-            r += ser_string(key)
-            r += ser_string(self.unknown[key])
+            r += ser_string(stream, key)
+            r += ser_string(stream, self.unknown[key])
         # separator
-        r += b"\x00"
+        r += stream.write(b"\x00")
         return r
 
 
@@ -373,44 +424,44 @@ class OutputScope(PSBTScope):
             # redeem script
             if k[0] == 0x00:
                 if len(k) != 1:
-                    raise ValueError("Invalid redeem script key")
+                    raise PSBTError("Invalid redeem script key")
                 elif self.redeem_script is None:
                     self.redeem_script = Script(self.unknown.pop(k))
                 else:
-                    raise ValueError("Duplicated redeem script")
+                    raise PSBTError("Duplicated redeem script")
             # witness script
             elif k[0] == 0x01:
                 if len(k) != 1:
-                    raise ValueError("Invalid witness script key")
+                    raise PSBTError("Invalid witness script key")
                 elif self.witness_script is None:
                     self.witness_script = Script(self.unknown.pop(k))
                 else:
-                    raise ValueError("Duplicated witness script")
+                    raise PSBTError("Duplicated witness script")
             # bip32 derivation
             elif k[0] == 0x02:
                 pub = ec.PublicKey.parse(k[1:])
                 if pub in self.bip32_derivations:
-                    raise ValueError("Duplicated derivation path")
+                    raise PSBTError("Duplicated derivation path")
                 else:
                     self.bip32_derivations[pub] = DerivationPath.parse(
                         self.unknown.pop(k)
                     )
 
-    def serialize(self) -> bytes:
-        r = b""
+    def write_to(self, stream) -> int:
+        r = 0
         if self.redeem_script is not None:
-            r += b"\x01\x00"
-            r += self.redeem_script.serialize()  # script serialization has length
+            r += stream.write(b"\x01\x00")
+            r += self.redeem_script.write_to(stream)  # script serialization has length
         if self.witness_script is not None:
-            r += b"\x01\x01"
-            r += self.witness_script.serialize()  # script serialization has length
+            r += stream.write(b"\x01\x01")
+            r += self.witness_script.write_to(stream)  # script serialization has length
         for pub in self.bip32_derivations:
-            r += ser_string(b"\x02" + pub.serialize())
-            r += ser_string(self.bip32_derivations[pub].serialize())
+            r += ser_string(stream, b"\x02" + pub.serialize())
+            r += ser_string(stream, self.bip32_derivations[pub].serialize())
         # unknown
         for key in self.unknown:
-            r += ser_string(key)
-            r += ser_string(self.unknown[key])
+            r += ser_string(stream, key)
+            r += ser_string(stream, self.unknown[key])
         # separator
-        r += b"\x00"
+        r += stream.write(b"\x00")
         return r

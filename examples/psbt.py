@@ -4,12 +4,14 @@ from embit import bip39
 from embit.networks import NETWORKS
 from embit import psbt
 from binascii import unhexlify, hexlify
+
 # base64 encoding
 from binascii import a2b_base64, b2a_base64
 
 # example of key and address derivations from mnemonic
-# you can check that everything works right 
+# you can check that everything works right
 # on https://iancoleman.io/bip39/
+
 
 def main():
     # get root key from the mnemonic
@@ -29,11 +31,14 @@ def main():
     bip84_xprv = root.derive(hardened_derivation)
     # corresponding master public key:
     bip84_xpub = bip84_xprv.to_public()
-    print("[%s%s]%s" % (
-                hexlify(fingerprint).decode('utf-8'),
-                hardened_derivation[1:],
-                bip84_xpub.to_base58())
+    print(
+        "[%s%s]%s"
+        % (
+            hexlify(fingerprint).decode("utf-8"),
+            hardened_derivation[1:],
+            bip84_xpub.to_base58(),
         )
+    )
 
     # parse psbt transaction
     b64_psbt = "cHNidP8BAHICAAAAAY3LB6teEH6qJHluFYG3AQe8n0HDUcUSEuw2WIJ1ECDUAAAAAAD/////AoDDyQEAAAAAF6kU882+nVMDKGj4rKzjDB6NjyJqSBCHaPMhCgAAAAAWABQUbW8/trQg4d3PKL8WLi2kUa1BqAAAAAAAAQEfAMLrCwAAAAAWABTR6Cr4flM2A0LMGjGiaZ+fhod37SIGAhHf737H1jCUjkJ1K5DqFkaY0keihxeWBQpm1kDtVZyxGLMX7IZUAACAAQAAgAAAAIAAAAAAAAAAAAAAIgIDPtTTi27VFw59jdmWDV8b1YciQzhYGO7m8zB9CvD0brcYsxfshlQAAIABAACAAAAAgAEAAAAAAAAAAA=="
@@ -47,7 +52,7 @@ def main():
     for inp in tx.inputs:
         total_in += inp.witness_utxo.value
     print("Inputs:", total_in, "satoshi")
-    change_out = 0 # value that goes back to us
+    change_out = 0  # value that goes back to us
     send_outputs = []
     for i, out in enumerate(tx.outputs):
         # check if it is a change or not:
@@ -69,12 +74,12 @@ def main():
             change_out += tx.tx.vout[i].value
         else:
             send_outputs.append(tx.tx.vout[i])
-    print("Spending", total_in-change_out, "satoshi")
-    fee = total_in-change_out
+    print("Spending", total_in - change_out, "satoshi")
+    fee = total_in - change_out
     for out in send_outputs:
         fee -= out.value
-        print(out.value,"to",out.script_pubkey.address(NETWORKS["test"]))
-    print("Fee:",fee,"satoshi")
+        print(out.value, "to", out.script_pubkey.address(NETWORKS["test"]))
+    print("Fee:", fee, "satoshi")
 
     # sign the transaction
     tx.sign_with(root)
@@ -86,11 +91,12 @@ def main():
         b64_psbt = b64_psbt[:-1]
     # print
     print("\nSigned transaction:")
-    print(b64_psbt.decode('utf-8'))
+    print(b64_psbt.decode("utf-8"))
     # now transaction is ready to be finalized and broadcasted
     # it can be done with Bitcoin Core
     # bitcoin-cli finalizepsbt
     # bitcoin-cli sendrawtransaction
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
