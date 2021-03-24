@@ -2,10 +2,11 @@
 
 from collections import OrderedDict
 
-from .transaction import Transaction, TransactionOutput
+from .transaction import Transaction, TransactionOutput, SIGHASH
 from . import compact
 from . import bip32
 from . import ec
+from . import hashes
 from .script import Script, Witness
 from . import script
 from .base import EmbitBase, EmbitError
@@ -42,6 +43,17 @@ class PSBT(EmbitBase):
             self.outputs = []
         self.unknown = {}
         self.xpubs = OrderedDict()
+
+    def verify(self):
+        for i, inp in enumerate(self.inputs):
+            if inp.non_witness_utxo:
+                if inp.non_witness_utxo.txid() != self.tx.vin[i].txid:
+                    raise PSBTError("Invalid hash of the non witness utxo for input %d" % i)
+
+    def utxo(self, i):
+        if not (self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo):
+            raise PSBTError("Missing previous utxo on input %d" % i)
+        return self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo.vout[self.tx.vin[i].vout]
 
     def write_to(self, stream) -> int:
         # magic bytes
@@ -132,16 +144,67 @@ class PSBT(EmbitBase):
         # output scopes
         for i in range(len(tx.vout)):
             psbt.outputs[i] = OutputScope.read_from(stream)
+        psbt.verify()
         return psbt
 
-    def sign_with(self, root) -> int:
+    def sign_with(self, root, sighash=SIGHASH.ALL) -> int:
         """
         Signs psbt with root key (HDKey or similar).
-        Returns number of signatures added to PSBT
+        Returns number of signatures added to PSBT.
+        Sighash kwarg is set to SIGHASH.ALL by default,
+        so if PSBT is asking to sign with a different sighash this function won't sign.
+        If you want to sign with sighashes provided in the PSBT - set sighash=None.
         """
-        fingerprint = root.child(0).fingerprint
+        # if WIF - fingerprint is None
+        fingerprint = None if not hasattr(root, "child") else root.child(0).fingerprint
+        if not fingerprint:
+            pub = root.get_public_key()
+            sec = pub.sec()
+            pkh = hashes.hash160(sec)
+
         counter = 0
         for i, inp in enumerate(self.inputs):
+            # check which sighash to use
+            inp_sighash = inp.sighash_type or sighash or SIGHASH.ALL
+            # if input sighash is set and is different from kwarg - skip input
+            if sighash is not None and inp_sighash != sighash:
+                continue
+
+            utxo = self.utxo(i)
+            value = utxo.value
+            sc = inp.witness_script or inp.redeem_script or utxo.script_pubkey
+
+            # detect if it is a segwit input
+            is_segwit = (inp.witness_script
+                        or inp.witness_utxo
+                        or utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
+                        or (
+                            inp.redeem_script
+                            and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
+                        )
+            )
+            # convert to p2pkh according to bip143
+            if sc.script_type() == "p2wpkh":
+                sc = script.p2pkh_from_p2wpkh(sc)
+            sig = None
+
+            # if we have individual private key
+            if not fingerprint:
+                sc = inp.witness_script or inp.redeem_script or self.utxo(i).script_pubkey
+                # check if we are included in the script
+                if sec in sc.data or pkh in sc.data:
+                    if is_segwit:
+                        h = self.tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
+                    else:
+                        h = self.tx.sighash_legacy(i, sc, sighash=inp_sighash)
+                    sig = root.sign(h)
+                    if sig is not None:
+                        # sig plus sighash_all
+                        inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
+                        counter += 1
+                continue
+
+            # if we use HDKey
             for pub in inp.bip32_derivations:
                 # check if it is root key
                 if inp.bip32_derivations[pub].fingerprint == fingerprint:
@@ -150,42 +213,15 @@ class PSBT(EmbitBase):
                     if mypub != pub:
                         raise PSBTError("Derivation path doesn't look right")
                     sig = None
-                    utxo = None
-                    if inp.non_witness_utxo is not None:
-                        if inp.non_witness_utxo.txid() != self.tx.vin[i].txid:
-                            raise PSBTError("Invalid utxo")
-                        utxo = inp.non_witness_utxo.vout[self.tx.vin[i].vout]
-                    elif inp.witness_utxo is not None:
-                        utxo = inp.witness_utxo
+                    if is_segwit:
+                        h = self.tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
                     else:
-                        raise PSBTError("We need at least one utxo field")
-                    value = utxo.value
-                    sc = utxo.script_pubkey
-                    if inp.redeem_script is not None:
-                        sc = inp.redeem_script
-                    if inp.witness_script is not None:
-                        sc = inp.witness_script
-                    if sc.script_type() == "p2wpkh":
-                        sc = script.p2pkh_from_p2wpkh(sc)
-                    # detect if it is a segwit input
-                    # tx.input[i] doesn't have any info about that in raw psbt
-                    if (
-                        inp.witness_script is not None
-                        or inp.witness_utxo is not None
-                        or utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
-                        or (
-                            inp.redeem_script is not None
-                            and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
-                        )
-                    ):
-                        h = self.tx.sighash_segwit(i, sc, value)
-                    else:
-                        h = self.tx.sighash_legacy(i, sc)
+                        h = self.tx.sighash_legacy(i, sc, sighash=inp_sighash)
                     sig = hdkey.key.sign(h)
-                    counter += 1
                     if sig is not None:
-                        # sig plus sighash_all
-                        inp.partial_sigs[mypub] = sig.serialize() + b"\x01"
+                        # sig plus sighash flag
+                        inp.partial_sigs[mypub] = sig.serialize() + bytes([inp_sighash])
+                        counter += 1
         return counter
 
 
@@ -291,7 +327,7 @@ class InputScope(PSBTScope):
                 elif self.sighash_type is None:
                     if len(self.unknown[k]) != 4:
                         raise PSBTError("Sighash type should be 4 bytes long")
-                    self.sighash_type = int.from_bytes(self.unknown.pop(k), "big")
+                    self.sighash_type = int.from_bytes(self.unknown.pop(k), "little")
                 else:
                     raise PSBTError("Duplicated sighash type")
             # redeem script
@@ -349,7 +385,7 @@ class InputScope(PSBTScope):
             r += ser_string(stream, self.partial_sigs[pub])
         if self.sighash_type is not None:
             r += stream.write(b"\x01\x03")
-            r += ser_string(stream, self.sighash_type.to_bytes(4, "big"))
+            r += ser_string(stream, self.sighash_type.to_bytes(4, "little"))
         if self.redeem_script is not None:
             r += stream.write(b"\x01\x04")
             r += self.redeem_script.write_to(stream)  # script serialization has length

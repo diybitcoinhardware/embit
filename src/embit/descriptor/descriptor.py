@@ -41,7 +41,11 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_wrapped(self):
-        return self.sh
+        return self.sh and self.is_segwit
+
+    @property
+    def is_legacy(self):
+        return not self.is_segwit
 
     @property
     def is_segwit(self):

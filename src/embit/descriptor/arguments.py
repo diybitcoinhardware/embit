@@ -274,6 +274,12 @@ class Key(DescriptorBase):
             self.is_extended and self.key.is_private
         )
 
+    @property
+    def private_key(self):
+        if self.is_private:
+            # either HDKey.key or just the key
+            return self.key.key if self.is_extended else self.key
+
     def to_string(self, version=None):
         if isinstance(self.key, ec.PublicKey):
             return self.prefix + hexlify(self.key.sec()).decode()
