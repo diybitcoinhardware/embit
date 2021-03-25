@@ -71,6 +71,17 @@ class Descriptor(DescriptorBase):
     def is_sorted(self):
         return self.is_basic_multisig and self.miniscript.NAME == "sortedmulti"
 
+    def scriptpubkey_type(self):
+        if self.sh:
+            return "p2sh"
+        if self.is_pkh:
+            if self.is_legacy:
+                return "p2pkh"
+            if self.is_segwit:
+                return "p2wpkh"
+        else:
+            return "p2wsh"
+
     @property
     def brief_policy(self):
         if self.key:
