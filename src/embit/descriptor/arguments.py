@@ -156,6 +156,9 @@ class Key(DescriptorBase):
             raise ArgumentError("Key %s doesn't support derivation" % key)
         self.allowed_derivation = derivation
 
+    def __len__(self):
+        return 34 # <33:sec> - only compressed pubkeys
+
     @property
     def fingerprint(self):
         return None if self.origin is None else self.origin.fingerprint
@@ -316,6 +319,9 @@ class KeyHash(Key):
             return unhexlify(self.key)
         return hashes.hash160(self.key.sec())
 
+    def __len__(self):
+        return 21 # <20:pkh>
+
     def compile(self):
         d = self.serialize()
         return compact.to_bytes(len(d)) + d
@@ -345,6 +351,9 @@ class Number(DescriptorBase):
             b += b"\x00"
         return bytes([len(b)]) + b
 
+    def __len__(self):
+        return len(self.compile())
+
     def __str__(self):
         return "%d" % self.num
 
@@ -365,10 +374,15 @@ class Raw(DescriptorBase):
     def compile(self):
         return compact.to_bytes(len(self.raw)) + self.raw
 
+    def __len__(self):
+        return len(compact.to_bytes(self.LEN)) + self.LEN
 
 class Raw32(Raw):
     LEN = 32
-
+    def __len__(self):
+        return 33
 
 class Raw20(Raw):
     LEN = 20
+    def __len__(self):
+        return 21

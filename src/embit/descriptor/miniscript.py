@@ -97,6 +97,12 @@ class Miniscript(DescriptorBase):
     def __str__(self):
         return type(self).NAME + "(" + ",".join([str(arg) for arg in self.args]) + ")"
 
+    def __len__(self):
+        """Length of the compiled script, override this if you know the length"""
+        return len(self.compile())
+
+    def len_args(self):
+        return sum([len(arg) for arg in self.args])
 
 ########### Known fragments (miniscript operators) ##############
 
@@ -123,6 +129,9 @@ class PkK(OneArg):
     def inner_compile(self):
         return self.carg
 
+    def __len__(self):
+        return self.len_args()
+
 
 class PkH(OneArg):
     # DUP HASH160 <HASH160(key)> EQUALVERIFY
@@ -134,6 +143,8 @@ class PkH(OneArg):
     def inner_compile(self):
         return b"\x76\xa9" + self.carg + b"\x88"
 
+    def __len__(self):
+        return self.len_args() + 3
 
 class Older(OneArg):
     # <n> CHECKSEQUENCEVERIFY
@@ -152,6 +163,8 @@ class Older(OneArg):
                 "%s should have an argument in range [1, 0x80000000)" % self.NAME
             )
 
+    def __len__(self):
+        return self.len_args() + 1
 
 class After(Older):
     # <n> CHECKLOCKTIMEVERIFY
@@ -171,6 +184,8 @@ class Sha256(OneArg):
     def inner_compile(self):
         return b"\x82" + Number(32).compile() + b"\x88\xa8" + self.carg + b"\x87"
 
+    def __len__(self):
+        return self.len_args() + 6
 
 class Hash256(Sha256):
     # SIZE <32> EQUALVERIFY HASH256 <h> EQUAL
@@ -248,6 +263,8 @@ class AndOr(Miniscript):
             + b"\x68"
         )
 
+    def __len__(self):
+        return self.len_args() + 3
 
 class AndV(Miniscript):
     # [X] [Y]
@@ -257,6 +274,9 @@ class AndV(Miniscript):
 
     def inner_compile(self):
         return self.args[0].compile() + self.args[1].compile()
+
+    def __len__(self):
+        return self.len_args()
 
     def verify(self):
         # X is V; Y is B, K, or V
@@ -296,6 +316,9 @@ class AndB(Miniscript):
 
     def inner_compile(self):
         return self.args[0].compile() + self.args[1].compile() + b"\x9a"
+
+    def __len__(self):
+        return self.len_args() + 1
 
     def verify(self):
         # X is B; Y is W
@@ -338,6 +361,9 @@ class AndN(Miniscript):
             + self.args[1].compile()
             + b"\x68"
         )
+
+    def __len__(self):
+        return self.len_args() + 4
 
     @property
     def type(self):
@@ -384,6 +410,9 @@ class OrB(Miniscript):
     def inner_compile(self):
         return self.args[0].compile() + self.args[1].compile() + b"\x9b"
 
+    def __len__(self):
+        return self.len_args() + 1
+
     def verify(self):
         # X is Bd; Z is Wd
         super().verify()
@@ -419,6 +448,9 @@ class OrC(Miniscript):
     def inner_compile(self):
         return self.args[0].compile() + b"\x64" + self.args[1].compile() + b"\x68"
 
+    def __len__(self):
+        return self.len_args() + 2
+
     def verify(self):
         # X is Bdu; Z is V
         super().verify()
@@ -451,6 +483,9 @@ class OrD(Miniscript):
 
     def inner_compile(self):
         return self.args[0].compile() + b"\x73\x64" + self.args[1].compile() + b"\x68"
+
+    def __len__(self):
+        return self.len_args() + 3
 
     def verify(self):
         # X is Bdu; Z is B
@@ -494,6 +529,9 @@ class OrI(Miniscript):
             + b"\x68"
         )
 
+    def __len__(self):
+        return self.len_args() + 3
+
     def verify(self):
         # both are B, K, or V
         super().verify()
@@ -535,6 +573,9 @@ class Thresh(Miniscript):
             + self.args[0].compile()
             + b"\x87"
         )
+
+    def __len__(self):
+        return self.len_args() + len(self.args) - 1
 
     def verify(self):
         # 1 < k < n; X1 is Bdu; others are Wdu
@@ -585,6 +626,9 @@ class Multi(Miniscript):
             + b"\xae"
         )
 
+    def __len__(self):
+        return self.len_args() + 2
+
     def verify(self):
         super().verify()
         if self.args[0].num < 1 or self.args[0].num > (len(self.args) - 1):
@@ -616,6 +660,9 @@ class Pk(OneArg):
     def inner_compile(self):
         return self.carg + b"\xac"
 
+    def __len__(self):
+        return self.len_args() + 1
+
 
 class Pkh(OneArg):
     # DUP HASH160 <HASH160(key)> EQUALVERIFY CHECKSIG
@@ -626,6 +673,9 @@ class Pkh(OneArg):
 
     def inner_compile(self):
         return b"\x76\xa9" + self.carg + b"\x88\xac"
+
+    def __len__(self):
+        return self.len_args() + 4
 
     # TODO: 0, 1 - they are without brackets, so it should be different...
 
@@ -678,6 +728,9 @@ class A(Wrapper):
     def inner_compile(self):
         return b"\x6b" + self.carg + b"\x6c"
 
+    def __len__(self):
+        return len(self.arg) + 2
+
     def verify(self):
         super().verify()
         if self.arg.type != "B":
@@ -700,6 +753,9 @@ class S(Wrapper):
 
     def inner_compile(self):
         return b"\x7c" + self.carg
+
+    def __len__(self):
+        return len(self.arg) + 1
 
     def verify(self):
         super().verify()
@@ -726,6 +782,9 @@ class C(Wrapper):
     def inner_compile(self):
         return self.carg + b"\xac"
 
+    def __len__(self):
+        return len(self.arg) + 1
+
     def verify(self):
         super().verify()
         if self.arg.type != "K":
@@ -748,6 +807,9 @@ class T(Wrapper):
 
     def inner_compile(self):
         return self.carg + Number(1).compile()
+
+    def __len__(self):
+        return len(self.arg) + 1
 
     @property
     def properties(self):
@@ -772,6 +834,9 @@ class D(Wrapper):
 
     def inner_compile(self):
         return b"\x76\x63" + self.carg + b"\x68"
+
+    def __len__(self):
+        return len(self.arg) + 3
 
     def verify(self):
         super().verify()
@@ -845,6 +910,9 @@ class N(Wrapper):
     def inner_compile(self):
         return self.carg + b"\x92"
 
+    def __len__(self):
+        return len(self.arg) + 1
+
     def verify(self):
         super().verify()
         if self.arg.type != "B":
@@ -867,6 +935,9 @@ class L(Wrapper):
     def inner_compile(self):
         return b"\x63" + Number(0).compile() + b"\x67" + self.carg + b"\x68"
 
+    def __len__(self):
+        return len(self.arg) + 4
+
     def verify(self):
         # both are B, K, or V
         super().verify()
@@ -888,7 +959,10 @@ class L(Wrapper):
 class U(L):
     # IF [X] ELSE 0 ENDIF
     def inner_compile(self):
-        return (b"\x63" + self.carg + b"\x67" + Number(0).compile() + b"\x68",)
+        return b"\x63" + self.carg + b"\x67" + Number(0).compile() + b"\x68"
+
+    def __len__(self):
+        return len(self.arg) + 4
 
 
 WRAPPERS = [A, S, C, T, D, V, J, N, L, U]

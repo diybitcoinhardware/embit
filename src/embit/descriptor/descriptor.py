@@ -35,6 +35,14 @@ class Descriptor(DescriptorBase):
         self.wpkh = wpkh
 
     @property
+    def script_len(self):
+        if self.miniscript:
+            return len(self.miniscript)
+        if self.wpkh:
+            return 22 # 00 <20:pkh>
+        return 25 # OP_DUP OP_HASH160 <20:pkh> OP_EQUALVERIFY OP_CHECKSIG
+
+    @property
     def num_branches(self):
         branches = [k.branches for k in self.keys if k.branches is not None]
         return 1 if len(branches) == 0 else len(branches[0])

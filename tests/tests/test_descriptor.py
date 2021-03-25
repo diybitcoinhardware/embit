@@ -2,7 +2,8 @@ from unittest import TestCase
 from binascii import hexlify
 from io import BytesIO
 from embit.descriptor import Descriptor, Key
-from embit.descriptor.arguments import KeyHash
+from embit.descriptor.arguments import KeyHash, Number
+from embit.descriptor.miniscript import OPERATORS, WRAPPERS
 
 class DescriptorTest(TestCase):
     def test_descriptors(self):
@@ -102,6 +103,7 @@ class DescriptorTest(TestCase):
             self.assertEqual(str(sc), d)
             # get top level script
             scc = sc.witness_script() or sc.redeem_script() or sc.script_pubkey()
+            self.assertEqual(len(scc.data), sc.script_len)
             schex = hexlify(scc.data).decode()
             self.assertEqual(schex, a)
             self.assertEqual(str(sc), d)
@@ -127,6 +129,19 @@ class DescriptorTest(TestCase):
             if kk.can_derive:
                 kkk = kk.derive(88)
                 self.assertFalse(kkk.can_derive)
+
+    def test_len(self):
+        """Checks that len(miniscript) returns correct length"""
+        for op in OPERATORS:
+            nargs = op.NARGS
+            if nargs is None:
+                nargs = 3
+            o = op(*[Number(55) for i in range(nargs)])
+            self.assertEqual(len(o), len(o.compile()))
+        for wr in WRAPPERS:
+            w = wr(o)
+            self.assertEqual(len(w), len(w.compile()))
+
 # test that:
 # + str(d) == d
 # + compile() works correctly
