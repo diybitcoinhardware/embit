@@ -6,3 +6,4 @@ from . import ec
 from . import hashes
 from . import script
 from . import networks
+from . import descriptor
