@@ -89,7 +89,7 @@ class PSET(PSBT):
 
     def verify(self):
         """Checks that all commitments, values and assets are consistent"""
-        # TODO: super().verify()?
+        super().verify()
         for i, vout in enumerate(self.tx.vout):
             out = self.outputs[i]
             if out.nonce_commitment:
@@ -200,6 +200,7 @@ class LOutputScope(PSBTScope):
         self.range_proof = None
         self.surjection_proof = None
         self.nonce_commitment = None
+        # super calls parse_unknown() at the end
         super().__init__(unknown)
 
     def parse_unknowns(self):

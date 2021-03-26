@@ -27,7 +27,7 @@ NETWORKS = {
         "zpub":   b'\x04\xb2\x47\x46',
         "Ypub":   b'\x02\x95\xb4\x3f',
         "Zpub":   b'\x02\xaa\x7e\xd3',
-        "bip32":  const(0) # coin type for bip32 derivation
+        "bip32":  const(1776) # coin type for bip32 derivation
     },
     "elementsregtest": {
         "name":   "Liquid Regtest",
