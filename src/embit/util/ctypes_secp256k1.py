@@ -200,6 +200,32 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
     ]
     secp256k1.secp256k1_ecdsa_recover.restype = c_int
 
+    # zkp modules
+
+    # generator module
+    secp256k1.secp256k1_generator_parse.argtypes = [c_void_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_generator_parse.restype = c_int
+
+    secp256k1.secp256k1_generator_serialize.argtypes = [c_void_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_generator_serialize.restype = c_int
+
+    secp256k1.secp256k1_generator_generate.argtypes = [c_void_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_generator_generate.restype = c_int
+
+    secp256k1.secp256k1_generator_generate_blinded.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_generator_generate_blinded.restype = c_int
+    
+    # pederson commitments
+    secp256k1.secp256k1_pedersen_commitment_parse.argtypes = [c_void_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_pedersen_commitment_parse.restype = c_int
+
+    secp256k1.secp256k1_pedersen_commitment_serialize.argtypes = [c_void_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_pedersen_commitment_serialize.restype = c_int
+
+    secp256k1.secp256k1_pedersen_commit.argtypes = [c_void_p, c_char_p, c_char_p, c_uint64, c_char_p]
+    secp256k1.secp256k1_pedersen_commit.restype = c_int
+
+
     secp256k1.ctx = secp256k1.secp256k1_context_create(flags)
 
     r = secp256k1.secp256k1_context_randomize(secp256k1.ctx, os.urandom(32))
@@ -465,3 +491,72 @@ def ecdsa_recover(sig, msghash, context=_secp.ctx):
     if r == 0:
         raise ValueError("Failed to recover public key")
     return pub
+
+# zkp modules
+
+def pedersen_commitment_parse(inp, context=_secp.ctx):
+    if len(inp)!=33:
+        raise ValueError("Serialized commitment should be 33 bytes long")
+    commit = bytes(64)
+    r = _secp.secp256k1_pedersen_commitment_parse(context, commit, inp)
+    if r == 0:
+        raise ValueError("Failed to parse commitment")
+    return commit
+
+def pedersen_commitment_serialize(commit, context=_secp.ctx):
+    if len(commit)!=64:
+        raise ValueError("Commitment should be 64 bytes long")
+    sec = bytes(33)
+    r = _secp.secp256k1_pedersen_commitment_serialize(context, sec, commit)
+    if r == 0:
+        raise ValueError("Failed to serialize commitment")
+    return sec
+
+def pedersen_commit(vbf, value, gen, context=_secp.ctx):
+    if len(gen)!=64:
+        raise ValueError("Generator should be 64 bytes long")
+    if len(vbf)!=32:
+        raise ValueError("Blinding factor should be 32 bytes long")
+    commit = bytes(64)
+    r = _secp.secp256k1_pedersen_commit(context, commit, vbf, value, gen)
+    if r == 0:
+        raise ValueError("Failed to create commitment")
+    return commit
+
+# generator
+def generator_parse(inp, context=_secp.ctx):
+    if len(inp)!=33:
+        raise ValueError("Serialized generator should be 33 bytes long")
+    gen = bytes(64)
+    r = _secp.secp256k1_generator_parse(context, gen, inp)
+    if r == 0:
+        raise ValueError("Failed to parse generator")
+    return gen
+
+def generator_generate(asset, context=_secp.ctx):
+    if len(asset)!=32:
+        raise ValueError("Asset should be 32 bytes long")
+    gen = bytes(64)
+    r = _secp.secp256k1_generator_generate(context, gen, asset)
+    if r == 0:
+        raise ValueError("Failed to generate generator")
+    return gen
+
+def generator_generate_blinded(asset, abf, context=_secp.ctx):
+    if len(asset)!=32:
+        raise ValueError("Asset should be 32 bytes long")
+    if len(abf)!=32:
+        raise ValueError("Asset blinding factor should be 32 bytes long")
+    gen = bytes(64)
+    r = _secp.secp256k1_generator_generate_blinded(context, gen, asset, abf)
+    if r == 0:
+        raise ValueError("Failed to generate generator")
+    return gen
+
+def generator_serialize(generator, context=_secp.ctx):
+    if len(generator)!=64:
+        raise ValueError("Generator should be 64 bytes long")
+    sec = bytes(33)
+    if _secp.secp256k1_generator_serialize(context, sec, generator) == 0:
+        raise RuntimeError("Failed to serialize generator")
+    return sec
