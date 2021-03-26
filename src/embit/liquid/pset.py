@@ -2,7 +2,7 @@ import sys
 
 if sys.implementation.name == "micropython":
     import secp256k1
-except:
+else:
     from ..util import secp256k1
 
 from ..psbt import *
@@ -33,6 +33,7 @@ class PSET(PSBT):
         # TODO: rebase to psbt implementation
         fingerprint = root.child(0).fingerprint
         counter = 0
+        # TODO: ugly, make it with super()
         txx = LTransaction.parse(self.tx.serialize())
         for i, out in enumerate(txx.vout):
             if self.outputs[i].nonce_commitment:
@@ -147,103 +148,19 @@ class PSET(PSBT):
 
 class LInputScope(PSBTScope):
     def __init__(self, unknown: dict = {}):
-        self.unknown = unknown
-        self.non_witness_utxo = None
-        self.witness_utxo = None
-        self.partial_sigs = OrderedDict()
-        self.sighash_type = None
-        self.redeem_script = None
-        self.witness_script = None
-        self.bip32_derivations = OrderedDict()
-        self.final_scriptsig = None
-        self.final_scriptwitness = None
         # liquid-specific fields:
         self.value = None
         self.value_blinding_factor = None
         self.asset = None
         self.asset_blinding_factor = None
-        self.parse_unknowns()
+        super().__init__(unknown)
 
     def parse_unknowns(self):
         # go through all the unknowns and parse them
-        # TODO: super().parse_unknowns?
+        super().parse_unknowns()
         for k in list(self.unknown):
-            # legacy utxo
-            if k[0] == 0x00:
-                if len(k) != 1:
-                    raise ValueError("Invalid non-witness utxo key")
-                elif self.non_witness_utxo is not None:
-                    raise ValueError("Duplicated utxo value")
-                else:
-                    self.non_witness_utxo = LTransaction.parse(self.unknown.pop(k))
-            # witness utxo
-            elif k[0] == 0x01:
-                if len(k) != 1:
-                    raise ValueError("Invalid witness utxo key")
-                elif self.witness_utxo is not None:
-                    raise ValueError("Duplicated utxo value")
-                else:
-                    self.witness_utxo = LTransactionOutput.parse(self.unknown.pop(k))
-            # partial signature
-            elif k[0] == 0x02:
-                pub = ec.PublicKey.parse(k[1:])
-                if pub in self.partial_sigs:
-                    raise ValueError("Duplicated partial sig")
-                else:
-                    self.partial_sigs[pub] = self.unknown.pop(k)
-            # hash type
-            elif k[0] == 0x03:
-                if len(k) != 1:
-                    raise ValueError("Invalid sighash type key")
-                elif self.sighash_type is None:
-                    if len(self.unknown[k]) != 4:
-                        raise ValueError("Sighash type should be 4 bytes long")
-                    self.sighash_type = int.from_bytes(self.unknown.pop(k), "big")
-                else:
-                    raise ValueError("Duplicated sighash type")
-            # redeem script
-            elif k[0] == 0x04:
-                if len(k) != 1:
-                    raise ValueError("Invalid redeem script key")
-                elif self.redeem_script is None:
-                    self.redeem_script = Script(self.unknown.pop(k))
-                else:
-                    raise ValueError("Duplicated redeem script")
-            # witness script
-            elif k[0] == 0x05:
-                if len(k) != 1:
-                    raise ValueError("Invalid witness script key")
-                elif self.witness_script is None:
-                    self.witness_script = Script(self.unknown.pop(k))
-                else:
-                    raise ValueError("Duplicated witness script")
-            # bip32 derivation
-            elif k[0] == 0x06:
-                pub = ec.PublicKey.parse(k[1:])
-                if pub in self.bip32_derivations:
-                    raise ValueError("Duplicated derivation path")
-                else:
-                    self.bip32_derivations[pub] = DerivationPath.parse(
-                        self.unknown.pop(k)
-                    )
-            # final scriptsig
-            elif k[0] == 0x07:
-                if len(k) != 1:
-                    raise ValueError("Invalid final scriptsig key")
-                elif self.final_scriptsig is None:
-                    self.final_scriptsig = Script(self.unknown.pop(k))
-                else:
-                    raise ValueError("Duplicated final scriptsig")
-            # final script witness
-            elif k[0] == 0x08:
-                if len(k) != 1:
-                    raise ValueError("Invalid final scriptwitness key")
-                elif self.final_scriptwitness is None:
-                    self.final_scriptwitness = Witness.parse(self.unknown.pop(k))
-                else:
-                    raise ValueError("Duplicated final scriptwitness")
             # liquid-specific fields
-            elif k == b'\xfc\x08elements\x00':
+            if k == b'\xfc\x08elements\x00':
                 self.value = int.from_bytes(self.unknown.pop(k), 'little')
             elif k == b'\xfc\x08elements\x01':
                 self.value_blinding_factor = self.unknown.pop(k)
@@ -252,63 +169,29 @@ class LInputScope(PSBTScope):
             elif k == b'\xfc\x08elements\x03':
                 self.asset_blinding_factor = self.unknown.pop(k)
 
-    def serialize(self) -> bytes:
-        # TODO: super().write_to() ???
-        r = b""
-        if self.non_witness_utxo is not None:
-            r += b"\x01\x00"
-            r += ser_string(self.non_witness_utxo.serialize())
-        if self.witness_utxo is not None:
-            r += b"\x01\x01"
-            r += ser_string(self.witness_utxo.serialize())
-        for pub in self.partial_sigs:
-            r += ser_string(b"\x02" + pub.serialize())
-            r += ser_string(self.partial_sigs[pub])
-        if self.sighash_type is not None:
-            r += b"\x01\x03"
-            r += ser_string(self.sighash_type.to_bytes(4, "big"))
-        if self.redeem_script is not None:
-            r += b"\x01\x04"
-            r += self.redeem_script.serialize()  # script serialization has length
-        if self.witness_script is not None:
-            r += b"\x01\x05"
-            r += self.witness_script.serialize()  # script serialization has length
-        for pub in self.bip32_derivations:
-            r += ser_string(b"\x06" + pub.serialize())
-            r += ser_string(self.bip32_derivations[pub].serialize())
-        if self.final_scriptsig is not None:
-            r += b"\x01\x07"
-            r += self.final_scriptsig.serialize()
-        if self.final_scriptwitness is not None:
-            r += b"\x01\x08"
-            r += ser_string(self.final_scriptwitness.serialize())
+    def write_to(self, stream, skip_separator=False) -> int:
+        r = super().write_to(stream, skip_separator=True)
         # liquid-specific keys
         if self.value is not None:
-            r += ser_string(b'\xfc\x08elements\x00')
-            r += ser_string(self.value.to_bytes(8, 'little'))
+            r += ser_string(stream, b'\xfc\x08elements\x00')
+            r += ser_string(stream, self.value.to_bytes(8, 'little'))
         if self.value_blinding_factor is not None:
-            r += ser_string(b'\xfc\x08elements\x01')
-            r += ser_string(self.value_blinding_factor)
+            r += ser_string(stream, b'\xfc\x08elements\x01')
+            r += ser_string(stream, self.value_blinding_factor)
         if self.asset is not None:
-            r += ser_string(b'\xfc\x08elements\x02')
-            r += ser_string(self.asset)
+            r += ser_string(stream, b'\xfc\x08elements\x02')
+            r += ser_string(stream, self.asset)
         if self.asset_blinding_factor is not None:
-            r += ser_string(b'\xfc\x08elements\x03')
-            r += ser_string(self.asset_blinding_factor)
-        for key in self.unknown:
-            r += ser_string(key)
-            r += ser_string(self.unknown[key])
+            r += ser_string(stream, b'\xfc\x08elements\x03')
+            r += ser_string(stream, self.asset_blinding_factor)
         # separator
-        r += b"\x00"
+        if not skip_separator:
+            r += stream.write(b"\x00")
         return r
 
 
 class LOutputScope(PSBTScope):
     def __init__(self, unknown: dict = {}):
-        self.unknown = unknown
-        self.redeem_script = None
-        self.witness_script = None
-        self.bip32_derivations = OrderedDict()
         # liquid stuff
         self.value_commitment = None
         self.value_blinding_factor = None
@@ -317,39 +200,14 @@ class LOutputScope(PSBTScope):
         self.range_proof = None
         self.surjection_proof = None
         self.nonce_commitment = None
-        self.parse_unknowns()
+        super().__init__(unknown)
 
     def parse_unknowns(self):
         # go through all the unknowns and parse them
-        # TODO: super().parse_unknowns()
+        super().parse_unknowns()
         for k in list(self.unknown):
-            # redeem script
-            if k[0] == 0x00:
-                if len(k) != 1:
-                    raise ValueError("Invalid redeem script key")
-                elif self.redeem_script is None:
-                    self.redeem_script = Script(self.unknown.pop(k))
-                else:
-                    raise ValueError("Duplicated redeem script")
-            # witness script
-            elif k[0] == 0x01:
-                if len(k) != 1:
-                    raise ValueError("Invalid witness script key")
-                elif self.witness_script is None:
-                    self.witness_script = Script(self.unknown.pop(k))
-                else:
-                    raise ValueError("Duplicated witness script")
-            # bip32 derivation
-            elif k[0] == 0x02:
-                pub = ec.PublicKey.parse(k[1:])
-                if pub in self.bip32_derivations:
-                    raise ValueError("Duplicated derivation path")
-                else:
-                    self.bip32_derivations[pub] = DerivationPath.parse(
-                        self.unknown.pop(k)
-                    )
             # liquid-specific fields
-            elif k == b'\xfc\x08elements\x00':
+            if k == b'\xfc\x08elements\x00':
                 self.value_commitment = self.unknown.pop(k)
             elif k == b'\xfc\x08elements\x01':
                 self.value_blinding_factor = self.unknown.pop(k)
@@ -366,45 +224,33 @@ class LOutputScope(PSBTScope):
                 self.nonce_commitment = self.unknown.pop(k)
 
 
-    def serialize(self) -> bytes:
+    def write_to(self, stream, skip_separator=False) -> int:
         # TODO: super.write_to()
-        r = b""
-        if self.redeem_script is not None:
-            r += b"\x01\x00"
-            r += self.redeem_script.serialize()  # script serialization has length
-        if self.witness_script is not None:
-            r += b"\x01\x01"
-            r += self.witness_script.serialize()  # script serialization has length
-        for pub in self.bip32_derivations:
-            r += ser_string(b"\x02" + pub.serialize())
-            r += ser_string(self.bip32_derivations[pub].serialize())
+        r = super().write_to(stream, skip_separator=True)
         # liquid-specific keys
         if self.value_commitment is not None:
-            r += ser_string(b'\xfc\x08elements\x00')
-            r += ser_string(self.value_commitment)
+            r += ser_string(stream, b'\xfc\x08elements\x00')
+            r += ser_string(stream, self.value_commitment)
         if self.value_blinding_factor is not None:
-            r += ser_string(b'\xfc\x08elements\x01')
-            r += ser_string(self.value_blinding_factor)
+            r += ser_string(stream, b'\xfc\x08elements\x01')
+            r += ser_string(stream, self.value_blinding_factor)
         if self.asset_commitment is not None:
-            r += ser_string(b'\xfc\x08elements\x02')
-            r += ser_string(self.asset_commitment)
+            r += ser_string(stream, b'\xfc\x08elements\x02')
+            r += ser_string(stream, self.asset_commitment)
         if self.asset_blinding_factor is not None:
-            r += ser_string(b'\xfc\x08elements\x03')
-            r += ser_string(self.asset_blinding_factor)
+            r += ser_string(stream, b'\xfc\x08elements\x03')
+            r += ser_string(stream, self.asset_blinding_factor)
         if self.nonce_commitment is not None:
-            r += ser_string(b'\xfc\x08elements\x07')
-            r += ser_string(self.nonce_commitment)
+            r += ser_string(stream, b'\xfc\x08elements\x07')
+            r += ser_string(stream, self.nonce_commitment)
         # for some reason keys 04 and 05 are serialized after 07
         if self.range_proof is not None:
-            r += ser_string(b'\xfc\x08elements\x04')
-            r += ser_string(self.range_proof)
+            r += ser_string(stream, b'\xfc\x08elements\x04')
+            r += ser_string(stream, self.range_proof)
         if self.surjection_proof is not None:
-            r += ser_string(b'\xfc\x08elements\x05')
-            r += ser_string(self.surjection_proof)
-        # unknown
-        for key in self.unknown:
-            r += ser_string(key)
-            r += ser_string(self.unknown[key])
+            r += ser_string(stream, b'\xfc\x08elements\x05')
+            r += ser_string(stream, self.surjection_proof)
         # separator
-        r += b"\x00"
+        if not skip_separator:
+            r += stream.write(b"\x00")
         return r

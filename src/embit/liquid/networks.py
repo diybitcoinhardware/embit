@@ -49,4 +49,5 @@ NETWORKS = {
         "Zpub":   b'\x02\x57\x54\x83',
         "bip32":  const(1)
     },
-}.update(networks.NETWORKS)
+}
+NETWORKS.update(networks.NETWORKS)

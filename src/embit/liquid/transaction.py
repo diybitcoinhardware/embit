@@ -212,7 +212,7 @@ class LTransactionInput(TransactionInput):
             vout += (1<<31)
         if self.is_pegin:
             vout += (1<<30)
-        res = stream.write(self.hash())
+        res = stream.write(bytes(reversed(self.txid)))
         res += stream.write(vout.to_bytes(4, "little"))
         res += script_sig.write_to(stream)
         res += stream.write(self.sequence.to_bytes(4, "little"))

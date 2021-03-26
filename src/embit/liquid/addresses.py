@@ -1,8 +1,9 @@
 from .. import bech32, ec, script, base58
 from . import blech32
 import hmac
+from .networks import NETWORKS
 
-def address(script, blinding_key=None, network):
+def address(script, blinding_key=None, network=NETWORKS['liquidv1']):
     if script.data == b"":
         return "Fee"
     if script.script_type() == "p2sh":
