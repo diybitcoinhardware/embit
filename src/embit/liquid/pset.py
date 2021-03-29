@@ -10,20 +10,136 @@ from collections import OrderedDict
 from io import BytesIO
 from .transaction import LTransaction, LTransactionOutput
 
+class LInputScope(InputScope):
+    TX_CLS = LTransaction
+    TXOUT_CLS = LTransactionOutput
+
+    def __init__(self, unknown: dict = {}, **kwargs):
+        # liquid-specific fields:
+        self.value = None
+        self.value_blinding_factor = None
+        self.asset = None
+        self.asset_blinding_factor = None
+        super().__init__(unknown, **kwargs)
+
+    def read_value(self, stream, k):
+        if b'\xfc\x08elements' not in k:
+            super().read_value(stream, k)
+        else:
+            v = read_string(stream)
+            # liquid-specific fields
+            if k == b'\xfc\x08elements\x00':
+                self.value = int.from_bytes(v, 'little')
+            elif k == b'\xfc\x08elements\x01':
+                self.value_blinding_factor = v
+            elif k == b'\xfc\x08elements\x02':
+                self.asset = v
+            elif k == b'\xfc\x08elements\x03':
+                self.asset_blinding_factor = v
+            else:
+                self.unkonwn[k] = v
+
+    def write_to(self, stream, skip_separator=False) -> int:
+        r = super().write_to(stream, skip_separator=True)
+        # liquid-specific keys
+        if self.value is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x00')
+            r += ser_string(stream, self.value.to_bytes(8, 'little'))
+        if self.value_blinding_factor is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x01')
+            r += ser_string(stream, self.value_blinding_factor)
+        if self.asset is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x02')
+            r += ser_string(stream, self.asset)
+        if self.asset_blinding_factor is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x03')
+            r += ser_string(stream, self.asset_blinding_factor)
+        # separator
+        if not skip_separator:
+            r += stream.write(b"\x00")
+        return r
+
+
+class LOutputScope(OutputScope):
+    def __init__(self, unknown: dict = {}, **kwargs):
+        # liquid stuff
+        self.value_commitment = None
+        self.value_blinding_factor = None
+        self.asset_commitment = None
+        self.asset_blinding_factor = None
+        self.range_proof = None
+        self.surjection_proof = None
+        self.nonce_commitment = None
+        # super calls parse_unknown() at the end
+        super().__init__(unknown, **kwargs)
+
+    def read_value(self, stream, k):
+        if b'\xfc\x08elements' not in k:
+            super().read_value(stream, k)
+        else:
+            v = read_string(stream)
+            # liquid-specific fields
+            if k == b'\xfc\x08elements\x00':
+                self.value_commitment = v
+            elif k == b'\xfc\x08elements\x01':
+                self.value_blinding_factor = v
+            elif k == b'\xfc\x08elements\x02':
+                self.asset_commitment = v
+            elif k == b'\xfc\x08elements\x03':
+                self.asset_blinding_factor = v
+            elif k == b'\xfc\x08elements\x04':
+                # not sure if it's a range proof or not...
+                self.range_proof = v
+            elif k == b'\xfc\x08elements\x05':
+                self.surjection_proof = v
+            elif k == b'\xfc\x08elements\x07':
+                self.nonce_commitment = v
+            else:
+                self.unkonwn[k] = v
+
+
+    def write_to(self, stream, skip_separator=False) -> int:
+        # TODO: super.write_to()
+        r = super().write_to(stream, skip_separator=True)
+        # liquid-specific keys
+        if self.value_commitment is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x00')
+            r += ser_string(stream, self.value_commitment)
+        if self.value_blinding_factor is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x01')
+            r += ser_string(stream, self.value_blinding_factor)
+        if self.asset_commitment is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x02')
+            r += ser_string(stream, self.asset_commitment)
+        if self.asset_blinding_factor is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x03')
+            r += ser_string(stream, self.asset_blinding_factor)
+        if self.nonce_commitment is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x07')
+            r += ser_string(stream, self.nonce_commitment)
+        # for some reason keys 04 and 05 are serialized after 07
+        if self.range_proof is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x04')
+            r += ser_string(stream, self.range_proof)
+        if self.surjection_proof is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x05')
+            r += ser_string(stream, self.surjection_proof)
+        # separator
+        if not skip_separator:
+            r += stream.write(b"\x00")
+        return r
+
 class PSET(PSBT):
     MAGIC = b"pset\xff"
+    PSBTIN_CLS = LInputScope
+    PSBTOUT_CLS = LOutputScope
+    TX_CLS = LTransaction
 
-    def __init__(self, tx=None):
-        if tx is not None:
-            self.tx = tx
-            self.inputs = [LInputScope() for i in range(len(tx.vin))]
-            self.outputs = [LOutputScope() for i in range(len(tx.vout))]
-        else:
-            self.tx = LTransaction()
-            self.inputs = []
-            self.outputs = []
-        self.unknown = {}
-        self.xpubs = OrderedDict()
+    @classmethod
+    def read_from(cls, *args, **kwargs):
+        res = super().read_from(*args, **kwargs)
+        res.verify()
+        return res
 
     def sign_with(self, root) -> int:
         """
@@ -100,158 +216,3 @@ class PSET(PSBT):
                 sec = secp256k1.pedersen_commitment_serialize(commit)
                 if sec != out.value_commitment:
                     raise ValueError("value commitment is invalid")
-
-    @classmethod
-    def read_from(cls, stream):
-        tx = None
-        unknown = {}
-        xpubs = OrderedDict()
-        # check magic
-        if stream.read(len(cls.MAGIC)) != cls.MAGIC:
-            raise ValueError("Invalid PSET magic")
-        while True:
-            key = read_string(stream)
-            # separator
-            if len(key) == 0:
-                break
-            value = read_string(stream)
-            # tx
-            if key == b"\x00":
-                if tx is None:
-                    tx = LTransaction.parse(value)
-                else:
-                    raise ValueError(
-                        "Failed to parse PSBT - duplicated transaction field"
-                    )
-            else:
-                if key in unknown:
-                    raise ValueError("Duplicated key")
-                unknown[key] = value
-
-        pset = cls(tx)
-        # now we can go through all the key-values and parse them
-        for k in list(unknown):
-            # xpub field
-            if k[0] == 0x01:
-                xpub = bip32.HDKey.parse(k[1:])
-                xpubs[xpub] = DerivationPath.parse(unknown.pop(k))
-        pset.unknown = unknown
-        pset.xpubs = xpubs
-        # input scopes
-        for i in range(len(tx.vin)):
-            pset.inputs[i] = LInputScope.read_from(stream)
-        # output scopes
-        for i in range(len(tx.vout)):
-            pset.outputs[i] = LOutputScope.read_from(stream)
-        pset.verify()
-        return pset
-
-class LInputScope(PSBTScope):
-    def __init__(self, unknown: dict = {}):
-        # liquid-specific fields:
-        self.value = None
-        self.value_blinding_factor = None
-        self.asset = None
-        self.asset_blinding_factor = None
-        super().__init__(unknown)
-
-    def parse_unknowns(self):
-        # go through all the unknowns and parse them
-        super().parse_unknowns()
-        for k in list(self.unknown):
-            # liquid-specific fields
-            if k == b'\xfc\x08elements\x00':
-                self.value = int.from_bytes(self.unknown.pop(k), 'little')
-            elif k == b'\xfc\x08elements\x01':
-                self.value_blinding_factor = self.unknown.pop(k)
-            elif k == b'\xfc\x08elements\x02':
-                self.asset = self.unknown.pop(k)
-            elif k == b'\xfc\x08elements\x03':
-                self.asset_blinding_factor = self.unknown.pop(k)
-
-    def write_to(self, stream, skip_separator=False) -> int:
-        r = super().write_to(stream, skip_separator=True)
-        # liquid-specific keys
-        if self.value is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x00')
-            r += ser_string(stream, self.value.to_bytes(8, 'little'))
-        if self.value_blinding_factor is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x01')
-            r += ser_string(stream, self.value_blinding_factor)
-        if self.asset is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x02')
-            r += ser_string(stream, self.asset)
-        if self.asset_blinding_factor is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x03')
-            r += ser_string(stream, self.asset_blinding_factor)
-        # separator
-        if not skip_separator:
-            r += stream.write(b"\x00")
-        return r
-
-
-class LOutputScope(PSBTScope):
-    def __init__(self, unknown: dict = {}):
-        # liquid stuff
-        self.value_commitment = None
-        self.value_blinding_factor = None
-        self.asset_commitment = None
-        self.asset_blinding_factor = None
-        self.range_proof = None
-        self.surjection_proof = None
-        self.nonce_commitment = None
-        # super calls parse_unknown() at the end
-        super().__init__(unknown)
-
-    def parse_unknowns(self):
-        # go through all the unknowns and parse them
-        super().parse_unknowns()
-        for k in list(self.unknown):
-            # liquid-specific fields
-            if k == b'\xfc\x08elements\x00':
-                self.value_commitment = self.unknown.pop(k)
-            elif k == b'\xfc\x08elements\x01':
-                self.value_blinding_factor = self.unknown.pop(k)
-            elif k == b'\xfc\x08elements\x02':
-                self.asset_commitment = self.unknown.pop(k)
-            elif k == b'\xfc\x08elements\x03':
-                self.asset_blinding_factor = self.unknown.pop(k)
-            elif k == b'\xfc\x08elements\x04':
-                # not sure if it's a range proof or not...
-                self.range_proof = self.unknown.pop(k)
-            elif k == b'\xfc\x08elements\x05':
-                self.surjection_proof = self.unknown.pop(k)
-            elif k == b'\xfc\x08elements\x07':
-                self.nonce_commitment = self.unknown.pop(k)
-
-
-    def write_to(self, stream, skip_separator=False) -> int:
-        # TODO: super.write_to()
-        r = super().write_to(stream, skip_separator=True)
-        # liquid-specific keys
-        if self.value_commitment is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x00')
-            r += ser_string(stream, self.value_commitment)
-        if self.value_blinding_factor is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x01')
-            r += ser_string(stream, self.value_blinding_factor)
-        if self.asset_commitment is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x02')
-            r += ser_string(stream, self.asset_commitment)
-        if self.asset_blinding_factor is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x03')
-            r += ser_string(stream, self.asset_blinding_factor)
-        if self.nonce_commitment is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x07')
-            r += ser_string(stream, self.nonce_commitment)
-        # for some reason keys 04 and 05 are serialized after 07
-        if self.range_proof is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x04')
-            r += ser_string(stream, self.range_proof)
-        if self.surjection_proof is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x05')
-            r += ser_string(stream, self.surjection_proof)
-        # separator
-        if not skip_separator:
-            r += stream.write(b"\x00")
-        return r

@@ -127,6 +127,39 @@ class LTransaction(Transaction):
         return res
 
     @classmethod
+    def read_vout(cls, stream, idx):
+        """Returns a tuple TransactionOutput, tx_hash without storing the whole tx in memory"""
+        h = hashlib.sha256()
+        h.update(stream.read(4))
+        has_witness = False
+        flag = stream.read(1)
+        if flag == b"\x01":
+            has_witness = True
+        h.update(flag)
+        num_vin = compact.read_from(stream)
+        h.update(compact.to_bytes(num_vin))
+        for i in range(num_vin):
+            txin = LTransactionInput.read_from(stream)
+            h.update(txin.serialize())
+        num_vout = compact.read_from(stream)
+        h.update(compact.to_bytes(num_vout))
+        if idx >= num_vout or idx < 0:
+            raise TransactionError("Invalid vout index %d, max is %d" (idx, num_vout-1))
+        res = None
+        for i in range(num_vout):
+            vout = LTransactionOutput.read_from(stream)
+            if idx == i:
+                res = vout
+            h.update(vout.serialize())
+        h.update(stream.read(4))
+        if has_witness:
+            for i in range(num_vin):
+                TxInWitness.read_from(stream)
+            for i in range(num_vout):
+                TxOutWitness.read_from(stream)
+        return res, hashlib.sha256(h.digest()).digest()
+
+    @classmethod
     def read_from(cls, stream):
         ver = int.from_bytes(stream.read(4), "little")
         has_witness = False
