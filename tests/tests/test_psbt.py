@@ -102,14 +102,18 @@ class PSBTTest(TestCase):
                 "023add904f3d6dcf59ddb906b0dee23529b7ffb9ed50e5e86151926860221f0e73": "3044022065f45ba5998b59a27ffe1a7bed016af1f1f90d54b3aa8f7450aa5f56a25103bd02207f724703ad1edb96680b284b56d4ffcb88f7fb759eabbe08aa30f29b851383d201",
             },
         ]
-        psbt = PSBT.parse(unhexlify(psbt_str))
-        psbt.sign_with(xkey)
-        for i in range(len(psbt.inputs)):
-            inp = psbt.inputs[i]
-            self.assertEqual(len(inp.partial_sigs), len(exp_partial_sigs[i]))
-            for act_pub, act_sig in inp.partial_sigs.items():
-                act_pub_str = hexlify(act_pub.serialize()).decode("utf-8")
-                self.assertIn(act_pub_str, exp_partial_sigs[i].keys())
-                self.assertEqual(
-                    hexlify(act_sig).decode("utf-8"), exp_partial_sigs[i][act_pub_str]
-                )
+        # check with both compressed parsing and uncompressed
+        for compress in [False, True]:
+            psbt = PSBT.parse(unhexlify(psbt_str), compress=compress)
+            if compress:
+                self.assertTrue(len(psbt.serialize()) < len(unhexlify(psbt_str)))
+            psbt.sign_with(xkey)
+            for i in range(len(psbt.inputs)):
+                inp = psbt.inputs[i]
+                self.assertEqual(len(inp.partial_sigs), len(exp_partial_sigs[i]))
+                for act_pub, act_sig in inp.partial_sigs.items():
+                    act_pub_str = hexlify(act_pub.serialize()).decode("utf-8")
+                    self.assertIn(act_pub_str, exp_partial_sigs[i].keys())
+                    self.assertEqual(
+                        hexlify(act_sig).decode("utf-8"), exp_partial_sigs[i][act_pub_str]
+                    )
