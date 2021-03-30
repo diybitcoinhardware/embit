@@ -225,6 +225,32 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
     secp256k1.secp256k1_pedersen_commit.argtypes = [c_void_p, c_char_p, c_char_p, c_uint64, c_char_p]
     secp256k1.secp256k1_pedersen_commit.restype = c_int
 
+    # rangeproof
+    secp256k1.secp256k1_rangeproof_rewind.argtypes = [c_void_p, c_char_p, POINTER(c_uint64), c_char_p, POINTER(c_uint64),
+                                                      c_char_p, POINTER(c_uint64), POINTER(c_uint64),
+                                                      c_char_p, c_char_p, c_uint64,
+                                                      c_char_p, c_uint64,
+                                                      c_char_p]
+    secp256k1.secp256k1_rangeproof_rewind.restype = c_int
+
+    secp256k1.secp256k1_rangeproof_sign.argtypes = [
+      c_void_p, # ctx
+      c_char_p, # proof
+      POINTER(c_uint64), # plen
+      c_uint64, # min_value
+      c_char_p, # commit
+      c_char_p, # blind
+      c_char_p, # nonce
+      c_int,    # exp
+      c_int,    # min_bits
+      c_uint64, # value
+      c_char_p, # message
+      c_uint64, # msg_len
+      c_char_p, # extra_commit
+      c_uint64, # extra_commit_len
+      c_char_p, # gen
+    ]
+    secp256k1.secp256k1_rangeproof_sign.restype = c_int
 
     secp256k1.ctx = secp256k1.secp256k1_context_create(flags)
 
@@ -560,3 +586,51 @@ def generator_serialize(generator, context=_secp.ctx):
     if _secp.secp256k1_generator_serialize(context, sec, generator) == 0:
         raise RuntimeError("Failed to serialize generator")
     return sec
+
+# rangeproof
+def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, context=_secp.ctx):
+    if len(generator)!=64:
+        raise ValueError("Generator should be 64 bytes long")
+    if len(nonce)!=32:
+        raise ValueError("Nonce should be 32 bytes long")
+    if len(value_commitment)!=64:
+        raise ValueError("Value commitment should be 64 bytes long")
+
+    msg = b"\x00"*64
+    pointer = POINTER(c_uint64)
+    msglen = pointer(c_uint64(len(msg)))
+
+    vbf_out = b"\x00"*32
+    value_out = pointer(c_uint64(0))
+    min_value = pointer(c_uint64(0))
+    max_value = pointer(c_uint64(0))
+    res = _secp.secp256k1_rangeproof_rewind(context, vbf_out, value_out,
+                            msg, msglen,
+                            nonce, min_value, max_value,
+                            value_commitment, proof, len(proof),
+                            script_pubkey, len(script_pubkey),
+                            generator)
+    if res != 1:
+        raise RuntimeError("Failed to rewind the proof")
+    asset = msg[:32]
+    abf = msg[32:]
+    return value_out.contents.value, asset, vbf_out, abf, min_value.contents.value, max_value.contents.value
+
+def rangeproof_sign(nonce, value, value_commitment, vbf, message, extra, gen, min_value=1, exp=0, min_bits=52, context=_secp.ctx):
+    if len(gen)!=64:
+        raise ValueError("Generator should be 64 bytes long")
+    if len(nonce)!=32:
+        raise ValueError("Nonce should be 32 bytes long")
+    if len(value_commitment)!=64:
+        raise ValueError("Value commitment should be 64 bytes long")
+    if len(vbf)!=32:
+        raise ValueError("Value blinding factor should be 32 bytes long")
+    proof = bytes(bytearray(5134))
+    pointer = POINTER(c_uint64)
+    prooflen = pointer(c_uint64(len(proof)))
+    res = _secp.secp256k1_rangeproof_sign(context, proof, prooflen,
+                min_value, value_commitment, vbf, nonce,
+                exp, min_bits, value, message, len(message), extra, len(extra), gen)
+    if res != 1:
+        raise RuntimeError("Failed to generate the proof")
+    return bytes(proof[:prooflen.contents.value])

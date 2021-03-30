@@ -6,6 +6,10 @@ from ..util import hashlib
 from ..transaction import *
 from ..base import EmbitBase
 import hashlib
+if sys.implementation.name == "micropython":
+    import secp256k1
+else:
+    from ..util import secp256k1
 
 class LTransactionError(TransactionError):
     pass
@@ -144,7 +148,7 @@ class LTransaction(Transaction):
         num_vout = compact.read_from(stream)
         h.update(compact.to_bytes(num_vout))
         if idx >= num_vout or idx < 0:
-            raise TransactionError("Invalid vout index %d, max is %d" (idx, num_vout-1))
+            raise TransactionError("Invalid vout index %d, max is %d"  % (idx, num_vout-1))
         res = None
         for i in range(num_vout):
             vout = LTransactionOutput.read_from(stream)
@@ -294,6 +298,30 @@ class LTransactionOutput(TransactionOutput):
             res += stream.write(b"\x00")
         res += self.script_pubkey.write_to(stream)
         return res
+
+    @property
+    def is_blinded(self):
+        return self.nonce is not None
+
+    def unblind(self, blinding_key):
+        """
+        Unblinds the output and returns a tuple:
+        (value, asset, value_blinding_factor, asset_blinding_factor, min_value, max_value)
+        """
+        if not self.is_blinded:
+            return self.value, self.asset, None, None, None, None
+
+        pub = secp256k1.ec_pubkey_parse(self.nonce)
+        secp256k1.ec_pubkey_tweak_mul(pub, blinding_key)
+        sec = secp256k1.ec_pubkey_serialize(pub)
+        nonce = hashlib.sha256(hashlib.sha256(sec).digest()).digest()
+
+        commit = secp256k1.pedersen_commitment_parse(self.value)
+        gen = secp256k1.generator_parse(self.asset)
+
+        res = secp256k1.rangeproof_rewind(self.witness.range_proof.data, nonce, commit, self.script_pubkey.data, gen)
+        value, asset, vbf, abf, min_value, max_value = res
+        return value, asset, vbf, abf, min_value, max_value
 
     @classmethod
     def read_from(cls, stream):

@@ -51,22 +51,3 @@ def addr_decode(addr):
             raise RuntimeError("Invalid address")
     return sc, pub
 
-def slip77(mpk, sc):
-    """
-    Calculates a blinding key from master key and script.
-    Master key can be either embit.ec.PrivateKey or bytes.
-    Script can be either embit.script.Script or bytes.
-    Returns bytes if mpk is bytes, and PrivateKey if mpk is PrivateKey
-    """
-    # check if ec.PrivateKey
-    if type(mpk) == ec.PrivateKey:
-        k = mpk.serialize()
-    else:
-        k = mpk
-    # check if script is Script or just bytes
-    msg = sc.data if hasattr(sc, "serialize") else sc
-    d = hmac.new(k, msg, digestmod="sha256").digest()
-    if hasattr(mpk, 'serialize'):
-        return ec.PrivateKey(d)
-    else:
-        return d
