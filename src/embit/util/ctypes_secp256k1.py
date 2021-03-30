@@ -625,7 +625,7 @@ def rangeproof_sign(nonce, value, value_commitment, vbf, message, extra, gen, mi
         raise ValueError("Value commitment should be 64 bytes long")
     if len(vbf)!=32:
         raise ValueError("Value blinding factor should be 32 bytes long")
-    proof = bytes(bytearray(5134))
+    proof = bytes(5134)
     pointer = POINTER(c_uint64)
     prooflen = pointer(c_uint64(len(proof)))
     res = _secp.secp256k1_rangeproof_sign(context, proof, prooflen,
