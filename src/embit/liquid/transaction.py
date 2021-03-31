@@ -82,8 +82,8 @@ class TxOutWitness(EmbitBase):
         self.surjection_proof = surjection_proof if surjection_proof is not None else Proof()
         self.range_proof = range_proof if range_proof is not None else Proof()
 
-    def write_to(self):
-        res += self.surjection_proof.write_to(stream)
+    def write_to(self, stream):
+        res = self.surjection_proof.write_to(stream)
         res += self.range_proof.write_to(stream)
         return res
 
@@ -206,7 +206,7 @@ class LTransaction(Transaction):
         h.update(inp.sequence.to_bytes(4, "little"))
         h.update(hashlib.sha256(self.hash_outputs()).digest())
         h.update(self.locktime.to_bytes(4, "little"))
-        h.update(SIGHASH_ALL.to_bytes(4, "little"))
+        h.update(SIGHASH.ALL.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
 

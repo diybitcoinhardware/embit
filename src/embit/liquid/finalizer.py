@@ -1,5 +1,5 @@
 from .. import ec
-from ..script import Witness
+from ..script import Witness, Script
 from .transaction import TxOutWitness, Proof
 
 def parse_multisig(sc):
@@ -25,7 +25,7 @@ def finalize_psbt(tx):
     done = 0
     for i, inp in enumerate(ttx.vin):
         if tx.inputs[i].redeem_script is not None:
-            ttx.vin[i].script_sig = tx.inputs[i].redeem_script
+            ttx.vin[i].script_sig = Script(tx.inputs[i].redeem_script.serialize())
 
         # if multisig
         if tx.inputs[i].witness_script is not None:

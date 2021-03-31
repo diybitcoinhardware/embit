@@ -37,7 +37,7 @@ class LInputScope(InputScope):
             elif k == b'\xfc\x08elements\x03':
                 self.asset_blinding_factor = v
             else:
-                self.unkonwn[k] = v
+                self.unknown[k] = v
 
     def write_to(self, stream, skip_separator=False) -> int:
         r = super().write_to(stream, skip_separator=True)
@@ -70,6 +70,7 @@ class LOutputScope(OutputScope):
         self.range_proof = None
         self.surjection_proof = None
         self.nonce_commitment = None
+        self.blinding_pubkey = None
         # super calls parse_unknown() at the end
         super().__init__(unknown, **kwargs)
 
@@ -88,14 +89,15 @@ class LOutputScope(OutputScope):
             elif k == b'\xfc\x08elements\x03':
                 self.asset_blinding_factor = v
             elif k == b'\xfc\x08elements\x04':
-                # not sure if it's a range proof or not...
                 self.range_proof = v
             elif k == b'\xfc\x08elements\x05':
                 self.surjection_proof = v
+            elif k == b'\xfc\x08elements\x06':
+                self.blinding_pubkey = v
             elif k == b'\xfc\x08elements\x07':
                 self.nonce_commitment = v
             else:
-                self.unkonwn[k] = v
+                self.unknown[k] = v
 
 
     def write_to(self, stream, skip_separator=False) -> int:
@@ -114,6 +116,9 @@ class LOutputScope(OutputScope):
         if self.asset_blinding_factor is not None:
             r += ser_string(stream, b'\xfc\x08elements\x03')
             r += ser_string(stream, self.asset_blinding_factor)
+        if self.blinding_pubkey is not None:
+            r += ser_string(stream, b'\xfc\x08elements\x06')
+            r += ser_string(stream, self.blinding_pubkey)
         if self.nonce_commitment is not None:
             r += ser_string(stream, b'\xfc\x08elements\x07')
             r += ser_string(stream, self.nonce_commitment)
