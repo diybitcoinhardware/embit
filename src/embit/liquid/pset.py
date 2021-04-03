@@ -8,7 +8,7 @@ else:
 from ..psbt import *
 from collections import OrderedDict
 from io import BytesIO
-from .transaction import LTransaction, LTransactionOutput
+from .transaction import LTransaction, LTransactionOutput, TxOutWitness, Proof, LSIGHASH
 
 class LInputScope(InputScope):
     TX_CLS = LTransaction
@@ -146,14 +146,18 @@ class PSET(PSBT):
         res.verify()
         return res
 
-    def sign_with(self, root) -> int:
+    def sign_with(self, root, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)) -> int:
         """
         Signs psbt with root key (HDKey or similar).
         Returns number of signatures added to PSBT
         """
-        # TODO: rebase to psbt implementation
-        fingerprint = root.child(0).fingerprint
-        counter = 0
+        # if WIF - fingerprint is None
+        fingerprint = None if not hasattr(root, "child") else root.child(0).fingerprint
+        if not fingerprint:
+            pub = root.get_public_key()
+            sec = pub.sec()
+            pkh = hashes.hash160(sec)
+
         # TODO: ugly, make it with super()
         txx = LTransaction.parse(self.tx.serialize())
         for i, out in enumerate(txx.vout):
@@ -161,51 +165,67 @@ class PSET(PSBT):
                 out.nonce = self.outputs[i].nonce_commitment
                 out.value = self.outputs[i].value_commitment
                 out.asset = self.outputs[i].asset_commitment
+                out.witness = TxOutWitness(Proof(self.outputs[i].surjection_proof), Proof(self.outputs[i].range_proof))
+
+        counter = 0
         for i, inp in enumerate(self.inputs):
+            # check which sighash to use
+            inp_sighash = inp.sighash_type or sighash or (LSIGHASH.ALL | LSIGHASH.RANGEPROOF)
+            # if input sighash is set and is different from kwarg - skip input
+            if sighash is not None and inp_sighash != sighash:
+                continue
+
+            utxo = self.utxo(i)
+            value = utxo.value
+            sc = inp.witness_script or inp.redeem_script or utxo.script_pubkey
+
+            # detect if it is a segwit input
+            is_segwit = (inp.witness_script
+                        or inp.witness_utxo
+                        or utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
+                        or (
+                            inp.redeem_script
+                            and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
+                        )
+            )
+            # convert to p2pkh according to bip143
+            if sc.script_type() == "p2wpkh":
+                sc = script.p2pkh_from_p2wpkh(sc)
+            sig = None
+
+            # if we have individual private key
+            if not fingerprint:
+                # check if we are included in the script
+                if sec in sc.data or pkh in sc.data:
+                    if is_segwit:
+                        h = txx.sighash_segwit(i, sc, value, sighash=inp_sighash)
+                    else:
+                        h = txx.sighash_legacy(i, sc, sighash=inp_sighash)
+                    sig = root.sign(h)
+                    if sig is not None:
+                        # sig plus sighash_all
+                        inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
+                        counter += 1
+                continue
+
+            # if we use HDKey
             for pub in inp.bip32_derivations:
                 # check if it is root key
                 if inp.bip32_derivations[pub].fingerprint == fingerprint:
                     hdkey = root.derive(inp.bip32_derivations[pub].derivation)
                     mypub = hdkey.key.get_public_key()
                     if mypub != pub:
-                        raise ValueError("Derivation path doesn't look right")
+                        raise PSBTError("Derivation path doesn't look right")
                     sig = None
-                    utxo = None
-                    if inp.non_witness_utxo is not None:
-                        if inp.non_witness_utxo.txid() != self.tx.vin[i].txid:
-                            raise ValueError("Invalid utxo")
-                        utxo = inp.non_witness_utxo.vout[self.tx.vin[i].vout]
-                    elif inp.witness_utxo is not None:
-                        utxo = inp.witness_utxo
+                    if is_segwit:
+                        h = txx.sighash_segwit(i, sc, value, sighash=inp_sighash)
                     else:
-                        raise ValueError("We need at least one utxo field")
-                    value = utxo.value
-                    sc = utxo.script_pubkey
-                    if inp.redeem_script is not None:
-                        sc = inp.redeem_script
-                    if inp.witness_script is not None:
-                        sc = inp.witness_script
-                    if sc.script_type() == "p2wpkh":
-                        sc = script.p2pkh_from_p2wpkh(sc)
-                    # detect if it is a segwit input
-                    # tx.input[i] doesn't have any info about that in raw psbt
-                    if (
-                        inp.witness_script is not None
-                        or inp.witness_utxo is not None
-                        or utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
-                        or (
-                            inp.redeem_script is not None
-                            and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
-                        )
-                    ):
-                        h = txx.sighash_segwit(i, sc, value)
-                    else:
-                        h = txx.sighash_legacy(i, sc)
+                        h = txx.sighash_legacy(i, sc, sighash=inp_sighash)
                     sig = hdkey.key.sign(h)
-                    counter += 1
                     if sig is not None:
-                        # sig plus sighash_all
-                        inp.partial_sigs[mypub] = sig.serialize() + b"\x01"
+                        # sig plus sighash flag
+                        inp.partial_sigs[mypub] = sig.serialize() + bytes([inp_sighash])
+                        counter += 1
         return counter
 
     def verify(self):

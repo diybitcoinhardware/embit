@@ -11,6 +11,26 @@ if sys.implementation.name == "micropython":
 else:
     from ..util import secp256k1
 
+class LSIGHASH(SIGHASH):
+    # ALL and others are defined in SIGHASH
+    RANGEPROOF = 0x40
+
+    @classmethod
+    def check(cls, sighash: int):
+        anyonecanpay = False
+        rangeproof = False
+        if sighash & cls.ANYONECANPAY:
+            # remove ANYONECANPAY flag
+            sighash = sighash ^ cls.ANYONECANPAY
+            anyonecanpay = True
+        if sighash & cls.RANGEPROOF:
+            # remove RANGEPROOF flag
+            sighash = sighash ^ cls.RANGEPROOF
+            rangeproof = True
+        if sighash not in [cls.ALL, cls.NONE, cls.SINGLE]:
+            raise TransactionError("Invalid SIGHASH type")
+        return sighash, anyonecanpay, rangeproof
+
 class LTransactionError(TransactionError):
     pass
 
@@ -100,6 +120,8 @@ class LTransaction(Transaction):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._hash_outputs_rangeproofs = None
+        self._hash_issuance = None
 
     @property
     def has_witness(self):
@@ -188,27 +210,61 @@ class LTransaction(Transaction):
         return cls(version=ver, vin=vin, vout=vout, locktime=locktime)
 
     def hash_issuances(self):
+        # hash issuance ( b"\x00" per input without issuance )
         return hashlib.sha256(b"\x00"*len(self.vin)).digest()
 
-    def sighash_segwit(self, input_index, script_pubkey, value):
-        # TODO: SIGHASHES???
+    def hash_rangeproofs(self):
+        if self._hash_outputs_rangeproofs is None:
+            h = hashlib.sha256()
+            for out in self.vout:
+                h.update(out.witness.range_proof.serialize())
+                h.update(out.witness.surjection_proof.serialize())
+            self._hash_outputs_rangeproofs = h.digest()
+        return self._hash_outputs_rangeproofs
+
+    def hash_outputs(self):
+        if self._hash_outputs is None:
+            h = hashlib.sha256()
+            for out in self.vout:
+                h.update(out.serialize())
+            self._hash_outputs = h.digest()
+        return self._hash_outputs
+
+    def sighash_segwit(self, input_index, script_pubkey, value, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)):
+        if input_index < 0 or input_index >= len(self.vin):
+            raise LTransactionError("Invalid input index")
+        sh, anyonecanpay, hash_rangeproofs = LSIGHASH.check(sighash)
         inp = self.vin[input_index]
+        zero = b"\x00"*32 # for sighashes
         h = hashlib.sha256()
         h.update(self.version.to_bytes(4, "little"))
-        h.update(hashlib.sha256(self.hash_prevouts()).digest())
-        h.update(hashlib.sha256(self.hash_sequence()).digest())
-        # hash issuance ( b"\x00" per input without issuance )
+        if anyonecanpay:
+            h.update(zero)
+        else:
+            h.update(hashlib.sha256(self.hash_prevouts()).digest())
+        if anyonecanpay or sh in [SIGHASH.NONE, SIGHASH.SINGLE]:
+            h.update(zero)
+        else:
+            h.update(hashlib.sha256(self.hash_sequence()).digest())
         h.update(hashlib.sha256(self.hash_issuances()).digest())
         h.update(bytes(reversed(inp.txid)))
         h.update(inp.vout.to_bytes(4, "little"))
         h.update(script_pubkey.serialize())
         h.update(value)
         h.update(inp.sequence.to_bytes(4, "little"))
-        h.update(hashlib.sha256(self.hash_outputs()).digest())
+        if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
+            h.update(hashlib.sha256(self.hash_outputs()).digest())
+            if hash_rangeproofs:
+                h.update(hashlib.sha256(self.hash_rangeproofs()).digest())
+        elif sh == SIGHASH.SINGLE and input_index < len(self.vout):
+            h.update(hashlib.sha256(hashlib.sha256(self.vout[input_index].serialize()).digest()).digest())
+            if hash_rangeproofs:
+                h.update(hashlib.sha256(hashlib.sha256(self.vout[input_index].witness.serialize()).digest()).digest())
+        else:
+            h.update(zero)
         h.update(self.locktime.to_bytes(4, "little"))
-        h.update(SIGHASH.ALL.to_bytes(4, "little"))
+        h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
-
 
 class AssetIssuance(EmbitBase):
     def __init__(self, nonce, entropy, amount_commitment, token_commitment=None):
