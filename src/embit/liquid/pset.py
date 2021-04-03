@@ -151,13 +151,6 @@ class PSET(PSBT):
         Signs psbt with root key (HDKey or similar).
         Returns number of signatures added to PSBT
         """
-        # if WIF - fingerprint is None
-        fingerprint = None if not hasattr(root, "child") else root.child(0).fingerprint
-        if not fingerprint:
-            pub = root.get_public_key()
-            sec = pub.sec()
-            pkh = hashes.hash160(sec)
-
         # TODO: ugly, make it with super()
         txx = LTransaction.parse(self.tx.serialize())
         for i, out in enumerate(txx.vout):
@@ -166,6 +159,13 @@ class PSET(PSBT):
                 out.value = self.outputs[i].value_commitment
                 out.asset = self.outputs[i].asset_commitment
                 out.witness = TxOutWitness(Proof(self.outputs[i].surjection_proof), Proof(self.outputs[i].range_proof))
+
+        # if WIF - fingerprint is None
+        fingerprint = None if not hasattr(root, "child") else root.child(0).fingerprint
+        if not fingerprint:
+            pub = root.get_public_key()
+            sec = pub.sec()
+            pkh = hashes.hash160(sec)
 
         counter = 0
         for i, inp in enumerate(self.inputs):
@@ -191,21 +191,20 @@ class PSET(PSBT):
             # convert to p2pkh according to bip143
             if sc.script_type() == "p2wpkh":
                 sc = script.p2pkh_from_p2wpkh(sc)
-            sig = None
+
+            if is_segwit:
+                h = txx.sighash_segwit(i, sc, value, sighash=inp_sighash)
+            else:
+                h = txx.sighash_legacy(i, sc, sighash=inp_sighash)
 
             # if we have individual private key
             if not fingerprint:
                 # check if we are included in the script
                 if sec in sc.data or pkh in sc.data:
-                    if is_segwit:
-                        h = txx.sighash_segwit(i, sc, value, sighash=inp_sighash)
-                    else:
-                        h = txx.sighash_legacy(i, sc, sighash=inp_sighash)
                     sig = root.sign(h)
-                    if sig is not None:
-                        # sig plus sighash_all
-                        inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
-                        counter += 1
+                    # sig plus sighash_all
+                    inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
+                    counter += 1
                 continue
 
             # if we use HDKey
@@ -216,16 +215,10 @@ class PSET(PSBT):
                     mypub = hdkey.key.get_public_key()
                     if mypub != pub:
                         raise PSBTError("Derivation path doesn't look right")
-                    sig = None
-                    if is_segwit:
-                        h = txx.sighash_segwit(i, sc, value, sighash=inp_sighash)
-                    else:
-                        h = txx.sighash_legacy(i, sc, sighash=inp_sighash)
                     sig = hdkey.key.sign(h)
-                    if sig is not None:
-                        # sig plus sighash flag
-                        inp.partial_sigs[mypub] = sig.serialize() + bytes([inp_sighash])
-                        counter += 1
+                    # sig plus sighash flag
+                    inp.partial_sigs[mypub] = sig.serialize() + bytes([inp_sighash])
+                    counter += 1
         return counter
 
     def verify(self):
