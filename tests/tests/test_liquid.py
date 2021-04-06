@@ -5,6 +5,7 @@ from embit.liquid.pset import PSET
 from embit.liquid.transaction import LTransaction
 from embit.liquid import slip77
 from embit.script import Script
+from embit.liquid.descriptor import LDescriptor
 
 class LiquidTest(TestCase):
 
@@ -65,3 +66,28 @@ class LiquidTest(TestCase):
 
         self.assertEqual(value, 10000000)
         self.assertEqual(asset, unhexlify("18696cf23e3209a6e84479d01f13fe79c901356ae53907cc882cffd3e2640123"))
+
+    def test_descriptors(self):
+        multi = "wsh(sortedmulti(1,[12345678/44h/12]xpub6BwcvdstHTJtLpp1WxUiQCYERWSB66XY5JrCpw71GAJxcJ6s2AiUoEK4Nzt6UDaTmanUiSe6TY2RoFturKNLXeWBhwBF6WBNghr8cr7qnjk/{0,1}/*,[abcdef12/84h/22h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/{0,1}/*))"
+        descs = [
+            "wpkh([abcdef12/84h/22h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/{0,1}/*)",
+            multi,
+            "blinded(slip77(L2t59TFgKmc83tPJD1rTy2KxJt44CMMQYsECXdz75xSqVv1X9Tvr),%s)" % multi,
+            "blinded(xprvA18YC5Aog5LxHgMrSv5t9QaHyfh5DU8Pr8zFTP5QhJSTjdg3mSpEyxLZfNQaEc8sALUtsHeDJYsp8YnobhjJT9D7JADoEV4wXiMuNMYDLZ2/{0,1}/*,%s)" % multi,
+            "blinded(musig(xprvA18YC5Aog5LxHgMrSv5t9QaHyfh5DU8Pr8zFTP5QhJSTjdg3mSpEyxLZfNQaEc8sALUtsHeDJYsp8YnobhjJT9D7JADoEV4wXiMuNMYDLZ2/{0,1}/*,xprv9ybbsYg8NKhDxDrSdmWPWih2AVjyDYxvTYvjaqNLmSpQcaLhmXeXUcHDEK99MiPDJwteBF2EzZkhfwwQDycrTgdxWGAgyWVpVJxrgZF5eCT/{0,1}/*),%s)" % multi,
+            "blinded(musig(xpub6E7tbahhWSuFWASKYwctWYX2XhXZcvrFDMurFmV2FdyScS1CJz8VXkf3WchmYnBmC8uMVgENPLYd8uWjXYjxFFwFXD6unhFXs6VBjHTAb9e/{0,1}/*,xprv9ybbsYg8NKhDxDrSdmWPWih2AVjyDYxvTYvjaqNLmSpQcaLhmXeXUcHDEK99MiPDJwteBF2EzZkhfwwQDycrTgdxWGAgyWVpVJxrgZF5eCT/{0,1}/*),%s)" % multi,
+        ]
+        for d in descs:
+            desc = LDescriptor.from_string(d)
+            self.assertEqual(d, str(desc))
+            # test we can derive addresses
+            desc.derive(0).address()
+        invalid_descs = [
+            # slip77 must be WIF key
+            "blinded(slip77(xprvA18YC5Aog5LxHgMrSv5t9QaHyfh5DU8Pr8zFTP5QhJSTjdg3mSpEyxLZfNQaEc8sALUtsHeDJYsp8YnobhjJT9D7JADoEV4wXiMuNMYDLZ2),%s)" % multi,
+            # blinded key and descriptor should both have or not have wildcards and branches
+            "blinded(L2t59TFgKmc83tPJD1rTy2KxJt44CMMQYsECXdz75xSqVv1X9Tvr,%s)" % multi,
+        ]
+        for d in invalid_descs:
+            with self.assertRaises(Exception):
+                LDescriptor.from_string(d)
