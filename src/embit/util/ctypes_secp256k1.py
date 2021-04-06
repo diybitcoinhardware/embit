@@ -252,6 +252,14 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
     ]
     secp256k1.secp256k1_rangeproof_sign.restype = c_int
 
+    # musig
+
+    secp256k1.secp256k1_xonly_pubkey_from_pubkey.argtypes = [c_void_p, c_char_p, POINTER(c_int), c_char_p]
+    secp256k1.secp256k1_xonly_pubkey_from_pubkey.restype = c_int
+
+    secp256k1.secp256k1_musig_pubkey_combine.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p, c_void_p, c_size_t]
+    secp256k1.secp256k1_musig_pubkey_combine.restype = c_int
+
     secp256k1.ctx = secp256k1.secp256k1_context_create(flags)
 
     r = secp256k1.secp256k1_context_randomize(secp256k1.ctx, os.urandom(32))
@@ -634,3 +642,23 @@ def rangeproof_sign(nonce, value, value_commitment, vbf, message, extra, gen, mi
     if res != 1:
         raise RuntimeError("Failed to generate the proof")
     return bytes(proof[:prooflen.contents.value])
+
+def xonly_pubkey_from_pubkey(pubkey, context=_secp.ctx):
+    if len(pubkey)!=64:
+        raise ValueError("Pubkey should be 64 bytes long")
+    pointer = POINTER(c_int)
+    parity = pointer(c_int(0))
+    xonly_pub = bytes(64)
+    res = _secp.secp256k1_xonly_pubkey_from_pubkey(context, xonly_pub, parity, pubkey)
+    if res != 1:
+        raise RuntimeError("Failed to convert the pubkey")
+    return xonly_pub, bool(parity.contents.value)
+
+def musig_pubkey_combine(*args, context=_secp.ctx):
+    pub = bytes(64)
+    # TODO: strange that behaviour is different from pubkey_combine...
+    pubkeys = b"".join(args) # (c_char_p * len(args))(*args)
+    res = _secp.secp256k1_musig_pubkey_combine(context, None, pub, None, pubkeys, len(args))
+    if res == 0:
+        raise ValueError("Failed to combine pubkeys")
+    return pub

@@ -152,17 +152,54 @@ class MuSigKey(DescriptorBase):
 
     @property
     def secret(self):
-        # TODO: make a real musig using secp.musig module
-        # For now just addition of the keys
-        s = self.keys[0].secret
-        for k in self.keys[1:]:
-            s = secp256k1.ec_privkey_add(s, k.secret)
+        s = musig_combine_privs([k.secret for k in self.keys])
         return s
 
     def sec(self):
-        # TODO: make a real musig using secp.musig module
-        # For now just addition of the keys
         pubs = [secp256k1.ec_pubkey_parse(k.sec()) for k in self.keys]
-        pub = secp256k1.ec_pubkey_combine(*pubs)
+        pub = musig_combine_pubs(pubs)
         return PublicKey(pub).sec()
-    
+
+def musig_combine_privs(privs, sort=True):
+    keys = [[b""+prv, secp256k1.ec_pubkey_serialize(secp256k1.ec_pubkey_create(prv))] for prv in privs]
+    for karr in keys:
+        if karr[1][0] == 0x03:
+            secp256k1.ec_privkey_negate(karr[0])
+        # x only
+        karr[1] = karr[1][1:]
+    if sort:
+        keys = list(sorted(keys, key=lambda k: k[1]))
+    secs = [k[1] for k in keys]
+    ll = sha256(b"".join(secs))
+    coefs = [tagged_hash("MuSig coefficient", ll+i.to_bytes(4,'little')) for i in range(len(keys))]
+    # tweak them all
+    for i in range(len(keys)):
+        secp256k1.ec_privkey_tweak_mul(coefs[i], keys[i][0])
+    s = coefs[0]
+    for c in coefs[1:]:
+        s = secp256k1.ec_privkey_add(s, c)
+    pub = secp256k1.ec_pubkey_create(s)
+    if secp256k1.ec_pubkey_serialize(pub)[0] == 0x03:
+        secp256k1.ec_privkey_negate(s)
+    return s
+
+def musig_combine_pubs(pubs, sort=True):
+    keys = [[pub, secp256k1.ec_pubkey_serialize(pub)] for pub in pubs]
+    for karr in keys:
+        if karr[1][0] == 0x03:
+            secp256k1.ec_pubkey_negate(karr[0])
+        # x only
+        karr[1] = karr[1][1:]
+    if sort:
+        keys = list(sorted(keys, key=lambda k: k[1]))
+    secs = [k[1] for k in keys]
+    ll = sha256(b"".join(secs))
+    coefs = [tagged_hash("MuSig coefficient", ll+i.to_bytes(4,'little')) for i in range(len(keys))]
+    # tweak them all
+    pubs = [k[0] for k in keys]
+    for i in range(len(keys)):
+        secp256k1.ec_pubkey_tweak_mul(pubs[i], coefs[i])
+    pub = secp256k1.ec_pubkey_combine(*pubs)
+    if secp256k1.ec_pubkey_serialize(pub)[0] == 0x03:
+        secp256k1.ec_pubkey_negate(pub)
+    return pub
