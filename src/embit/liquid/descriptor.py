@@ -84,9 +84,16 @@ class BlindingKey(DescriptorBase):
         # if not slip77 - make a script tweak to the key
         tweak = tagged_hash("elements/blindingkey", sc.data)
         if self.key.is_private:
-            return ec.PrivateKey(secp256k1.ec_privkey_add(self.key.secret, tweak))
+            secret = secp256k1.ec_privkey_add(self.key.secret, tweak)
+            # negate if it's odd
+            if ec.PrivateKey(secret).sec()[0] == 0x03:
+                 secp256k1.ec_privkey_negate(secret)
+            return ec.PrivateKey(secret)
         else:
-            return ec.PublicKey(secp256k1.ec_pubkey_add(secp256k1.ec_pubkey_parse(self.key.sec()), tweak))
+            pub = secp256k1.ec_pubkey_add(secp256k1.ec_pubkey_parse(self.key.sec()), tweak)
+            if secp256k1.ec_pubkey_serialize(pub)[0] == 0x03:
+                secp256k1.ec_pubkey_negate(pub)
+            return ec.PublicKey(pub)
 
     @classmethod
     def read_from(cls, s):
@@ -116,6 +123,8 @@ class BlindingKey(DescriptorBase):
 class MuSigKey(DescriptorBase):
     def __init__(self, keys):
         self.keys = keys
+        self._secret = None
+        self._pubkey = None
 
     def derive(self, idx, branch_index=None):
         return type(self)([k.derive(idx, branch_index) for k in self.keys])
@@ -152,13 +161,16 @@ class MuSigKey(DescriptorBase):
 
     @property
     def secret(self):
-        s = musig_combine_privs([k.secret for k in self.keys])
-        return s
+        if self._secret is None:
+            self._secret = musig_combine_privs([k.secret for k in self.keys])
+        return self._secret
 
     def sec(self):
-        pubs = [secp256k1.ec_pubkey_parse(k.sec()) for k in self.keys]
-        pub = musig_combine_pubs(pubs)
-        return PublicKey(pub).sec()
+        if self._pubkey is None:
+            pubs = [secp256k1.ec_pubkey_parse(k.sec()) for k in self.keys]
+            pub = musig_combine_pubs(pubs)
+            self._pubkey = PublicKey(pub)
+        return self._pubkey.sec()
 
 def musig_combine_privs(privs, sort=True):
     keys = [[b""+prv, secp256k1.ec_pubkey_serialize(secp256k1.ec_pubkey_create(prv))] for prv in privs]

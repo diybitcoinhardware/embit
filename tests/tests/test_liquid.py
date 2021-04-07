@@ -81,7 +81,7 @@ class LiquidTest(TestCase):
             desc = LDescriptor.from_string(d)
             self.assertEqual(d, str(desc))
             # test we can derive addresses
-            desc.derive(0).address()
+            addr = desc.derive(0).address()
         invalid_descs = [
             # slip77 must be WIF key
             "blinded(slip77(xprvA18YC5Aog5LxHgMrSv5t9QaHyfh5DU8Pr8zFTP5QhJSTjdg3mSpEyxLZfNQaEc8sALUtsHeDJYsp8YnobhjJT9D7JADoEV4wXiMuNMYDLZ2),%s)" % multi,
