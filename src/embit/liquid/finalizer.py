@@ -10,9 +10,7 @@ def parse_multisig(sc):
     n = d[-2]-80
     if m > n or m < 1 or n < 1 or m > 16 or n > 16:
         raise RuntimeError("Invalid m or n in multisig script")
-    print(d.hex())
     pubs = d[1:-2]
-    print(pubs.hex())
     if len(pubs) % 34 != 0:
         raise RuntimeError("Pubkeys of strange length")
     if len(pubs) != 34*n:
