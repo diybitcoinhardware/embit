@@ -231,7 +231,7 @@ class InputScope(PSBTScope):
                 raise PSBTError("Duplicated key")
             self.unknown[k] = v
 
-    def write_to(self, stream) -> int:
+    def write_to(self, stream, skip_separator=False) -> int:
         r = 0
         if self.non_witness_utxo is not None:
             r += stream.write(b"\x01\x00")
@@ -265,7 +265,8 @@ class InputScope(PSBTScope):
             r += ser_string(stream, key)
             r += ser_string(stream, self.unknown[key])
         # separator
-        r += stream.write(b"\x00")
+        if not skip_separator:
+            r += stream.write(b"\x00")
         return r
 
 
@@ -312,7 +313,7 @@ class OutputScope(PSBTScope):
                 raise PSBTError("Duplicated key")
             self.unknown[k] = v
 
-    def write_to(self, stream) -> int:
+    def write_to(self, stream, skip_separator=False) -> int:
         r = 0
         if self.redeem_script is not None:
             r += stream.write(b"\x01\x00")
@@ -328,7 +329,8 @@ class OutputScope(PSBTScope):
             r += ser_string(stream, key)
             r += ser_string(stream, self.unknown[key])
         # separator
-        r += stream.write(b"\x00")
+        if not skip_separator:
+            r += stream.write(b"\x00")
         return r
 
 class PSBT(EmbitBase):
@@ -497,22 +499,20 @@ class PSBT(EmbitBase):
             # convert to p2pkh according to bip143
             if sc.script_type() == "p2wpkh":
                 sc = script.p2pkh_from_p2wpkh(sc)
-            sig = None
+
+            if is_segwit:
+                h = self.tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
+            else:
+                h = self.tx.sighash_legacy(i, sc, sighash=inp_sighash)
 
             # if we have individual private key
             if not fingerprint:
-                sc = inp.witness_script or inp.redeem_script or self.utxo(i).script_pubkey
                 # check if we are included in the script
                 if sec in sc.data or pkh in sc.data:
-                    if is_segwit:
-                        h = self.tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
-                    else:
-                        h = self.tx.sighash_legacy(i, sc, sighash=inp_sighash)
                     sig = root.sign(h)
-                    if sig is not None:
-                        # sig plus sighash_all
-                        inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
-                        counter += 1
+                    # sig plus sighash flag
+                    inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
+                    counter += 1
                 continue
 
             # if we use HDKey
@@ -523,14 +523,8 @@ class PSBT(EmbitBase):
                     mypub = hdkey.key.get_public_key()
                     if mypub != pub:
                         raise PSBTError("Derivation path doesn't look right")
-                    sig = None
-                    if is_segwit:
-                        h = self.tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
-                    else:
-                        h = self.tx.sighash_legacy(i, sc, sighash=inp_sighash)
                     sig = hdkey.key.sign(h)
-                    if sig is not None:
-                        # sig plus sighash flag
-                        inp.partial_sigs[mypub] = sig.serialize() + bytes([inp_sighash])
-                        counter += 1
+                    # sig plus sighash flag
+                    inp.partial_sigs[mypub] = sig.serialize() + bytes([inp_sighash])
+                    counter += 1
         return counter

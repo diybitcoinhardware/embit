@@ -68,6 +68,12 @@ class HDKey(EmbitKey):
         """ checks if the HDKey is private or public """
         return self.key.is_private
 
+    @property
+    def secret(self):
+        if not self.is_private:
+            raise HDError("Key is not private")
+        return self.key.secret
+
     def write_to(self, stream, version=None) -> int:
         if version is None:
             version = self.version

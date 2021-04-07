@@ -10,6 +10,7 @@ from ctypes import (
     c_char_p,
     c_size_t,
     c_void_p,
+    c_uint64,
     create_string_buffer,
     CFUNCTYPE,
     POINTER,
@@ -75,6 +76,9 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
 
     secp256k1.secp256k1_ec_privkey_negate.argtypes = [c_void_p, c_char_p]
     secp256k1.secp256k1_ec_privkey_negate.restype = c_int
+
+    secp256k1.secp256k1_ec_pubkey_negate.argtypes = [c_void_p, c_char_p]
+    secp256k1.secp256k1_ec_pubkey_negate.restype = c_int
 
     secp256k1.secp256k1_ec_privkey_tweak_add.argtypes = [c_void_p, c_char_p, c_char_p]
     secp256k1.secp256k1_ec_privkey_tweak_add.restype = c_int
@@ -400,7 +404,7 @@ def ec_pubkey_combine(*args, context=_secp.ctx):
     pubkeys = (c_char_p * len(args))(*args)
     r = _secp.secp256k1_ec_pubkey_combine(context, pub, pubkeys, len(args))
     if r == 0:
-        raise ValueError("Failed to negate pubkey")
+        raise ValueError("Failed to combine pubkeys")
     return pub
 
 

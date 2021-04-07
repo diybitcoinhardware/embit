@@ -44,8 +44,11 @@ class Descriptor(DescriptorBase):
 
     @property
     def num_branches(self):
-        branches = [k.branches for k in self.keys if k.branches is not None]
-        return 1 if len(branches) == 0 else len(branches[0])
+        return max([k.num_branches for k in self.keys])
+
+    @property
+    def is_wildcard(self):
+        return any([key.is_wildcard for key in self.keys])
 
     @property
     def is_wrapped(self):

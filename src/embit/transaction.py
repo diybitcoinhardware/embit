@@ -40,6 +40,10 @@ class Transaction(EmbitBase):
         self.locktime = locktime
         self.vin = vin
         self.vout = vout
+        # cache for digests
+        self._hash_prevouts = None
+        self._hash_sequence = None
+        self._hash_outputs = None
 
     @property
     def is_segwit(self):
@@ -104,7 +108,7 @@ class Transaction(EmbitBase):
         num_vout = compact.read_from(stream)
         h.update(compact.to_bytes(num_vout))
         if idx >= num_vout or idx < 0:
-            raise TransactionError("Invalid vout index %d, max is %d" (idx, num_vout-1))
+            raise TransactionError("Invalid vout index %d, max is %d" % (idx, num_vout-1))
         res = None
         for i in range(num_vout):
             vout = TransactionOutput.read_from(stream)
@@ -142,23 +146,29 @@ class Transaction(EmbitBase):
         return cls(version=ver, vin=vin, vout=vout, locktime=locktime)
 
     def hash_prevouts(self):
-        h = hashlib.sha256()
-        for inp in self.vin:
-            h.update(bytes(reversed(inp.txid)))
-            h.update(inp.vout.to_bytes(4, "little"))
-        return h.digest()
+        if self._hash_prevouts is None:
+            h = hashlib.sha256()
+            for inp in self.vin:
+                h.update(bytes(reversed(inp.txid)))
+                h.update(inp.vout.to_bytes(4, "little"))
+            self._hash_prevouts = h.digest()
+        return self._hash_prevouts
 
     def hash_sequence(self):
-        h = hashlib.sha256()
-        for inp in self.vin:
-            h.update(inp.sequence.to_bytes(4, "little"))
-        return h.digest()
+        if self._hash_sequence is None:
+            h = hashlib.sha256()
+            for inp in self.vin:
+                h.update(inp.sequence.to_bytes(4, "little"))
+            self._hash_sequence = h.digest()
+        return self._hash_sequence
 
     def hash_outputs(self):
-        h = hashlib.sha256()
-        for out in self.vout:
-            h.update(out.serialize())
-        return h.digest()
+        if self._hash_outputs is None:
+            h = hashlib.sha256()
+            for out in self.vout:
+                h.update(out.serialize())
+            self._hash_outputs = h.digest()
+        return self._hash_outputs
 
     def sighash_segwit(self, input_index, script_pubkey, value, sighash=SIGHASH.ALL):
         """check out bip-143"""

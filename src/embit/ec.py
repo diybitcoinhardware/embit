@@ -101,6 +101,10 @@ class PrivateKey(EmbitKey):
             b += bytes([0x01])
         return base58.encode_check(b)
 
+    @property
+    def secret(self):
+        return self._secret
+
     def sec(self) -> bytes:
         """Sec representation of the corresponding public key"""
         return self.get_public_key().sec()

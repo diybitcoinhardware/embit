@@ -33,6 +33,10 @@ class AllowedDerivation(DescriptorBase):
             raise ArgumentError("Only one wildcard is allowed")
         self.indexes = indexes
 
+    @property
+    def is_wildcard(self):
+        return None in self.indexes
+
     def fill(self, idx, branch_index=None):
         if idx < 0 or idx >= 0x80000000:
             raise ArgumentError("Hardened indexes are not allowed in wildcard")
@@ -260,13 +264,24 @@ class Key(DescriptorBase):
     def branches(self):
         return self.allowed_derivation.branches if self.allowed_derivation else None
 
+    @property
+    def num_branches(self):
+        return 1 if self.branches is None else len(self.branches)
+
+    @property
+    def is_wildcard(self):
+        return self.allowed_derivation.is_wildcard if self.allowed_derivation else False
+
     def derive(self, idx, branch_index=None):
         # nothing to derive
         if self.allowed_derivation is None:
             return self
         der = self.allowed_derivation.fill(idx, branch_index=branch_index)
         k = self.key.derive(der)
-        origin = KeyOrigin(self.origin.fingerprint, self.origin.derivation + der)
+        if self.origin:
+            origin = KeyOrigin(self.origin.fingerprint, self.origin.derivation + der)
+        else:
+            origin = KeyOrigin(self.key.child(0).fingerprint, der)
         # empty derivation
         derivation = None
         return type(self)(k, origin, derivation)
@@ -279,9 +294,14 @@ class Key(DescriptorBase):
 
     @property
     def private_key(self):
-        if self.is_private:
-            # either HDKey.key or just the key
-            return self.key.key if self.is_extended else self.key
+        if not self.is_private:
+            raise ArgumentError("Key is not private")
+        # either HDKey.key or just the key
+        return self.key.key if self.is_extended else self.key
+
+    @property
+    def secret(self):
+        return self.private_key.secret
 
     def to_string(self, version=None):
         if isinstance(self.key, ec.PublicKey):
