@@ -140,12 +140,6 @@ class PSET(PSBT):
     PSBTOUT_CLS = LOutputScope
     TX_CLS = LTransaction
 
-    @classmethod
-    def read_from(cls, *args, **kwargs):
-        res = super().read_from(*args, **kwargs)
-        res.verify()
-        return res
-
     def sign_with(self, root, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)) -> int:
         """
         Signs psbt with root key (HDKey or similar).
