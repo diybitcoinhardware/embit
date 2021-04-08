@@ -2,14 +2,14 @@ import io
 from .. import compact
 from ..script import Script, Witness
 from .. import hashes
-from ..util import hashlib
 from ..transaction import *
 from ..base import EmbitBase
 import hashlib
 if sys.implementation.name == "micropython":
     import secp256k1
+    import hashlib
 else:
-    from ..util import secp256k1
+    from ..util import secp256k1, hashlib
 
 class LSIGHASH(SIGHASH):
     # ALL and others are defined in SIGHASH

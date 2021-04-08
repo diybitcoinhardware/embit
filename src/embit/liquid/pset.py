@@ -140,6 +140,13 @@ class PSET(PSBT):
     PSBTOUT_CLS = LOutputScope
     TX_CLS = LTransaction
 
+    def fee(self):
+        fee = 0
+        for out in self.tx.vout:
+            if out.script_pubkey.data == b"":
+                fee += out.value
+        return fee
+
     def sign_with(self, root, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)) -> int:
         """
         Signs psbt with root key (HDKey or similar).
