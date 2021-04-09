@@ -9,24 +9,40 @@ class LDescriptor(Descriptor):
     """Liquid descriptor that supports blinded() wrapper"""
     def __init__(self, *args, blinding_key=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self._blinding_key = blinding_key
+        self.blinding_key = blinding_key
 
     @property
     def is_blinded(self):
-        return self._blinding_key is not None    
+        return self.blinding_key is not None
 
     def address(self, network=NETWORKS["liquidv1"]):
         sc = self.script_pubkey()
         if not self.is_blinded:
             return sc.address(network)
-        bkey = self._blinding_key.get_blinding_key(sc)
+        bkey = self.blinding_key.get_blinding_key(sc)
         return address(sc, bkey, network)
 
     def derive(self, idx, branch_index=None):
         d = super().derive(idx, branch_index)
         if self.is_blinded:
-            blinding_key = self._blinding_key.derive(idx, branch_index)
-            d._blinding_key = blinding_key
+            blinding_key = self.blinding_key.derive(idx, branch_index)
+            d.blinding_key = blinding_key
+        return d
+
+    @property
+    def is_slip77(self):
+        return self.is_blinded and self.blinding_key.slip77
+
+    @property
+    def master_blinding_key(self):
+        if self.is_slip77:
+            return self.blinding_key.key.secret
+
+    def branch(self, branch_index=None):
+        d = super().branch(branch_index)
+        if self.is_blinded:
+            blinding_key = self.blinding_key.branch(branch_index)
+            d.blinding_key = blinding_key
         return d
 
     @classmethod
@@ -51,10 +67,10 @@ class LDescriptor(Descriptor):
                 raise DescriptorError("Branches mismatch in blinded key and descriptor")
         return cls(d.miniscript, sh=d.sh, wsh=d.wsh, key=d.key, wpkh=d.wpkh, blinding_key=blinding_key)
 
-    def to_string(self):
+    def to_string(self, blinded=True):
         res = super().to_string()
-        if self.is_blinded:
-            res = "blinded(%s,%s)" % (self._blinding_key, res)
+        if self.is_blinded and blinded:
+            res = "blinded(%s,%s)" % (self.blinding_key, res)
         return res
 
 class BlindingKey(DescriptorBase):
@@ -67,6 +83,12 @@ class BlindingKey(DescriptorBase):
             return self
         else:
             return type(self)(self.key.derive(idx, branch_index), self.slip77)
+
+    def branch(self, branch_index=None):
+        if self.slip77:
+            return self
+        else:
+            return type(self)(self.key.branch(branch_index), self.slip77)
 
     @property
     def is_wildcard(self):
