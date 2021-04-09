@@ -152,6 +152,20 @@ class LTransaction(Transaction):
                 res += out.witness.write_to(stream)
         return res
 
+    def hash(self):
+        h = hashlib.sha256()
+        h.update(self.version.to_bytes(4, "little"))
+        h.update(b"\x00")
+        h.update(compact.to_bytes(len(self.vin)))
+        for inp in self.vin:
+            h.update(inp.serialize())
+        h.update(compact.to_bytes(len(self.vout)))
+        for out in self.vout:
+            h.update(out.serialize())
+        h.update(self.locktime.to_bytes(4, "little"))
+        hsh = hashlib.sha256(h.digest()).digest()
+        return hsh
+
     @classmethod
     def read_vout(cls, stream, idx):
         """Returns a tuple TransactionOutput, tx_hash without storing the whole tx in memory"""
@@ -161,7 +175,7 @@ class LTransaction(Transaction):
         flag = stream.read(1)
         if flag == b"\x01":
             has_witness = True
-        h.update(flag)
+        h.update(b"\x00")
         num_vin = compact.read_from(stream)
         h.update(compact.to_bytes(num_vin))
         for i in range(num_vin):
