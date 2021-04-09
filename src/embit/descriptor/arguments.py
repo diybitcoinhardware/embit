@@ -38,7 +38,8 @@ class AllowedDerivation(DescriptorBase):
         return None in self.indexes
 
     def fill(self, idx, branch_index=None):
-        if idx < 0 or idx >= 0x80000000:
+        # None is ok
+        if idx is not None and (idx < 0 or idx >= 0x80000000):
             raise ArgumentError("Hardened indexes are not allowed in wildcard")
         arr = [i for i in self.indexes]
         for i, el in enumerate(arr):
@@ -52,6 +53,10 @@ class AllowedDerivation(DescriptorBase):
                         raise ArgumentError("Invalid branch index")
                     arr[i] = el[branch_index]
         return arr
+
+    def branch(self, branch_index):
+        arr = self.fill(None, branch_index)
+        return type(self)(arr)
 
     def check_derivation(self, derivation: list):
         if len(derivation) != len(self.indexes):
@@ -267,6 +272,10 @@ class Key(DescriptorBase):
     @property
     def num_branches(self):
         return 1 if self.branches is None else len(self.branches)
+
+    def branch(self, branch_index=None):
+        der = self.allowed_derivation.branch(branch_index)
+        return type(self)(self.key, self.origin, der)
 
     @property
     def is_wildcard(self):

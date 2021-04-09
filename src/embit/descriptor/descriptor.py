@@ -46,6 +46,21 @@ class Descriptor(DescriptorBase):
     def num_branches(self):
         return max([k.num_branches for k in self.keys])
 
+    def branch(self, branch_index=None):
+        if self.miniscript:
+            return type(self)(
+                self.miniscript.branch(branch_index),
+                self.sh,
+                self.wsh,
+                None,
+                self.wpkh,
+            )
+        else:
+            return type(self)(
+                None, self.sh, self.wsh, self.key.branch(branch_index), self.wpkh
+            )
+
+
     @property
     def is_wildcard(self):
         return any([key.is_wildcard for key in self.keys])

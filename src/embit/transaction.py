@@ -92,7 +92,6 @@ class Transaction(EmbitBase):
         h = hashlib.sha256()
         h.update(stream.read(4))
         num_vin = compact.read_from(stream)
-        h.update(compact.to_bytes(num_vin))
         # if num_vin is zero it is a segwit transaction
         is_segwit = num_vin == 0
         if is_segwit:
@@ -100,8 +99,7 @@ class Transaction(EmbitBase):
             if marker != b"\x01":
                 raise TransactionError("Invalid segwit marker")
             num_vin = compact.read_from(stream)
-            h.update(marker)
-            h.update(compact.to_bytes(num_vin))
+        h.update(compact.to_bytes(num_vin))
         for i in range(num_vin):
             txin = TransactionInput.read_from(stream)
             h.update(txin.serialize())

@@ -366,6 +366,11 @@ class PSBT(EmbitBase):
             raise PSBTError("Missing previous utxo on input %d" % i)
         return self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo.vout[self.tx.vin[i].vout]
 
+    def fee(self):
+        fee = sum([self.utxo(i).value for i in range(len(self.inputs))])
+        fee -= sum([out.value for out in self.tx.vout])
+        return fee
+
     def write_to(self, stream) -> int:
         # magic bytes
         r = stream.write(self.MAGIC)
