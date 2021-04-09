@@ -5,7 +5,7 @@ import sys
 if sys.implementation.name == "micropython":
     import hashlib
 else:
-    from .util import hashlib
+    from ..util import hashlib
 
 class BlindingHDKey(bip32.HDKey):
     @classmethod
