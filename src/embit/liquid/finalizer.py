@@ -1,6 +1,6 @@
 from .. import ec
 from ..script import Witness, Script
-from .transaction import TxOutWitness, Proof
+from .transaction import TxOutWitness, Proof, LTransaction
 
 def parse_multisig(sc):
     d = sc.data
@@ -18,8 +18,9 @@ def parse_multisig(sc):
     pubkeys = [ec.PublicKey.parse(pubs[i*34+1:(i+1)*34]) for i in range(n)]
     return m, pubkeys
 
-def finalize_psbt(tx):
-    ttx = tx.tx
+def finalize_psbt(tx, ignore_missing=False):
+    # ugly copy
+    ttx = LTransaction.parse(tx.tx.serialize())
     done = 0
     for i, inp in enumerate(ttx.vin):
         if tx.inputs[i].redeem_script is not None:
@@ -34,7 +35,7 @@ def finalize_psbt(tx):
                     sigs.append(tx.inputs[i].partial_sigs[pub])
                 if len(sigs) == m:
                     break
-            if len(sigs) == m:
+            if len(sigs) == m or ignore_missing:
                 inp.witness.script_witness = Witness([b""] + sigs + [tx.inputs[i].witness_script.data])
                 done += 1
             continue
@@ -56,7 +57,7 @@ def finalize_psbt(tx):
                 Proof(tx.outputs[i].surjection_proof),
                 Proof(tx.outputs[i].range_proof)
             )
-    if done < len(ttx.vin):
+    if not ignore_missing and done < len(ttx.vin):
         return None
     return ttx
 
