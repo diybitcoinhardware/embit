@@ -5,10 +5,12 @@ if sys.implementation.name == "micropython":
 else:
     from ..util import secp256k1
 
+from .. import compact
 from ..psbt import *
 from collections import OrderedDict
 from io import BytesIO
 from .transaction import LTransaction, LTransactionOutput, TxOutWitness, Proof, LSIGHASH
+import hashlib
 
 class LInputScope(InputScope):
     TX_CLS = LTransaction
@@ -99,6 +101,10 @@ class LOutputScope(OutputScope):
             else:
                 self.unknown[k] = v
 
+    @property
+    def is_blinded(self):
+        # TODO: not great
+        return self.value_blinding_factor or self.asset_blinding_factor
 
     def write_to(self, stream, skip_separator=False) -> int:
         # TODO: super.write_to()
@@ -152,86 +158,42 @@ class PSET(PSBT):
         Signs psbt with root key (HDKey or similar).
         Returns number of signatures added to PSBT
         """
-        # TODO: ugly, make it with super()
-        txx = LTransaction.parse(self.tx.serialize())
-        for i, out in enumerate(txx.vout):
-            if self.outputs[i].nonce_commitment:
-                out.nonce = self.outputs[i].nonce_commitment
-                out.value = self.outputs[i].value_commitment
-                out.asset = self.outputs[i].asset_commitment
-                out.witness = TxOutWitness(Proof(self.outputs[i].surjection_proof), Proof(self.outputs[i].range_proof))
-
-        # if WIF - fingerprint is None
-        fingerprint = None if not hasattr(root, "child") else root.child(0).fingerprint
-        if not fingerprint:
-            pub = root.get_public_key()
-            sec = pub.sec()
-            pkh = hashes.hash160(sec)
-
-        counter = 0
-        for i, inp in enumerate(self.inputs):
-            # check which sighash to use
-            inp_sighash = inp.sighash_type or sighash or (LSIGHASH.ALL | LSIGHASH.RANGEPROOF)
-            # if input sighash is set and is different from kwarg - skip input
-            if sighash is not None and inp_sighash != sighash:
-                continue
-
-            utxo = self.utxo(i)
-            value = utxo.value
-            sc = inp.witness_script or inp.redeem_script or utxo.script_pubkey
-
-            # detect if it is a segwit input
-            is_segwit = (inp.witness_script
-                        or inp.witness_utxo
-                        or utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
-                        or (
-                            inp.redeem_script
-                            and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
-                        )
-            )
-            # convert to p2pkh according to bip143
-            if sc.script_type() == "p2wpkh":
-                sc = script.p2pkh_from_p2wpkh(sc)
-
-            if is_segwit:
-                h = txx.sighash_segwit(i, sc, value, sighash=inp_sighash)
+        hprevout = hashlib.sha256()
+        hrangeproof = hashlib.sha256()
+        for i, out in enumerate(self.tx.vout):
+            if self.outputs[i].is_blinded:
+                hprevout.update(self.outputs[i].asset_commitment)
+                hprevout.update(self.outputs[i].value_commitment)
+                hprevout.update(self.outputs[i].nonce_commitment)
+                hprevout.update(out.script_pubkey.serialize())
+                hrangeproof.update(compact.to_bytes(len(self.outputs[i].range_proof)))
+                hrangeproof.update(self.outputs[i].range_proof)
+                hrangeproof.update(compact.to_bytes(len(self.outputs[i].surjection_proof)))
+                hrangeproof.update(self.outputs[i].surjection_proof)
             else:
-                h = txx.sighash_legacy(i, sc, sighash=inp_sighash)
-
-            # if we have individual private key
-            if not fingerprint:
-                # check if we are included in the script
-                if sec in sc.data or pkh in sc.data:
-                    sig = root.sign(h)
-                    # sig plus sighash_all
-                    inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
-                    counter += 1
-                continue
-
-            # if we use HDKey
-            for pub in inp.bip32_derivations:
-                # check if it is root key
-                if inp.bip32_derivations[pub].fingerprint == fingerprint:
-                    hdkey = root.derive(inp.bip32_derivations[pub].derivation)
-                    mypub = hdkey.key.get_public_key()
-                    if mypub != pub:
-                        raise PSBTError("Derivation path doesn't look right")
-                    sig = hdkey.key.sign(h)
-                    # sig plus sighash flag
-                    inp.partial_sigs[mypub] = sig.serialize() + bytes([inp_sighash])
-                    counter += 1
-        return counter
+                hprevout.update(out.serialize())
+                hrangeproof.update(out.witness.range_proof.serialize())
+                hrangeproof.update(out.witness.surjection_proof.serialize())
+        self.tx._hash_outputs = hprevout.digest()
+        self.tx._hash_outputs_rangeproofs = hrangeproof.digest()
+        return super().sign_with(root, sighash)
 
     def verify(self):
         """Checks that all commitments, values and assets are consistent"""
         super().verify()
         for i, vout in enumerate(self.tx.vout):
             out = self.outputs[i]
-            if out.nonce_commitment:
+            if out.is_blinded:
                 gen = secp256k1.generator_generate_blinded(vout.asset[1:], out.asset_blinding_factor)
-                if secp256k1.generator_serialize(gen) != out.asset_commitment:
-                    raise ValueError("asset commitment is invalid")
+                if out.asset_commitment:
+                    if secp256k1.generator_serialize(gen) != out.asset_commitment:
+                        raise ValueError("asset commitment is invalid")
+                else:
+                    out.asset_commitment = secp256k1.generator_serialize(gen)
                 commit = secp256k1.pedersen_commit(out.value_blinding_factor, vout.value, gen)
                 sec = secp256k1.pedersen_commitment_serialize(commit)
-                if sec != out.value_commitment:
-                    raise ValueError("value commitment is invalid")
+                if out.value_commitment:
+                    if sec != out.value_commitment:
+                        raise ValueError("value commitment is invalid")
+                else:
+                    out.value_commitment = sec
