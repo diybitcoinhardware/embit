@@ -596,7 +596,7 @@ def generator_serialize(generator, context=_secp.ctx):
     return sec
 
 # rangeproof
-def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, context=_secp.ctx):
+def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, message_length=64, context=_secp.ctx):
     if len(generator)!=64:
         raise ValueError("Generator should be 64 bytes long")
     if len(nonce)!=32:
@@ -604,7 +604,7 @@ def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, 
     if len(value_commitment)!=64:
         raise ValueError("Value commitment should be 64 bytes long")
 
-    msg = b"\x00"*64
+    msg = b"\x00"*message_length
     pointer = POINTER(c_uint64)
     msglen = pointer(c_uint64(len(msg)))
 
@@ -620,9 +620,7 @@ def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, 
                             generator)
     if res != 1:
         raise RuntimeError("Failed to rewind the proof")
-    asset = msg[:32]
-    abf = msg[32:]
-    return value_out.contents.value, asset, vbf_out, abf, min_value.contents.value, max_value.contents.value
+    return value_out.contents.value, vbf_out, msg[:msglen.contents.value], min_value.contents.value, max_value.contents.value
 
 def rangeproof_sign(nonce, value, value_commitment, vbf, message, extra, gen, min_value=1, exp=0, min_bits=52, context=_secp.ctx):
     if len(gen)!=64:

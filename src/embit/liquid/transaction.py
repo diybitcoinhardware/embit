@@ -390,8 +390,13 @@ class LTransactionOutput(TransactionOutput):
         gen = secp256k1.generator_parse(self.asset)
 
         res = secp256k1.rangeproof_rewind(self.witness.range_proof.data, nonce, commit, self.script_pubkey.data, gen)
-        value, asset, vbf, abf, min_value, max_value = res
-        return value, asset, vbf, abf, min_value, max_value
+        value, vbf, msg, min_value, max_value = res
+        if len(msg) < 64:
+            raise TransactionError("Rangeproof message is too small")
+        asset = msg[:32]
+        abf = msg[32:64]
+        extra = msg[64:]
+        return value, asset, vbf, abf, extra, min_value, max_value
 
     @classmethod
     def read_from(cls, stream):

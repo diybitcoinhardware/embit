@@ -62,10 +62,11 @@ class LiquidTest(TestCase):
 
         vout = tx.vout[0]
         bpk = unhexlify("bc311008510ca3e70755509190d96fe8dd20d3f9673077c9fee0c9cf69a3d9ea")
-        value, asset, vbf, abf, min_value, max_value = vout.unblind(bpk)
+        value, asset, vbf, abf, extra, min_value, max_value = vout.unblind(bpk)
 
         self.assertEqual(value, 10000000)
         self.assertEqual(asset, unhexlify("18696cf23e3209a6e84479d01f13fe79c901356ae53907cc882cffd3e2640123"))
+        self.assertEqual(extra, b"")
 
     def test_descriptors(self):
         multi = "wsh(sortedmulti(1,[12345678/44h/12]xpub6BwcvdstHTJtLpp1WxUiQCYERWSB66XY5JrCpw71GAJxcJ6s2AiUoEK4Nzt6UDaTmanUiSe6TY2RoFturKNLXeWBhwBF6WBNghr8cr7qnjk/{0,1}/*,[abcdef12/84h/22h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/{0,1}/*))"
