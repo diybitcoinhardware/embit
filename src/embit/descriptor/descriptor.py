@@ -186,7 +186,7 @@ class Descriptor(DescriptorBase):
         s = BytesIO(desc.encode())
         res = cls.read_from(s)
         left = s.read()
-        if len(left) > 0:
+        if len(left) > 0 and not left.startswith(b"#"):
             raise DescriptorError("Unexpected characters after descriptor: %r" % left)
         return res
 
