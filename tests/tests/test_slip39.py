@@ -344,10 +344,10 @@ class Slip39Test(TestCase):
         ]
         for test_name, mnemonics, expected in test_cases:
             share_set = ShareSet([Share.parse(m) for m in mnemonics])
-            self.assertEqual(share_set.recover(b"TREZOR").hex(), expected, test_name)
+            self.assertEqual(share_set.recover(b"TREZOR"), unhexlify(expected), test_name)
 
     def test_split(self):
-        secret = bytes.fromhex("7c3397a292a5941682d7a4ae2d898d11")
+        secret = unhexlify("7c3397a292a5941682d7a4ae2d898d11")
         for k, n in ((2, 3), (3, 5), (5, 5), (9, 9), (13, 15)):
             share_data = ShareSet.split_secret(secret, k, n)
             self.assertEqual(secret, ShareSet.interpolate(255, share_data[:k]))

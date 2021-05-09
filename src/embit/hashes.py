@@ -1,9 +1,13 @@
 import sys
+import hashlib
 
-if sys.implementation.name == "micropython":
-    import hashlib
-else:
-    from .util import hashlib
+try:
+    # in micropython hashlib.c we have optimized version of hmac_sha512
+    from hashlib import hmac_sha512
+except:
+    import hmac
+    def hmac_sha512(key, msg):
+        return hmac.new(key, msg, digestmod=hashlib.sha512).digest()
 
 
 def double_sha256(msg):
@@ -13,7 +17,7 @@ def double_sha256(msg):
 
 def hash160(msg):
     """ripemd160(sha256(msg)) -> bytes"""
-    return hashlib.ripemd160(hashlib.sha256(msg).digest()).digest()
+    return hashlib.new('ripemd160', hashlib.sha256(msg).digest()).digest()
 
 
 def sha256(msg):
@@ -23,7 +27,8 @@ def sha256(msg):
 
 def ripemd160(msg):
     """one-line rmd160(msg) -> bytes"""
-    return hashlib.ripemd160(msg).digest()
+    return hashlib.new('ripemd160', msg).digest()
+
 
 def tagged_hash(tag: str, data: bytes) -> bytes:
     """BIP-Schnorr tag-specific key derivation"""

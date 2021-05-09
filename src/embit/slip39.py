@@ -1,14 +1,7 @@
 import hmac
 import random
 import sys
-
-if sys.implementation.name == "micropython":
-    import hashlib
-    from micropython import const
-else:
-    from .util import hashlib, const
-
-
+import hashlib
 from .bip39 import mnemonic_from_bytes, mnemonic_to_bytes
 
 
@@ -55,7 +48,8 @@ def _crypt(payload, id, exponent, passphrase, indices):
     right = payload[half:]
     salt = b"shamir" + id.to_bytes(2, "big")
     for i in indices:
-        f = hashlib.pbkdf2_hmac_sha256(
+        f = hashlib.pbkdf2_hmac(
+            "sha256",
             i + passphrase,
             salt + right,
             2500 << exponent,

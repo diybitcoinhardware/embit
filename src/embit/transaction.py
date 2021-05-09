@@ -1,14 +1,10 @@
 import sys
 import io
+import hashlib
 from . import compact
 from .script import Script, Witness
 from . import hashes
 from .base import EmbitBase, EmbitError
-
-if sys.implementation.name == "micropython":
-    import hashlib
-else:
-    from .util import hashlib
 
 class TransactionError(EmbitError):
     pass

@@ -7,9 +7,8 @@ from ..base import EmbitBase
 import hashlib
 if sys.implementation.name == "micropython":
     import secp256k1
-    import hashlib
 else:
-    from ..util import secp256k1, hashlib
+    from ..util import secp256k1
 
 class LSIGHASH(SIGHASH):
     # ALL and others are defined in SIGHASH
