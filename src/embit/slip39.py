@@ -1,9 +1,35 @@
 import hmac
-import random
 import sys
 import hashlib
 from .bip39 import mnemonic_from_bytes, mnemonic_to_bytes
 
+try:
+    # if urandom is available from os module:
+    from os import urandom as _urandom
+except:
+    # otherwise - try reading from /dev/urandom
+    def _urandom(n):
+        with open("/dev/urandom", "rb") as f:
+            return f.read(n)
+
+def _getrandbits(k):
+    b = _urandom(k//8+1)
+    return int.from_bytes(b,'big') % (2**k)
+
+def secure_randint(vmin:int, vmax:int) -> int:
+    """
+    Normal random.randint uses PRNG that is not suitable
+    for cryptographic applications.
+    This one uses os.urandom for randomness.
+    """
+    import math
+    assert vmax > vmin
+    delta = vmax - vmin
+    nbits = math.ceil(math.log2(delta+1))
+    randn = _getrandbits(nbits)
+    while randn > delta:
+        randn = _getrandbits(nbits)
+    return vmin + randn
 
 # functions for SLIP39 checksum
 def rs1024_polymod(values):
@@ -293,7 +319,7 @@ class ShareSet:
         return self.decrypt(shared_secret, passphrase)
 
     @classmethod
-    def split_secret(cls, secret, k, n, randint=random.randint):
+    def split_secret(cls, secret, k, n, randint=secure_randint):
         """Split secret into k-of-n shares"""
         if n < 1:
             raise ValueError("N is too small, must be at least 1")
@@ -323,7 +349,7 @@ class ShareSet:
         return more_data
 
     @classmethod
-    def generate_shares(cls, mnemonic, k, n, passphrase=b"", exponent=0, randint=random.randint):
+    def generate_shares(cls, mnemonic, k, n, passphrase=b"", exponent=0, randint=secure_randint):
         """Takes a BIP39 mnemonic along with k, n, passphrase and exponent.
         Returns a list of SLIP39 mnemonics, any k of of which, along with the passphrase, recover the secret"""
         # convert mnemonic to a shared secret
