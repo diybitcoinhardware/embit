@@ -1,14 +1,6 @@
 import sys
 import hashlib
 
-try:
-    # in micropython hashlib.c we have optimized version of hmac_sha512
-    from hashlib import hmac_sha512
-except:
-    import hmac
-    def hmac_sha512(key, msg):
-        return hmac.new(key, msg, digestmod=hashlib.sha512).digest()
-
 
 def double_sha256(msg):
     """sha256(sha256(msg)) -> bytes"""
