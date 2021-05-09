@@ -363,7 +363,7 @@ class ShareSet:
         encrypted = cls.encrypt(secret, id, exponent, passphrase)
         # split encrypted payload and create shares
         shares = []
-        data = cls.split_secret(encrypted, k, n)
+        data = cls.split_secret(encrypted, k, n, randint=randint)
         for group_index, share_bytes in data:
             share = Share(
                 share_bit_length=num_bits,

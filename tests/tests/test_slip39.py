@@ -364,3 +364,15 @@ class Slip39Test(TestCase):
                     ShareSet.recover_mnemonic(slip39_mnemonics[:k], passphrase),
                     bip39_mnemonic,
                 )
+
+    def test_deterministic(self):
+        arr = ShareSet.generate_shares(
+            "abandon "*11+"about", 2, 3, passphrase=b"qwe",
+            exponent=1,
+            randint=lambda v1,v2: 7 # very non-random rng
+        )
+        self.assertEqual(arr, [
+            "academic discuss acrobat leader ambition human stay item benefit ladle endless season empty install reaction jewelry adapt lift idea victim",
+            "academic discuss beard leader beaver argue geology ivory muscle prisoner forward aluminum sugar float ancient daisy legs verify railroad general",
+            "academic discuss ceramic leader dragon preach pipeline shelter branch roster away envy resident crazy payroll staff adapt crush closet burning",
+        ])
