@@ -138,7 +138,22 @@ def multisig(m: int, pubkeys):
 
 
 def address_to_scriptpubkey(addr):
-    pass
+    # try with base58 address
+    try:
+        data = base58.decode_check(addr)
+        prefix = data[:1]
+        for net in NETWORKS.values():
+            if prefix == net["p2pkh"]:
+                return Script(b"\x76\xa9\x14" + data[1:] + b"\x88\xac")
+            elif prefix == net["p2sh"]:
+                return Script(b"\xa9\x14" + data[1:] + b"\x87")
+    except:
+        # fail - then it's bech32 address
+        hrp = addr.split("1")[0]
+        ver, data = bech32.decode(hrp, addr)
+        if ver != 0 or len(data) not in [20, 32]:
+            raise EmbitError("Invalid bech32 address")
+        return Script(bytes([ver, len(data)] + data))
 
 
 def script_sig_p2pkh(signature, pubkey):
