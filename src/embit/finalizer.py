@@ -23,6 +23,16 @@ def finalize_psbt(tx, ignore_missing=False):
     ttx = Transaction.parse(tx.tx.serialize())
     done = 0
     for i, inp in enumerate(ttx.vin):
+        if tx.utxo(i).script_pubkey.script_type() == "p2pkh":
+            d = b""
+            # meh, ugly, doesn't check pubkeys
+            for k in tx.inputs[i].partial_sigs:
+                v = tx.inputs[i].partial_sigs[k]
+                d += bytes([len(v)]) + v + bytes([len(k.sec())]) + k.sec()
+            ttx.vin[i].script_sig = Script(d)
+            done += 1
+            continue
+
         if tx.inputs[i].redeem_script is not None:
             ttx.vin[i].script_sig = Script(tx.inputs[i].redeem_script.serialize())
 

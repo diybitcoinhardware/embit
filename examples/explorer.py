@@ -23,14 +23,18 @@ GAP_LIMIT = 20
 
 # You can either provide a combined descriptor with {0,1} branches,
 # or iterate over descriptors (recv and change descriptors)
+# Seed: session spawn august alpha trap spider thing swim finish motor neutral across
 # Here we use combined descriptor (Bitcoin Core doesn't support that though)
 # Here we use vpub, but it's the same as this tpub: tpubDC93uE1NfJMF37r4EL87CHBUEtScESkBNo6Ym3DYCqKdmdtsL8ZqK39aHfaESmSn9ZohH1vzQjDchsuAXRDGXuowXZSXj3fY7PJ9yBAhWst
+# native segwit
 desc = Descriptor.from_string("wpkh([911cf0a8/84h/1h/0h]vpub5Y6tmeqrefJq4jGy7RZmaBf6Zq44MpG7zwToqhNd6uoyv9bhkbPcvUAU1DaGvTBhYP3BAVDzxJgUF8BRhAY13zzSjHJNshNKyyaTS4F5hnr/{0,1}/*)")
+# desc = Descriptor.from_string("sh(wpkh([911cf0a8/49h/1h/0h]upub5EQTr2VnHFmuJc3btwZcETwhDCzvXF8hqK2AS57ZN5fzxa6LGMtoAKuyc12F7rBpKUyocqfc8kCTzHdTmJh1i6672pu3JzobNHu39oW9Btd/{0,1}/*))")
+# desc = Descriptor.from_string("pkh([911cf0a8/44h/1h/0h]tpubDD958ijpckkrCrWzY4jTwuCafkK1gijyJVbc96EViYN29Ac7K9eUyzSTrwQuoGUvwpzQMHh2fT8JGtnYHjTFWRXJAEs48s1nZSpG92hC1yb/{0,1}/*)")
 
 # where to send
 DESTINATION = "2N6AUY73q79SPzGvgPhR9biETV7DZffTQz9"
 # amount to send in sat
-AMOUNT = 30_000 # 0.0003 BTC
+AMOUNT = 10_000
 # if change is less than DUST_LIMIT we don't create UTXO for it
 DUST_LIMIT = 100
 
@@ -104,9 +108,7 @@ for branch in [0]: # range(len(desc.num_branches)):
                 "witness_script": ws,
                 "redeem_script": rs,
                 "bip32_derivations": bip32_derivations,
-                "witness_utxo": TransactionOutput(utxo["value"], script_pubkey),
-                # get full prev transaction if you use Trezor or it's a legacy descriptor
-                "non_witness_utxo": None
+                "witness_utxo": TransactionOutput(utxo["value"], script_pubkey) if d.is_segwit else None,
             } for utxo in utxoarr]
         else:
             print(addr, "empty")
@@ -141,11 +143,11 @@ else:
 
 if change_output.is_pkh:
     # script_sig length for single sig
-    sigs_size = 34 + 72 # pubkey + signature
+    sigs_size = 34 + 74 # pubkey + signature
 elif change_output.is_basic_multisig:
     # script_sig length for multisig
     sigs_size = 34 * len(desc.keys) # pubkeys
-    sigs_size += 72 * change_output.miniscript.args[0] # threshold
+    sigs_size += 74 * change_output.miniscript.args[0] # threshold
     sigs_size += len((change_output.witness_script() or change_output.redeem_script()).serialize()) # script
 
 if desc.is_segwit:
@@ -164,6 +166,9 @@ fee = fee_rate*no_input_size
 inputs = []
 
 for utxo in utxos:
+    # get full prev tx if we are using legacy (or Trezor)
+    if not d.is_segwit:
+        utxo["non_witness_utxo"]= Transaction.from_string(s.get(f"{API}/tx/{utxo['txid']}/hex").text)
     inputs.append(utxo)
     spending_amount += utxo["value"]
     fee += per_input_size*fee_rate
@@ -173,7 +178,7 @@ for utxo in utxos:
 if spending_amount < AMOUNT + fee:
     raise RuntimeError("Not enough funds")
 # round fee to satoshis
-fee = int(fee)
+fee = int(fee)+1
 
 vin = [TransactionInput(bytes.fromhex(inp["txid"]), inp["vout"]) for inp in inputs]
 vout = [
@@ -225,7 +230,7 @@ if len(desc.keys) > 1:
 print(psbt.to_string())
 
 # sign the transaction with your root key (or pass it to the hardware wallet)
-# session spawn august alpha trap spider thing swim finish motor neutral across
+# Seed: session spawn august alpha trap spider thing swim finish motor neutral across
 root = bip32.HDKey.from_string("tprv8ZgxMBicQKsPeV6hdhzTDoALgUoNsNPqYq4aJPrazkDxmGWV2TGAVtKg7U9CKeKztcAzJv91k1vGB9VecKkPQ5osnViqjvtUm9nCuJfqimg")
 psbt.sign_with(root)
 
@@ -238,6 +243,6 @@ if not signedtx:
 print("Signed transaction:")
 print(signedtx.to_string())
 
-# broadcast the transaction:
+# Uncomment to broadcast the transaction:
 res = s.post(f"{API}/tx", data=signedtx.serialize().hex())
 print(res.text)
