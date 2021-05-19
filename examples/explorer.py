@@ -19,7 +19,7 @@ network = NETWORKS['test']
 
 # after GAP_LIMIT addresses without any transactions
 # we will stop querying
-GAP_LIMIT = 3 #20
+GAP_LIMIT = 20
 
 # You can either provide a combined descriptor with {0,1} branches,
 # or iterate over descriptors (recv and change descriptors)
@@ -30,7 +30,7 @@ desc = Descriptor.from_string("wpkh([911cf0a8/84h/1h/0h]vpub5Y6tmeqrefJq4jGy7RZm
 # where to send
 DESTINATION = "2N6AUY73q79SPzGvgPhR9biETV7DZffTQz9"
 # amount to send in sat
-AMOUNT = 30_000 # 0.001 BTC
+AMOUNT = 30_000 # 0.0003 BTC
 # if change is less than DUST_LIMIT we don't create UTXO for it
 DUST_LIMIT = 100
 
@@ -128,10 +128,8 @@ if desc.is_segwit:
 no_input_size += (len(change_output.script_pubkey().serialize()) + 8)
 no_input_size += (len(script.address_to_scriptpubkey(DESTINATION).serialize()) + 8)
 
-# non-witness data has weight 4 vB per byte
-no_input_weight = 4*no_input_size
-
 per_input_size = (32 + 4 + 4) # txid + vout + sequence
+
 # we can re-use change_output descriptor for weight calculations
 # as all our inputs have the same script structure
 
@@ -150,11 +148,10 @@ elif change_output.is_basic_multisig:
     sigs_size += 72 * change_output.miniscript.args[0] # threshold
     sigs_size += len((change_output.witness_script() or change_output.redeem_script()).serialize()) # script
 
-per_input_weight = 4*per_input_size
 if desc.is_segwit:
-    per_input_weight += sigs_size
+    per_input_size += sigs_size/4 # witness is 4x cheaper
 else:
-    per_input_weight += 4*sigs_size
+    per_input_size += sigs_size
 
 # Now when we have all utxos and size estimates
 # we can construct a transaction
@@ -163,13 +160,13 @@ else:
 # we just go through utxos and add them until we have enough for destination + fee
 
 spending_amount = 0
-fee = fee_rate*no_input_weight
+fee = fee_rate*no_input_size
 inputs = []
 
 for utxo in utxos:
     inputs.append(utxo)
     spending_amount += utxo["value"]
-    fee += per_input_weight
+    fee += per_input_size*fee_rate
     if spending_amount >= AMOUNT + fee:
         break
 
@@ -242,5 +239,5 @@ print("Signed transaction:")
 print(signedtx.to_string())
 
 # broadcast the transaction:
-# res = s.post(f"{API}/tx", data=signedtx.serialize().hex())
-# print(res.text)
+res = s.post(f"{API}/tx", data=signedtx.serialize().hex())
+print(res.text)
