@@ -159,106 +159,111 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
     secp256k1.secp256k1_ec_pubkey_combine.restype = c_int
 
     # recoverable module
-    secp256k1.secp256k1_ecdsa_sign_recoverable.argtypes = [
-        c_void_p,
-        c_char_p,
-        c_char_p,
-        c_char_p,
-        c_void_p,
-        c_void_p,
-    ]
-    secp256k1.secp256k1_ecdsa_sign_recoverable.restype = c_int
+    try:
+        secp256k1.secp256k1_ecdsa_sign_recoverable.argtypes = [
+            c_void_p,
+            c_char_p,
+            c_char_p,
+            c_char_p,
+            c_void_p,
+            c_void_p,
+        ]
+        secp256k1.secp256k1_ecdsa_sign_recoverable.restype = c_int
 
-    secp256k1.secp256k1_ecdsa_recoverable_signature_parse_compact.argtypes = [
-        c_void_p,
-        c_char_p,
-        c_char_p,
-        c_int,
-    ]
-    secp256k1.secp256k1_ecdsa_recoverable_signature_parse_compact.restype = c_int
+        secp256k1.secp256k1_ecdsa_recoverable_signature_parse_compact.argtypes = [
+            c_void_p,
+            c_char_p,
+            c_char_p,
+            c_int,
+        ]
+        secp256k1.secp256k1_ecdsa_recoverable_signature_parse_compact.restype = c_int
 
-    secp256k1.secp256k1_ecdsa_recoverable_signature_serialize_compact.argtypes = [
-        c_void_p,
-        c_char_p,
-        c_char_p,
-        c_char_p,
-    ]
-    secp256k1.secp256k1_ecdsa_recoverable_signature_serialize_compact.restype = c_int
+        secp256k1.secp256k1_ecdsa_recoverable_signature_serialize_compact.argtypes = [
+            c_void_p,
+            c_char_p,
+            c_char_p,
+            c_char_p,
+        ]
+        secp256k1.secp256k1_ecdsa_recoverable_signature_serialize_compact.restype = c_int
 
-    secp256k1.secp256k1_ecdsa_recoverable_signature_convert.argtypes = [
-        c_void_p,
-        c_char_p,
-        c_char_p,
-    ]
-    secp256k1.secp256k1_ecdsa_recoverable_signature_convert.restype = c_int
+        secp256k1.secp256k1_ecdsa_recoverable_signature_convert.argtypes = [
+            c_void_p,
+            c_char_p,
+            c_char_p,
+        ]
+        secp256k1.secp256k1_ecdsa_recoverable_signature_convert.restype = c_int
 
-    secp256k1.secp256k1_ecdsa_recover.argtypes = [
-        c_void_p,
-        c_char_p,
-        c_char_p,
-        c_char_p,
-    ]
-    secp256k1.secp256k1_ecdsa_recover.restype = c_int
+        secp256k1.secp256k1_ecdsa_recover.argtypes = [
+            c_void_p,
+            c_char_p,
+            c_char_p,
+            c_char_p,
+        ]
+        secp256k1.secp256k1_ecdsa_recover.restype = c_int
+    except:
+        pass
 
     # zkp modules
+    try:
+        # generator module
+        secp256k1.secp256k1_generator_parse.argtypes = [c_void_p, c_char_p, c_char_p]
+        secp256k1.secp256k1_generator_parse.restype = c_int
 
-    # generator module
-    secp256k1.secp256k1_generator_parse.argtypes = [c_void_p, c_char_p, c_char_p]
-    secp256k1.secp256k1_generator_parse.restype = c_int
+        secp256k1.secp256k1_generator_serialize.argtypes = [c_void_p, c_char_p, c_char_p]
+        secp256k1.secp256k1_generator_serialize.restype = c_int
 
-    secp256k1.secp256k1_generator_serialize.argtypes = [c_void_p, c_char_p, c_char_p]
-    secp256k1.secp256k1_generator_serialize.restype = c_int
+        secp256k1.secp256k1_generator_generate.argtypes = [c_void_p, c_char_p, c_char_p]
+        secp256k1.secp256k1_generator_generate.restype = c_int
 
-    secp256k1.secp256k1_generator_generate.argtypes = [c_void_p, c_char_p, c_char_p]
-    secp256k1.secp256k1_generator_generate.restype = c_int
+        secp256k1.secp256k1_generator_generate_blinded.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p]
+        secp256k1.secp256k1_generator_generate_blinded.restype = c_int
+        
+        # pederson commitments
+        secp256k1.secp256k1_pedersen_commitment_parse.argtypes = [c_void_p, c_char_p, c_char_p]
+        secp256k1.secp256k1_pedersen_commitment_parse.restype = c_int
 
-    secp256k1.secp256k1_generator_generate_blinded.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p]
-    secp256k1.secp256k1_generator_generate_blinded.restype = c_int
-    
-    # pederson commitments
-    secp256k1.secp256k1_pedersen_commitment_parse.argtypes = [c_void_p, c_char_p, c_char_p]
-    secp256k1.secp256k1_pedersen_commitment_parse.restype = c_int
+        secp256k1.secp256k1_pedersen_commitment_serialize.argtypes = [c_void_p, c_char_p, c_char_p]
+        secp256k1.secp256k1_pedersen_commitment_serialize.restype = c_int
 
-    secp256k1.secp256k1_pedersen_commitment_serialize.argtypes = [c_void_p, c_char_p, c_char_p]
-    secp256k1.secp256k1_pedersen_commitment_serialize.restype = c_int
+        secp256k1.secp256k1_pedersen_commit.argtypes = [c_void_p, c_char_p, c_char_p, c_uint64, c_char_p]
+        secp256k1.secp256k1_pedersen_commit.restype = c_int
 
-    secp256k1.secp256k1_pedersen_commit.argtypes = [c_void_p, c_char_p, c_char_p, c_uint64, c_char_p]
-    secp256k1.secp256k1_pedersen_commit.restype = c_int
+        # rangeproof
+        secp256k1.secp256k1_rangeproof_rewind.argtypes = [c_void_p, c_char_p, POINTER(c_uint64), c_char_p, POINTER(c_uint64),
+                                                          c_char_p, POINTER(c_uint64), POINTER(c_uint64),
+                                                          c_char_p, c_char_p, c_uint64,
+                                                          c_char_p, c_uint64,
+                                                          c_char_p]
+        secp256k1.secp256k1_rangeproof_rewind.restype = c_int
 
-    # rangeproof
-    secp256k1.secp256k1_rangeproof_rewind.argtypes = [c_void_p, c_char_p, POINTER(c_uint64), c_char_p, POINTER(c_uint64),
-                                                      c_char_p, POINTER(c_uint64), POINTER(c_uint64),
-                                                      c_char_p, c_char_p, c_uint64,
-                                                      c_char_p, c_uint64,
-                                                      c_char_p]
-    secp256k1.secp256k1_rangeproof_rewind.restype = c_int
+        secp256k1.secp256k1_rangeproof_sign.argtypes = [
+          c_void_p, # ctx
+          c_char_p, # proof
+          POINTER(c_uint64), # plen
+          c_uint64, # min_value
+          c_char_p, # commit
+          c_char_p, # blind
+          c_char_p, # nonce
+          c_int,    # exp
+          c_int,    # min_bits
+          c_uint64, # value
+          c_char_p, # message
+          c_uint64, # msg_len
+          c_char_p, # extra_commit
+          c_uint64, # extra_commit_len
+          c_char_p, # gen
+        ]
+        secp256k1.secp256k1_rangeproof_sign.restype = c_int
 
-    secp256k1.secp256k1_rangeproof_sign.argtypes = [
-      c_void_p, # ctx
-      c_char_p, # proof
-      POINTER(c_uint64), # plen
-      c_uint64, # min_value
-      c_char_p, # commit
-      c_char_p, # blind
-      c_char_p, # nonce
-      c_int,    # exp
-      c_int,    # min_bits
-      c_uint64, # value
-      c_char_p, # message
-      c_uint64, # msg_len
-      c_char_p, # extra_commit
-      c_uint64, # extra_commit_len
-      c_char_p, # gen
-    ]
-    secp256k1.secp256k1_rangeproof_sign.restype = c_int
+        # musig
 
-    # musig
+        secp256k1.secp256k1_xonly_pubkey_from_pubkey.argtypes = [c_void_p, c_char_p, POINTER(c_int), c_char_p]
+        secp256k1.secp256k1_xonly_pubkey_from_pubkey.restype = c_int
 
-    secp256k1.secp256k1_xonly_pubkey_from_pubkey.argtypes = [c_void_p, c_char_p, POINTER(c_int), c_char_p]
-    secp256k1.secp256k1_xonly_pubkey_from_pubkey.restype = c_int
-
-    secp256k1.secp256k1_musig_pubkey_combine.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p, c_void_p, c_size_t]
-    secp256k1.secp256k1_musig_pubkey_combine.restype = c_int
+        secp256k1.secp256k1_musig_pubkey_combine.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p, c_void_p, c_size_t]
+        secp256k1.secp256k1_musig_pubkey_combine.restype = c_int
+    except:
+        pass
 
     secp256k1.ctx = secp256k1.secp256k1_context_create(flags)
 
