@@ -585,11 +585,11 @@ class Thresh(Miniscript):
         return self.len_args() + len(self.args) - 1
 
     def verify(self):
-        # 1 < k < n; X1 is Bdu; others are Wdu
+        # 1 <= k <= n; X1 is Bdu; others are Wdu
         super().verify()
         if self.args[0].num <= 1 or self.args[0].num >= (len(self.args) - 1):
             raise MiniscriptError(
-                "thresh: Invalid k! Should be 1 < k < %d, got %d"
+                "thresh: Invalid k! Should be 1 <= k <= %d, got %d"
                 % (len(self.args) - 1, self.args[0].num)
             )
         if self.args[1].type != "B":
