@@ -285,7 +285,7 @@ class TransactionInput(EmbitBase):
 
 class TransactionOutput(EmbitBase):
     def __init__(self, value, script_pubkey):
-        self.value = int(value)
+        self.value = value
         self.script_pubkey = script_pubkey
 
     def write_to(self, stream):
