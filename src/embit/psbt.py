@@ -2,7 +2,7 @@
 
 from collections import OrderedDict
 
-from .transaction import Transaction, TransactionOutput, SIGHASH
+from .transaction import Transaction, TransactionOutput, TransactionInput, SIGHASH
 from . import compact
 from . import bip32
 from . import ec
@@ -59,14 +59,15 @@ class PSBTScope(EmbitBase):
         self.unknown = unknown
         self.parse_unknowns()
 
-    def write_to(self, stream) -> int:
+    def write_to(self, stream, skip_separator=False, **kwargs) -> int:
         # unknown
         r = 0
         for key in self.unknown:
             r += ser_string(stream, key)
             r += ser_string(stream, self.unknown[key])
         # separator
-        r += stream.write(b"\x00")
+        if not skip_separator:
+            r += stream.write(b"\x00")
         return r
 
     def parse_unknowns(self):
@@ -105,7 +106,13 @@ class InputScope(PSBTScope):
 
     def __init__(self, unknown: dict = {}, vin=None, compress=False):
         self.compress = compress
-        self.vin = vin
+        self.txid = None
+        self.vout = None
+        self.sequence = None
+        if vin is not None:
+            self.txid = vin.txid
+            self.vout = vin.vout
+            self.sequence = vin.sequence
         self.unknown = unknown
         self.non_witness_utxo = None
         self.witness_utxo = None
@@ -120,8 +127,12 @@ class InputScope(PSBTScope):
         self.parse_unknowns()
 
     @property
+    def vin(self):
+        return TransactionInput(self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF))
+
+    @property
     def utxo(self):
-        return self._utxo or self.witness_utxo or self.non_witness_utxo.vout[self.vin.vout]
+        return self._utxo or self.witness_utxo or self.non_witness_utxo.vout[self.vout]
 
     @property
     def is_verified(self):
@@ -140,15 +151,15 @@ class InputScope(PSBTScope):
             else:
                 l = compact.read_from(stream)
                 # we verified and saved utxo
-                if self.compress and self.vin:
-                    txout, txhash = self.TX_CLS.read_vout(stream, self.vin.vout)
-                    if txhash != bytes(reversed(self.vin.txid)):
+                if self.compress and self.txid and self.vout is not None:
+                    txout, txhash = self.TX_CLS.read_vout(stream, self.vout)
+                    if txhash != bytes(reversed(self.txid)):
                         raise PSBTError("Invalid hash of the non witness utxo")
                     self._utxo = txout
                 else:
                     tx = self.TX_CLS.read_from(stream)
-                    if self.vin:
-                        if tx.txid() != self.vin.txid:
+                    if self.txid:
+                        if tx.txid() != self.txid:
                             raise PSBTError("Invalid hash of the non witness utxo")
                     self.non_witness_utxo = tx
             return
@@ -226,12 +237,18 @@ class InputScope(PSBTScope):
                 self.final_scriptwitness = Witness.parse(v)
             else:
                 raise PSBTError("Duplicated final scriptwitness")
+        elif k == b"\x0e":
+            self.txid = bytes(reversed(v))
+        elif k == b"\x0f":
+            self.vout = int.from_bytes(v, 'little')
+        elif k == b"\x10":
+            self.sequence = int.from_bytes(v, 'little')
         else:
             if k in self.unknown:
                 raise PSBTError("Duplicated key")
             self.unknown[k] = v
 
-    def write_to(self, stream, skip_separator=False) -> int:
+    def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
         r = 0
         if self.non_witness_utxo is not None:
             r += stream.write(b"\x01\x00")
@@ -260,6 +277,16 @@ class InputScope(PSBTScope):
         if self.final_scriptwitness is not None:
             r += stream.write(b"\x01\x08")
             r += ser_string(stream, self.final_scriptwitness.serialize())
+        if version == 2:
+            if self.txid is not None:
+                r += ser_string(stream, b"\x0e")
+                r += ser_string(stream, bytes(reversed(self.txid)))
+            if self.vout is not None:
+                r += ser_string(stream, b"\x0f")
+                r += ser_string(stream, self.vout.to_bytes(4, 'little'))
+            if self.sequence is not None:
+                r += ser_string(stream, b"\x10")
+                r += ser_string(stream, self.sequence.to_bytes(4, 'little'))
         # unknown
         for key in self.unknown:
             r += ser_string(stream, key)
@@ -273,12 +300,20 @@ class InputScope(PSBTScope):
 class OutputScope(PSBTScope):
     def __init__(self, unknown: dict = {}, vout=None, compress=False):
         self.compress = compress
-        self.vout = vout
+        self.value = None
+        self.script_pubkey = None
+        if vout is not None:
+            self.value = vout.value
+            self.script_pubkey = vout.script_pubkey
         self.unknown = unknown
         self.redeem_script = None
         self.witness_script = None
         self.bip32_derivations = OrderedDict()
         self.parse_unknowns()
+
+    @property
+    def vout(self):
+        return TransactionOutput(self.value, self.script_pubkey)
 
     def read_value(self, stream, k):
         # separator
@@ -308,12 +343,16 @@ class OutputScope(PSBTScope):
                 raise PSBTError("Duplicated derivation path")
             else:
                 self.bip32_derivations[pub] = DerivationPath.parse(v)
+        elif k == b"\x03":
+            self.value = int.from_bytes(v, 'little')
+        elif k == b"\x04":
+            self.script_pubkey = Script(v)
         else:
             if k in self.unknown:
                 raise PSBTError("Duplicated key")
             self.unknown[k] = v
 
-    def write_to(self, stream, skip_separator=False) -> int:
+    def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
         r = 0
         if self.redeem_script is not None:
             r += stream.write(b"\x01\x00")
@@ -324,6 +363,14 @@ class OutputScope(PSBTScope):
         for pub in self.bip32_derivations:
             r += ser_string(stream, b"\x02" + pub.serialize())
             r += ser_string(stream, self.bip32_derivations[pub].serialize())
+        if version == 2:
+            if self.value is not None:
+                r += ser_string(stream, b"\x03")
+                r += ser_string(stream, self.value.to_bytes(8, 'little'))
+            if self.script_pubkey is not None:
+                r += ser_string(stream, b"\x04")
+                r += self.script_pubkey.write_to(stream)
+
         # unknown
         for key in self.unknown:
             r += ser_string(stream, key)
@@ -340,18 +387,32 @@ class PSBT(EmbitBase):
     PSBTOUT_CLS = OutputScope
     TX_CLS = Transaction
 
-    def __init__(self, tx=None, unknown={}):
+    def __init__(self, tx=None, unknown={}, version=None):
+        self.version = version # None for v0
+        self.inputs = []
+        self.outputs = []
+        self.tx_version = None
+        self.locktime = None
+
         if tx is not None:
-            self.tx = tx
-            self.inputs = [self.PSBTIN_CLS(vin=vin) for vin in tx.vin]
-            self.outputs = [self.PSBTOUT_CLS(vout=vout) for vout in tx.vout]
-        else:
-            self.tx = self.TX_CLS()
-            self.inputs = []
-            self.outputs = []
+            self.parse_tx(tx)
+
         self.unknown = unknown
         self.xpubs = OrderedDict()
         self.parse_unknowns()
+
+    def parse_tx(self, tx):
+        self.tx_version = tx.version
+        self.locktime = tx.locktime
+        self.inputs = [self.PSBTIN_CLS(vin=vin) for vin in tx.vin]
+        self.outputs = [self.PSBTOUT_CLS(vout=vout) for vout in tx.vout]
+
+    @property
+    def tx(self):
+        return self.TX_CLS(version=self.tx_version or 2,
+                           locktime=self.locktime or 0,
+                           vin=[inp.vin for inp in self.inputs],
+                           vout=[out.vout for out in self.outputs])
 
     def verify(self):
         for i, inp in enumerate(self.inputs):
@@ -364,7 +425,7 @@ class PSBT(EmbitBase):
             return self.inputs[i].utxo
         if not (self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo):
             raise PSBTError("Missing previous utxo on input %d" % i)
-        return self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo.vout[self.tx.vin[i].vout]
+        return self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo.vout[self.inputs[i].vout]
 
     def fee(self):
         fee = sum([self.utxo(i).value for i in range(len(self.inputs))])
@@ -374,15 +435,30 @@ class PSBT(EmbitBase):
     def write_to(self, stream) -> int:
         # magic bytes
         r = stream.write(self.MAGIC)
-        # unsigned tx flag
-        r += stream.write(b"\x01\x00")
-        # write serialized tx
-        tx = self.tx.serialize()
-        r += ser_string(stream, tx)
+        if self.version != 2:
+            # unsigned tx flag
+            r += stream.write(b"\x01\x00")
+            # write serialized tx
+            tx = self.tx.serialize()
+            r += ser_string(stream, tx)
         # xpubs
         for xpub in self.xpubs:
             r += ser_string(stream, b"\x01" + xpub.serialize())
             r += ser_string(stream, self.xpubs[xpub].serialize())
+
+        if self.version == 2:
+            if self.tx_version is not None:
+                r += ser_string(stream, b"\x02")
+                r += ser_string(stream, self.tx_version.to_bytes(4, 'little'))
+            if self.locktime is not None:
+                r += ser_string(stream, b"\x03")
+                r += ser_string(stream, self.locktime.to_bytes(4, 'little'))
+            r += ser_string(stream, b"\x04")
+            r += ser_string(stream, compact.to_bytes(len(self.inputs)))
+            r += ser_string(stream, b"\x05")
+            r += ser_string(stream, compact.to_bytes(len(self.outputs)))
+            r += ser_string(stream, b"\xfb")
+            r += ser_string(stream, self.version.to_bytes(4, 'little'))
         # unknown
         for key in self.unknown:
             r += ser_string(stream, key)
@@ -391,10 +467,10 @@ class PSBT(EmbitBase):
         r += stream.write(b"\x00")
         # inputs
         for inp in self.inputs:
-            r += inp.write_to(stream)
+            r += inp.write_to(stream, version=self.version)
         # outputs
         for out in self.outputs:
-            r += out.write_to(stream)
+            r += out.write_to(stream, version=self.version)
         return r
 
     @classmethod
@@ -427,6 +503,7 @@ class PSBT(EmbitBase):
         """
         tx = None
         unknown = {}
+        version = None
         # check magic
         if stream.read(len(cls.MAGIC)) != cls.MAGIC:
             raise PSBTError("Invalid PSBT magic")
@@ -444,17 +521,21 @@ class PSBT(EmbitBase):
                     raise PSBTError(
                         "Failed to parse PSBT - duplicated transaction field"
                     )
+            elif key == b"\xfb":
+                version = int.from_bytes(value, 'little')
             else:
                 if key in unknown:
                     raise PSBTError("Duplicated key")
                 unknown[key] = value
 
-        psbt = cls(tx, unknown)
+        if tx and version == 2:
+            raise PSBTError("Global TX field is not allowed in PSBTv2")
+        psbt = cls(tx, unknown, version=version)
         # input scopes
-        for i, vin in enumerate(tx.vin):
+        for i, vin in enumerate(psbt.tx.vin):
             psbt.inputs[i] = cls.PSBTIN_CLS.read_from(stream, compress=compress, vin=vin)
         # output scopes
-        for i, vout in enumerate(tx.vout):
+        for i, vout in enumerate(psbt.tx.vout):
             psbt.outputs[i] = cls.PSBTOUT_CLS.read_from(stream, compress=compress, vout=vout)
         return psbt
 
@@ -464,6 +545,18 @@ class PSBT(EmbitBase):
             if k[0] == 0x01:
                 xpub = bip32.HDKey.parse(k[1:])
                 self.xpubs[xpub] = DerivationPath.parse(self.unknown.pop(k))
+            elif k == b"\x02":
+                self.tx_version = int.from_bytes(self.unknown.pop(k), 'little')
+            elif k == b"\x03":
+                self.locktime = int.from_bytes(self.unknown.pop(k), 'little')
+            elif k == b"\x04":
+                if len(self.inputs) > 0:
+                    raise PSBTError("Inputs already initialized")
+                self.inputs = [self.PSBTIN_CLS() for _ in range(compact.from_bytes(self.unknown.pop(k)))]
+            elif k == b"\x05":
+                if len(self.outputs) > 0:
+                    raise PSBTError("Outputs already initialized")
+                self.outputs = [self.PSBTOUT_CLS() for _ in range(compact.from_bytes(self.unknown.pop(k)))]
 
     def sign_with(self, root, sighash=SIGHASH.ALL) -> int:
         """
@@ -481,6 +574,7 @@ class PSBT(EmbitBase):
             pkh = hashes.hash160(sec)
 
         counter = 0
+        tx = self.tx
         for i, inp in enumerate(self.inputs):
             # check which sighash to use
             inp_sighash = inp.sighash_type or sighash or SIGHASH.ALL
@@ -506,9 +600,9 @@ class PSBT(EmbitBase):
                 sc = script.p2pkh_from_p2wpkh(sc)
 
             if is_segwit:
-                h = self.tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
+                h = tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
             else:
-                h = self.tx.sighash_legacy(i, sc, sighash=inp_sighash)
+                h = tx.sighash_legacy(i, sc, sighash=inp_sighash)
 
             # if we have individual private key
             if not fingerprint:

@@ -9,7 +9,7 @@ from .. import compact
 from ..psbt import *
 from collections import OrderedDict
 from io import BytesIO
-from .transaction import LTransaction, LTransactionOutput, TxOutWitness, Proof, LSIGHASH
+from .transaction import LTransaction, LTransactionOutput, LTransactionInput, TxOutWitness, Proof, LSIGHASH
 import hashlib
 
 class LInputScope(InputScope):
@@ -23,6 +23,10 @@ class LInputScope(InputScope):
         self.asset = None
         self.asset_blinding_factor = None
         super().__init__(unknown, **kwargs)
+
+    @property
+    def vin(self):
+        return LTransactionInput(self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF))
 
     def read_value(self, stream, k):
         if b'\xfc\x08elements' not in k:
@@ -41,8 +45,8 @@ class LInputScope(InputScope):
             else:
                 self.unknown[k] = v
 
-    def write_to(self, stream, skip_separator=False) -> int:
-        r = super().write_to(stream, skip_separator=True)
+    def write_to(self, stream, skip_separator=False, **kwargs) -> int:
+        r = super().write_to(stream, skip_separator=True, **kwargs)
         # liquid-specific keys
         if self.value is not None:
             r += ser_string(stream, b'\xfc\x08elements\x00')
@@ -63,7 +67,7 @@ class LInputScope(InputScope):
 
 
 class LOutputScope(OutputScope):
-    def __init__(self, unknown: dict = {}, **kwargs):
+    def __init__(self, unknown: dict = {}, vout=None, **kwargs):
         # liquid stuff
         self.value_commitment = None
         self.value_blinding_factor = None
@@ -73,11 +77,18 @@ class LOutputScope(OutputScope):
         self.surjection_proof = None
         self.nonce_commitment = None
         self.blinding_pubkey = None
+        self.asset = None
+        if vout:
+            self.asset = vout.asset
         # super calls parse_unknown() at the end
-        super().__init__(unknown, **kwargs)
+        super().__init__(unknown, vout=vout, **kwargs)
+
+    @property
+    def vout(self):
+        return LTransactionOutput(self.asset, self.value, self.script_pubkey)
 
     def read_value(self, stream, k):
-        if b'\xfc\x08elements' not in k:
+        if (b'\xfc\x08elements' not in k) and (b"\xfc\x04pset" not in k):
             super().read_value(stream, k)
         else:
             v = read_string(stream)
@@ -98,6 +109,8 @@ class LOutputScope(OutputScope):
                 self.blinding_pubkey = v
             elif k == b'\xfc\x08elements\x07':
                 self.nonce_commitment = v
+            elif k == b'\xfc\x04pset\x02':
+                self.asset = v
             else:
                 self.unknown[k] = v
 
@@ -106,10 +119,13 @@ class LOutputScope(OutputScope):
         # TODO: not great
         return self.value_blinding_factor or self.asset_blinding_factor
 
-    def write_to(self, stream, skip_separator=False) -> int:
+    def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
         # TODO: super.write_to()
-        r = super().write_to(stream, skip_separator=True)
+        r = super().write_to(stream, skip_separator=True, version=version, **kwargs)
         # liquid-specific keys
+        if self.asset is not None and version == 2:
+            r += ser_string(stream, b'\xfc\x04pset\x02')
+            r += ser_string(stream, self.asset)
         if self.value_commitment is not None:
             r += ser_string(stream, b'\xfc\x08elements\x00')
             r += ser_string(stream, self.value_commitment)
