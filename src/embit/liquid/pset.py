@@ -78,6 +78,7 @@ class LOutputScope(OutputScope):
         self.nonce_commitment = None
         self.blinding_pubkey = None
         self.asset = None
+        self.ecdh_pubkey = None
         if vout:
             self.asset = vout.asset
         # super calls parse_unknown() at the end
@@ -85,7 +86,7 @@ class LOutputScope(OutputScope):
 
     @property
     def vout(self):
-        return LTransactionOutput(self.asset, self.value, self.script_pubkey)
+        return LTransactionOutput(self.asset or self.asset_commitment, self.value or self.value_commitment, self.script_pubkey, self.nonce_commitment)
 
     def read_value(self, stream, k):
         if (b'\xfc\x08elements' not in k) and (b"\xfc\x04pset" not in k):
@@ -93,24 +94,26 @@ class LOutputScope(OutputScope):
         else:
             v = read_string(stream)
             # liquid-specific fields
-            if k == b'\xfc\x08elements\x00':
+            if k in [b'\xfc\x08elements\x00', b'\xfc\x04pset\x01']:
                 self.value_commitment = v
             elif k == b'\xfc\x08elements\x01':
                 self.value_blinding_factor = v
-            elif k == b'\xfc\x08elements\x02':
+            elif k == b'\xfc\x04pset\x02':
+                self.asset = v
+            elif k in [b'\xfc\x08elements\x02', b'\xfc\x04pset\x03']:
                 self.asset_commitment = v
             elif k == b'\xfc\x08elements\x03':
                 self.asset_blinding_factor = v
-            elif k == b'\xfc\x08elements\x04':
+            elif k in [b'\xfc\x08elements\x04', b'\xfc\x04pset\x04']:
                 self.range_proof = v
-            elif k == b'\xfc\x08elements\x05':
+            elif k in [b'\xfc\x08elements\x05', b'\xfc\x04pset\x05']:
                 self.surjection_proof = v
-            elif k == b'\xfc\x08elements\x06':
+            elif k in [b'\xfc\x08elements\x06', b'\xfc\x04pset\x06']:
                 self.blinding_pubkey = v
             elif k == b'\xfc\x08elements\x07':
                 self.nonce_commitment = v
-            elif k == b'\xfc\x04pset\x02':
-                self.asset = v
+            elif k == b'\xfc\x04pset\x07':
+                self.ecdh_pubkey = v
             else:
                 self.unknown[k] = v
 
@@ -127,30 +130,48 @@ class LOutputScope(OutputScope):
             r += ser_string(stream, b'\xfc\x04pset\x02')
             r += ser_string(stream, self.asset)
         if self.value_commitment is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x00')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x01')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x00')
             r += ser_string(stream, self.value_commitment)
         if self.value_blinding_factor is not None:
             r += ser_string(stream, b'\xfc\x08elements\x01')
             r += ser_string(stream, self.value_blinding_factor)
         if self.asset_commitment is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x02')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x03')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x02')
             r += ser_string(stream, self.asset_commitment)
         if self.asset_blinding_factor is not None:
             r += ser_string(stream, b'\xfc\x08elements\x03')
             r += ser_string(stream, self.asset_blinding_factor)
         if self.blinding_pubkey is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x06')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x06')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x06')
             r += ser_string(stream, self.blinding_pubkey)
         if self.nonce_commitment is not None:
             r += ser_string(stream, b'\xfc\x08elements\x07')
             r += ser_string(stream, self.nonce_commitment)
         # for some reason keys 04 and 05 are serialized after 07
         if self.range_proof is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x04')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x04')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x04')
             r += ser_string(stream, self.range_proof)
         if self.surjection_proof is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x05')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x05')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x05')
             r += ser_string(stream, self.surjection_proof)
+        if self.ecdh_pubkey is not None:
+            r += ser_string(stream, b'\xfc\x04pset\x07')
+            r += ser_string(stream, self.ecdh_pubkey)
         # separator
         if not skip_separator:
             r += stream.write(b"\x00")
@@ -162,6 +183,11 @@ class PSET(PSBT):
     PSBTOUT_CLS = LOutputScope
     TX_CLS = LTransaction
 
+    def __init__(self, *args, **kwargs):
+        self._hash_outputs = None
+        self._hash_outputs_rangeproofs = None
+        super().__init__(*args, **kwargs)
+
     def fee(self):
         fee = 0
         for out in self.tx.vout:
@@ -169,30 +195,45 @@ class PSET(PSBT):
                 fee += out.value
         return fee
 
-    def sign_with(self, root, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)) -> int:
-        """
-        Signs psbt with root key (HDKey or similar).
-        Returns number of signatures added to PSBT
-        """
-        hprevout = hashlib.sha256()
-        hrangeproof = hashlib.sha256()
-        for i, out in enumerate(self.tx.vout):
-            if self.outputs[i].is_blinded:
-                hprevout.update(self.outputs[i].asset_commitment)
-                hprevout.update(self.outputs[i].value_commitment)
-                hprevout.update(self.outputs[i].nonce_commitment)
-                hprevout.update(out.script_pubkey.serialize())
-                hrangeproof.update(compact.to_bytes(len(self.outputs[i].range_proof)))
-                hrangeproof.update(self.outputs[i].range_proof)
-                hrangeproof.update(compact.to_bytes(len(self.outputs[i].surjection_proof)))
-                hrangeproof.update(self.outputs[i].surjection_proof)
-            else:
-                hprevout.update(out.serialize())
-                hrangeproof.update(out.witness.range_proof.serialize())
-                hrangeproof.update(out.witness.surjection_proof.serialize())
-        self.tx._hash_outputs = hprevout.digest()
-        self.tx._hash_outputs_rangeproofs = hrangeproof.digest()
-        return super().sign_with(root, sighash)
+    def hash_outputs(self, recalculate=False):
+        if self._hash_outputs is None or recalculate:
+            hprevout = hashlib.sha256()
+            for out in self.outputs:
+                if out.is_blinded:
+                    hprevout.update(out.asset_commitment)
+                    hprevout.update(out.value_commitment)
+                    hprevout.update(out.nonce_commitment)
+                    hprevout.update(out.script_pubkey.serialize())
+                else:
+                    hprevout.update(out.serialize())
+            self._hash_outputs = hprevout.digest()
+        return self._hash_outputs
+
+    def hash_outputs_rangeproofs(self, recalculate=False):
+        if self._hash_outputs_rangeproofs is None or recalculate:
+            hrangeproof = hashlib.sha256()
+            for out in self.outputs:
+                if out.is_blinded:
+                    hrangeproof.update(compact.to_bytes(len(out.range_proof)))
+                    hrangeproof.update(out.range_proof)
+                    hrangeproof.update(compact.to_bytes(len(out.surjection_proof)))
+                    hrangeproof.update(out.surjection_proof)
+                else:
+                    hrangeproof.update(Proof().serialize())
+                    hrangeproof.update(Proof().serialize())
+            self._hash_outputs_rangeproofs = hrangeproof.digest()
+        return self._hash_outputs_rangeproofs
+
+    def sighash_segwit(self, input_index, script_pubkey, value, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)):
+        tx = self.tx
+        tx._hash_outputs = self.hash_outputs()
+        tx._hash_outputs_rangeproofs = self.hash_outputs_rangeproofs()
+        if isinstance(value, int):
+            value = b"\x01" + value.to_bytes(8, 'little')
+        return tx.sighash_segwit(input_index, script_pubkey, value, sighash)
+
+    def sighash_legacy(self, *args, **kwargs):
+        return self.tx.sighash_legacy(*args, **kwargs)
 
     def verify(self):
         """Checks that all commitments, values and assets are consistent"""

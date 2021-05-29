@@ -357,13 +357,18 @@ class LTransactionOutput(TransactionOutput):
         self.witness = witness if witness is not None else TxOutWitness()
 
     def write_to(self, stream):
-        res = stream.write(self.asset)
-        if self.nonce:
-            res += stream.write(self.value)
-            res += stream.write(self.nonce)
-        else:
+        res = 0
+        if len(self.asset) == 32:
+            res += stream.write(b"\x01")
+        res += stream.write(self.asset)
+        if isinstance(self.value, int):
             res += stream.write(b"\x01")
             res += stream.write(self.value.to_bytes(8, "big"))
+        else:
+            res += stream.write(self.value)
+        if self.nonce:
+            res += stream.write(self.nonce)
+        else:
             res += stream.write(b"\x00")
         res += self.script_pubkey.write_to(stream)
         return res
@@ -404,13 +409,11 @@ class LTransactionOutput(TransactionOutput):
         nonce = None
         c = stream.read(1)
         if c != b"\x01":
-            blinded = True
-        if blinded:
             value = c + stream.read(32)
-            nonce = stream.read(33)
         else:
             value = int.from_bytes(stream.read(8), "big")
-            if stream.read(1) != b"\x00":
-                raise Exception("Invalid output format")
+        c = stream.read(1)
+        if c != b"\x00":
+            nonce = c + stream.read(32)
         script_pubkey = Script.read_from(stream)
         return cls(asset, value, script_pubkey, nonce)

@@ -414,6 +414,12 @@ class PSBT(EmbitBase):
                            vin=[inp.vin for inp in self.inputs],
                            vout=[out.vout for out in self.outputs])
 
+    def sighash_segwit(self, *args, **kwargs):
+        return self.tx.sighash_segwit(*args, **kwargs)
+
+    def sighash_legacy(self, *args, **kwargs):
+        return self.tx.sighash_legacy(*args, **kwargs)
+
     def verify(self):
         for i, inp in enumerate(self.inputs):
             if inp.non_witness_utxo:
@@ -558,6 +564,31 @@ class PSBT(EmbitBase):
                     raise PSBTError("Outputs already initialized")
                 self.outputs = [self.PSBTOUT_CLS() for _ in range(compact.from_bytes(self.unknown.pop(k)))]
 
+    def sighash(self, i, sighash=SIGHASH.ALL):
+        inp = self.inputs[i]
+
+        value = inp.utxo.value
+        sc = inp.witness_script or inp.redeem_script or inp.utxo.script_pubkey
+
+        # detect if it is a segwit input
+        is_segwit = (inp.witness_script
+                    or inp.witness_utxo
+                    or inp.utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
+                    or (
+                        inp.redeem_script
+                        and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
+                    )
+        )
+        # convert to p2pkh according to bip143
+        if sc.script_type() == "p2wpkh":
+            sc = script.p2pkh_from_p2wpkh(sc)
+
+        if is_segwit:
+            h = self.sighash_segwit(i, sc, value, sighash=sighash)
+        else:
+            h = self.sighash_legacy(i, sc, sighash=sighash)
+        return h
+
     def sign_with(self, root, sighash=SIGHASH.ALL) -> int:
         """
         Signs psbt with root key (HDKey or similar).
@@ -582,27 +613,7 @@ class PSBT(EmbitBase):
             if sighash is not None and inp_sighash != sighash:
                 continue
 
-            utxo = self.utxo(i)
-            value = utxo.value
-            sc = inp.witness_script or inp.redeem_script or utxo.script_pubkey
-
-            # detect if it is a segwit input
-            is_segwit = (inp.witness_script
-                        or inp.witness_utxo
-                        or utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
-                        or (
-                            inp.redeem_script
-                            and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
-                        )
-            )
-            # convert to p2pkh according to bip143
-            if sc.script_type() == "p2wpkh":
-                sc = script.p2pkh_from_p2wpkh(sc)
-
-            if is_segwit:
-                h = tx.sighash_segwit(i, sc, value, sighash=inp_sighash)
-            else:
-                h = tx.sighash_legacy(i, sc, sighash=inp_sighash)
+            h = self.sighash(i, sighash=inp_sighash)
 
             # if we have individual private key
             if not fingerprint:
