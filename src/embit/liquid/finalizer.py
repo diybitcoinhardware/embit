@@ -49,8 +49,8 @@ def finalize_psbt(tx, ignore_missing=False):
             inp.witness.script_witness = Witness(arr)
             done += 1
     for i, out in enumerate(ttx.vout):
-        if tx.outputs[i].nonce_commitment:
-            out.nonce = tx.outputs[i].nonce_commitment
+        if tx.outputs[i].ecdh_pubkey:
+            out.nonce = tx.outputs[i].ecdh_pubkey
             out.value = tx.outputs[i].value_commitment
             out.asset = tx.outputs[i].asset_commitment
             out.witness = TxOutWitness(

@@ -33,7 +33,7 @@ class LiquidTest(TestCase):
         value_commitment = unhexlify("09e61ce0a80989c0223890645d29641a774dd9a57108b6e726d1f24cefbca1d9e1")
         self.assertEqual(sec, value_commitment)
 
-        # nonce_commitment = bytes.fromhex("03b6627cedfa95a7b9200a3fb1041011e05a86968d873f74540d0cf5491c838df3")
+        # ecdh_pubkey = bytes.fromhex("03b6627cedfa95a7b9200a3fb1041011e05a86968d873f74540d0cf5491c838df3")
         # some crazy proof
         # surjection_proof = bytes.fromhex("01000119b734c68b72ccb75288c919ecb976671dd7d17385d968f96215ca5161bd99eb913740ff7dd29a196b580068e058898c1ec7ecabfe147198fb988551a21580cd")
 
