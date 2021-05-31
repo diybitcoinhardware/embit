@@ -350,6 +350,8 @@ class LTransactionInput(TransactionInput):
 
 class LTransactionOutput(TransactionOutput):
     def __init__(self, asset, value, script_pubkey, nonce=None, witness=None):
+        if asset and len(asset) == 33 and asset[0] == 0x01:
+            asset = asset[1:]
         self.asset = asset
         self.value = value
         self.script_pubkey = script_pubkey

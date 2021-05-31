@@ -78,7 +78,6 @@ class LOutputScope(OutputScope):
         self.nonce_commitment = None
         self.blinding_pubkey = None
         self.asset = None
-        self.ecdh_pubkey = None
         if vout:
             self.asset = vout.asset
         # super calls parse_unknown() at the end
@@ -124,10 +123,8 @@ class LOutputScope(OutputScope):
                 self.surjection_proof = v
             elif k in [b'\xfc\x08elements\x06', b'\xfc\x04pset\x06']:
                 self.blinding_pubkey = v
-            elif k == b'\xfc\x08elements\x07':
+            elif k in [b'\xfc\x08elements\x07', b'\xfc\x04pset\x07']:
                 self.nonce_commitment = v
-            elif k == b'\xfc\x04pset\x07':
-                self.ecdh_pubkey = v
             else:
                 self.unknown[k] = v
 
@@ -168,7 +165,10 @@ class LOutputScope(OutputScope):
                 r += ser_string(stream, b'\xfc\x08elements\x06')
             r += ser_string(stream, self.blinding_pubkey)
         if self.nonce_commitment is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x07')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x07')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x07')
             r += ser_string(stream, self.nonce_commitment)
         # for some reason keys 04 and 05 are serialized after 07
         if self.range_proof is not None:
@@ -183,9 +183,6 @@ class LOutputScope(OutputScope):
             else:
                 r += ser_string(stream, b'\xfc\x08elements\x05')
             r += ser_string(stream, self.surjection_proof)
-        if self.ecdh_pubkey is not None:
-            r += ser_string(stream, b'\xfc\x04pset\x07')
-            r += ser_string(stream, self.ecdh_pubkey)
         # separator
         if not skip_separator:
             r += stream.write(b"\x00")
@@ -196,11 +193,6 @@ class PSET(PSBT):
     PSBTIN_CLS = LInputScope
     PSBTOUT_CLS = LOutputScope
     TX_CLS = LTransaction
-
-    def __init__(self, *args, **kwargs):
-        self._hash_outputs = None
-        self._hash_outputs_rangeproofs = None
-        super().__init__(*args, **kwargs)
 
     def fee(self):
         fee = 0
@@ -221,6 +213,11 @@ class PSET(PSBT):
 
     def sighash_legacy(self, *args, **kwargs):
         return self.blinded_tx.sighash_legacy(*args, **kwargs)
+
+    # def sign_with(self, root, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)) -> int:
+    # TODO: change back to sighash rangeproof when deployed
+    def sign_with(self, root, sighash=LSIGHASH.ALL) -> int:
+        super().sign_with(root, sighash)
 
     def verify(self):
         """Checks that all commitments, values and assets are consistent"""
