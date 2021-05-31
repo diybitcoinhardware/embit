@@ -86,7 +86,21 @@ class LOutputScope(OutputScope):
 
     @property
     def vout(self):
-        return LTransactionOutput(self.asset or self.asset_commitment, self.value or self.value_commitment, self.script_pubkey, self.nonce_commitment)
+        return LTransactionOutput(
+                    self.asset or self.asset_commitment,
+                    self.value or self.value_commitment,
+                    self.script_pubkey,
+                    None if self.asset else self.nonce_commitment)
+
+    @property
+    def blinded_vout(self):
+        return LTransactionOutput(
+                    self.asset_commitment or self.asset,
+                    self.value_commitment or self.value,
+                    self.script_pubkey,
+                    self.nonce_commitment,
+                    None if not self.surjection_proof else TxOutWitness(Proof(self.surjection_proof), Proof(self.range_proof))
+        )
 
     def read_value(self, stream, k):
         if (b'\xfc\x08elements' not in k) and (b"\xfc\x04pset" not in k):
@@ -195,45 +209,18 @@ class PSET(PSBT):
                 fee += out.value
         return fee
 
-    def hash_outputs(self, recalculate=False):
-        if self._hash_outputs is None or recalculate:
-            hprevout = hashlib.sha256()
-            for out in self.outputs:
-                if out.is_blinded:
-                    hprevout.update(out.asset_commitment)
-                    hprevout.update(out.value_commitment)
-                    hprevout.update(out.nonce_commitment)
-                    hprevout.update(out.script_pubkey.serialize())
-                else:
-                    hprevout.update(out.serialize())
-            self._hash_outputs = hprevout.digest()
-        return self._hash_outputs
-
-    def hash_outputs_rangeproofs(self, recalculate=False):
-        if self._hash_outputs_rangeproofs is None or recalculate:
-            hrangeproof = hashlib.sha256()
-            for out in self.outputs:
-                if out.is_blinded:
-                    hrangeproof.update(compact.to_bytes(len(out.range_proof)))
-                    hrangeproof.update(out.range_proof)
-                    hrangeproof.update(compact.to_bytes(len(out.surjection_proof)))
-                    hrangeproof.update(out.surjection_proof)
-                else:
-                    hrangeproof.update(Proof().serialize())
-                    hrangeproof.update(Proof().serialize())
-            self._hash_outputs_rangeproofs = hrangeproof.digest()
-        return self._hash_outputs_rangeproofs
+    @property
+    def blinded_tx(self):
+        return self.TX_CLS(version=self.tx_version or 2,
+                           locktime=self.locktime or 0,
+                           vin=[inp.vin for inp in self.inputs],
+                           vout=[out.blinded_vout for out in self.outputs])
 
     def sighash_segwit(self, input_index, script_pubkey, value, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)):
-        tx = self.tx
-        tx._hash_outputs = self.hash_outputs()
-        tx._hash_outputs_rangeproofs = self.hash_outputs_rangeproofs()
-        if isinstance(value, int):
-            value = b"\x01" + value.to_bytes(8, 'little')
-        return tx.sighash_segwit(input_index, script_pubkey, value, sighash)
+        return self.blinded_tx.sighash_segwit(input_index, script_pubkey, value, sighash)
 
     def sighash_legacy(self, *args, **kwargs):
-        return self.tx.sighash_legacy(*args, **kwargs)
+        return self.blinded_tx.sighash_legacy(*args, **kwargs)
 
     def verify(self):
         """Checks that all commitments, values and assets are consistent"""
