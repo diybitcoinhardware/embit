@@ -46,6 +46,8 @@ def _find_library():
     # try searching
     if not library_path:
         library_path = ctypes.util.find_library("libsecp256k1")
+    if not library_path:
+        library_path = ctypes.util.find_library("secp256k1")
     # library search failed
     if not library_path:
         if platform.system() == "Linux" and os.path.isfile(
