@@ -263,7 +263,10 @@ class LTransaction(Transaction):
         h.update(bytes(reversed(inp.txid)))
         h.update(inp.vout.to_bytes(4, "little"))
         h.update(script_pubkey.serialize())
-        h.update(value)
+        if isinstance(value, int):
+            h.update(b"\x01"+value.to_bytes(8, 'big'))
+        else:
+            h.update(value)
         h.update(inp.sequence.to_bytes(4, "little"))
         if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
             h.update(hashlib.sha256(self.hash_outputs()).digest())
@@ -387,7 +390,7 @@ class LTransactionOutput(TransactionOutput):
         if not self.is_blinded:
             return self.value, self.asset, None, None, None, None
 
-        pub = secp256k1.ec_pubkey_parse(self.nonce)
+        pub = secp256k1.ec_pubkey_parse(self.ecdh_pubkey)
         secp256k1.ec_pubkey_tweak_mul(pub, blinding_key)
         sec = secp256k1.ec_pubkey_serialize(pub)
         nonce = hashlib.sha256(hashlib.sha256(sec).digest()).digest()
