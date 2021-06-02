@@ -263,7 +263,10 @@ class LTransaction(Transaction):
         h.update(bytes(reversed(inp.txid)))
         h.update(inp.vout.to_bytes(4, "little"))
         h.update(script_pubkey.serialize())
-        h.update(value)
+        if isinstance(value, int):
+            h.update(b"\x01"+value.to_bytes(8, 'big'))
+        else:
+            h.update(value)
         h.update(inp.sequence.to_bytes(4, "little"))
         if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
             h.update(hashlib.sha256(self.hash_outputs()).digest())
@@ -349,28 +352,35 @@ class LTransactionInput(TransactionInput):
     
 
 class LTransactionOutput(TransactionOutput):
-    def __init__(self, asset, value, script_pubkey, nonce=None, witness=None):
+    def __init__(self, asset, value, script_pubkey, ecdh_pubkey=None, witness=None):
+        if asset and len(asset) == 33 and asset[0] == 0x01:
+            asset = asset[1:]
         self.asset = asset
         self.value = value
         self.script_pubkey = script_pubkey
-        self.nonce = nonce
+        self.ecdh_pubkey = ecdh_pubkey
         self.witness = witness if witness is not None else TxOutWitness()
 
     def write_to(self, stream):
-        res = stream.write(self.asset)
-        if self.nonce:
-            res += stream.write(self.value)
-            res += stream.write(self.nonce)
-        else:
+        res = 0
+        if len(self.asset) == 32:
+            res += stream.write(b"\x01")
+        res += stream.write(self.asset)
+        if isinstance(self.value, int):
             res += stream.write(b"\x01")
             res += stream.write(self.value.to_bytes(8, "big"))
+        else:
+            res += stream.write(self.value)
+        if self.ecdh_pubkey:
+            res += stream.write(self.ecdh_pubkey)
+        else:
             res += stream.write(b"\x00")
         res += self.script_pubkey.write_to(stream)
         return res
 
     @property
     def is_blinded(self):
-        return self.nonce is not None
+        return self.ecdh_pubkey is not None
 
     def unblind(self, blinding_key):
         """
@@ -380,7 +390,7 @@ class LTransactionOutput(TransactionOutput):
         if not self.is_blinded:
             return self.value, self.asset, None, None, None, None
 
-        pub = secp256k1.ec_pubkey_parse(self.nonce)
+        pub = secp256k1.ec_pubkey_parse(self.ecdh_pubkey)
         secp256k1.ec_pubkey_tweak_mul(pub, blinding_key)
         sec = secp256k1.ec_pubkey_serialize(pub)
         nonce = hashlib.sha256(hashlib.sha256(sec).digest()).digest()
@@ -401,16 +411,14 @@ class LTransactionOutput(TransactionOutput):
     def read_from(cls, stream):
         asset = stream.read(33)
         blinded = False
-        nonce = None
+        ecdh_pubkey = None
         c = stream.read(1)
         if c != b"\x01":
-            blinded = True
-        if blinded:
             value = c + stream.read(32)
-            nonce = stream.read(33)
         else:
             value = int.from_bytes(stream.read(8), "big")
-            if stream.read(1) != b"\x00":
-                raise Exception("Invalid output format")
+        c = stream.read(1)
+        if c != b"\x00":
+            ecdh_pubkey = c + stream.read(32)
         script_pubkey = Script.read_from(stream)
-        return cls(asset, value, script_pubkey, nonce)
+        return cls(asset, value, script_pubkey, ecdh_pubkey)

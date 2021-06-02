@@ -9,7 +9,7 @@ from .. import compact
 from ..psbt import *
 from collections import OrderedDict
 from io import BytesIO
-from .transaction import LTransaction, LTransactionOutput, TxOutWitness, Proof, LSIGHASH
+from .transaction import LTransaction, LTransactionOutput, LTransactionInput, TxOutWitness, Proof, LSIGHASH
 import hashlib
 
 class LInputScope(InputScope):
@@ -23,6 +23,10 @@ class LInputScope(InputScope):
         self.asset = None
         self.asset_blinding_factor = None
         super().__init__(unknown, **kwargs)
+
+    @property
+    def vin(self):
+        return LTransactionInput(self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF))
 
     def read_value(self, stream, k):
         if b'\xfc\x08elements' not in k:
@@ -41,8 +45,8 @@ class LInputScope(InputScope):
             else:
                 self.unknown[k] = v
 
-    def write_to(self, stream, skip_separator=False) -> int:
-        r = super().write_to(stream, skip_separator=True)
+    def write_to(self, stream, skip_separator=False, **kwargs) -> int:
+        r = super().write_to(stream, skip_separator=True, **kwargs)
         # liquid-specific keys
         if self.value is not None:
             r += ser_string(stream, b'\xfc\x08elements\x00')
@@ -63,7 +67,7 @@ class LInputScope(InputScope):
 
 
 class LOutputScope(OutputScope):
-    def __init__(self, unknown: dict = {}, **kwargs):
+    def __init__(self, unknown: dict = {}, vout=None, **kwargs):
         # liquid stuff
         self.value_commitment = None
         self.value_blinding_factor = None
@@ -71,33 +75,56 @@ class LOutputScope(OutputScope):
         self.asset_blinding_factor = None
         self.range_proof = None
         self.surjection_proof = None
-        self.nonce_commitment = None
+        self.ecdh_pubkey = None
         self.blinding_pubkey = None
+        self.asset = None
+        if vout:
+            self.asset = vout.asset
         # super calls parse_unknown() at the end
-        super().__init__(unknown, **kwargs)
+        super().__init__(unknown, vout=vout, **kwargs)
+
+    @property
+    def vout(self):
+        return LTransactionOutput(
+                    self.asset or self.asset_commitment,
+                    self.value or self.value_commitment,
+                    self.script_pubkey,
+                    None if self.asset else self.ecdh_pubkey)
+
+    @property
+    def blinded_vout(self):
+        return LTransactionOutput(
+                    self.asset_commitment or self.asset,
+                    self.value_commitment or self.value,
+                    self.script_pubkey,
+                    self.ecdh_pubkey,
+                    None if not self.surjection_proof else TxOutWitness(Proof(self.surjection_proof), Proof(self.range_proof))
+        )
 
     def read_value(self, stream, k):
-        if b'\xfc\x08elements' not in k:
+        if (b'\xfc\x08elements' not in k) and (b"\xfc\x04pset" not in k):
             super().read_value(stream, k)
         else:
             v = read_string(stream)
             # liquid-specific fields
-            if k == b'\xfc\x08elements\x00':
+            if k in [b'\xfc\x08elements\x00', b'\xfc\x04pset\x01']:
                 self.value_commitment = v
             elif k == b'\xfc\x08elements\x01':
                 self.value_blinding_factor = v
-            elif k == b'\xfc\x08elements\x02':
+            elif k == b'\xfc\x04pset\x02':
+                self.asset = v
+            elif k in [b'\xfc\x08elements\x02', b'\xfc\x04pset\x03']:
                 self.asset_commitment = v
             elif k == b'\xfc\x08elements\x03':
                 self.asset_blinding_factor = v
-            elif k == b'\xfc\x08elements\x04':
+            elif k in [b'\xfc\x08elements\x04', b'\xfc\x04pset\x04']:
                 self.range_proof = v
-            elif k == b'\xfc\x08elements\x05':
+            elif k in [b'\xfc\x08elements\x05', b'\xfc\x04pset\x05']:
                 self.surjection_proof = v
-            elif k == b'\xfc\x08elements\x06':
+            elif k in [b'\xfc\x08elements\x06', b'\xfc\x04pset\x06']:
                 self.blinding_pubkey = v
-            elif k == b'\xfc\x08elements\x07':
-                self.nonce_commitment = v
+            elif k in [b'\xfc\x08elements\x07', b'\xfc\x04pset\x07']:
+                self.ecdh_pubkey = v
             else:
                 self.unknown[k] = v
 
@@ -106,34 +133,55 @@ class LOutputScope(OutputScope):
         # TODO: not great
         return self.value_blinding_factor or self.asset_blinding_factor
 
-    def write_to(self, stream, skip_separator=False) -> int:
+    def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
         # TODO: super.write_to()
-        r = super().write_to(stream, skip_separator=True)
+        r = super().write_to(stream, skip_separator=True, version=version, **kwargs)
         # liquid-specific keys
+        if self.asset is not None and version == 2:
+            r += ser_string(stream, b'\xfc\x04pset\x02')
+            r += ser_string(stream, self.asset)
         if self.value_commitment is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x00')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x01')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x00')
             r += ser_string(stream, self.value_commitment)
         if self.value_blinding_factor is not None:
             r += ser_string(stream, b'\xfc\x08elements\x01')
             r += ser_string(stream, self.value_blinding_factor)
         if self.asset_commitment is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x02')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x03')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x02')
             r += ser_string(stream, self.asset_commitment)
         if self.asset_blinding_factor is not None:
             r += ser_string(stream, b'\xfc\x08elements\x03')
             r += ser_string(stream, self.asset_blinding_factor)
         if self.blinding_pubkey is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x06')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x06')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x06')
             r += ser_string(stream, self.blinding_pubkey)
-        if self.nonce_commitment is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x07')
-            r += ser_string(stream, self.nonce_commitment)
+        if self.ecdh_pubkey is not None:
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x07')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x07')
+            r += ser_string(stream, self.ecdh_pubkey)
         # for some reason keys 04 and 05 are serialized after 07
         if self.range_proof is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x04')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x04')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x04')
             r += ser_string(stream, self.range_proof)
         if self.surjection_proof is not None:
-            r += ser_string(stream, b'\xfc\x08elements\x05')
+            if version == 2:
+                r += ser_string(stream, b'\xfc\x04pset\x05')
+            else:
+                r += ser_string(stream, b'\xfc\x08elements\x05')
             r += ser_string(stream, self.surjection_proof)
         # separator
         if not skip_separator:
@@ -153,30 +201,23 @@ class PSET(PSBT):
                 fee += out.value
         return fee
 
-    def sign_with(self, root, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)) -> int:
-        """
-        Signs psbt with root key (HDKey or similar).
-        Returns number of signatures added to PSBT
-        """
-        hprevout = hashlib.sha256()
-        hrangeproof = hashlib.sha256()
-        for i, out in enumerate(self.tx.vout):
-            if self.outputs[i].is_blinded:
-                hprevout.update(self.outputs[i].asset_commitment)
-                hprevout.update(self.outputs[i].value_commitment)
-                hprevout.update(self.outputs[i].nonce_commitment)
-                hprevout.update(out.script_pubkey.serialize())
-                hrangeproof.update(compact.to_bytes(len(self.outputs[i].range_proof)))
-                hrangeproof.update(self.outputs[i].range_proof)
-                hrangeproof.update(compact.to_bytes(len(self.outputs[i].surjection_proof)))
-                hrangeproof.update(self.outputs[i].surjection_proof)
-            else:
-                hprevout.update(out.serialize())
-                hrangeproof.update(out.witness.range_proof.serialize())
-                hrangeproof.update(out.witness.surjection_proof.serialize())
-        self.tx._hash_outputs = hprevout.digest()
-        self.tx._hash_outputs_rangeproofs = hrangeproof.digest()
-        return super().sign_with(root, sighash)
+    @property
+    def blinded_tx(self):
+        return self.TX_CLS(version=self.tx_version or 2,
+                           locktime=self.locktime or 0,
+                           vin=[inp.vin for inp in self.inputs],
+                           vout=[out.blinded_vout for out in self.outputs])
+
+    def sighash_segwit(self, input_index, script_pubkey, value, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)):
+        return self.blinded_tx.sighash_segwit(input_index, script_pubkey, value, sighash)
+
+    def sighash_legacy(self, *args, **kwargs):
+        return self.blinded_tx.sighash_legacy(*args, **kwargs)
+
+    # def sign_with(self, root, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)) -> int:
+    # TODO: change back to sighash rangeproof when deployed
+    def sign_with(self, root, sighash=LSIGHASH.ALL) -> int:
+        super().sign_with(root, sighash)
 
     def verify(self):
         """Checks that all commitments, values and assets are consistent"""

@@ -20,7 +20,7 @@ def parse_multisig(sc):
 
 def finalize_psbt(tx, ignore_missing=False):
     # ugly copy
-    ttx = LTransaction.parse(tx.tx.serialize())
+    ttx = LTransaction.parse(tx.blinded_tx.serialize())
     done = 0
     for i, inp in enumerate(ttx.vin):
         if tx.inputs[i].redeem_script is not None:
@@ -48,15 +48,6 @@ def finalize_psbt(tx, ignore_missing=False):
             #     arr = [tx.inputs[i].redeem_script.data] + arr
             inp.witness.script_witness = Witness(arr)
             done += 1
-    for i, out in enumerate(ttx.vout):
-        if tx.outputs[i].nonce_commitment:
-            out.nonce = tx.outputs[i].nonce_commitment
-            out.value = tx.outputs[i].value_commitment
-            out.asset = tx.outputs[i].asset_commitment
-            out.witness = TxOutWitness(
-                Proof(tx.outputs[i].surjection_proof),
-                Proof(tx.outputs[i].range_proof)
-            )
     if not ignore_missing and done < len(ttx.vin):
         return None
     return ttx
