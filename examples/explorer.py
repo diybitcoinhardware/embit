@@ -198,8 +198,8 @@ for i, inp in enumerate(inputs):
     psbt.inputs[i].bip32_derivations = inp["bip32_derivations"]
     psbt.inputs[i].witness_script = inp["witness_script"]
     psbt.inputs[i].redeem_script = inp["redeem_script"]
-    psbt.inputs[i].witness_utxo = inp["witness_utxo"]
-    psbt.inputs[i].non_witness_utxo = inp["non_witness_utxo"]
+    psbt.inputs[i].witness_utxo = inp.get("witness_utxo", None)
+    psbt.inputs[i].non_witness_utxo = inp.get("non_witness_utxo", None)
 
 if len(psbt.outputs) > 1:
     # derivation information for utxos
@@ -244,5 +244,5 @@ print("Signed transaction:")
 print(signedtx.to_string())
 
 # Uncomment to broadcast the transaction:
-res = s.post(f"{API}/tx", data=signedtx.serialize().hex())
-print(res.text)
+# res = s.post(f"{API}/tx", data=signedtx.serialize().hex())
+# print(res.text)
