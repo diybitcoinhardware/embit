@@ -12,7 +12,7 @@ class Elementsd(Bitcoind):
 
     @property
     def cmd(self):
-        return f"{self.binary} -datadir={self.datadir} -chain=elreg -fallbackfee=0.0000001 -rpcuser={self.rpcuser} -rpcpassword={self.rpcpassword} -rpcport={self.rpcport} -port={self.port} -validatepegin=0 -initialfreecoins=2100000000000000"
+        return f"{self.binary} -datadir={self.datadir} -chain=elreg -fallbackfee=0.000001 -rpcuser={self.rpcuser} -rpcpassword={self.rpcpassword} -rpcport={self.rpcport} -port={self.port} -validatepegin=0 -initialfreecoins=2100000000000000"
 
     def get_coins(self):
         # create default wallet

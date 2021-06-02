@@ -35,38 +35,38 @@ class RPCTest(TestCase):
         # to add checksums
         d1 = add_checksum(str(d1))
         d2 = add_checksum(str(d2))
-        rpc.createwallet(wname, True, True)
+        rpc.createwallet(wname, True, True, "", False, True, False)
         w = daemon.wallet(wname)
-        res = w.importmulti([{
+        res = w.importdescriptors([{
                 "desc": d1,
+                "active": True,
                 "internal": False,
                 "timestamp": "now",
-                "watchonly": True,
-                "range": 10,
             },{
                 "desc": d2,
+                "active": True,
                 "internal": True,
                 "timestamp": "now",
-                "watchonly": True,
-                "range": 10,
-            }],{"rescan": False})
+            }])
         self.assertTrue(all([k["success"] for k in res]))
         wdefault = daemon.wallet()
         wdefault.sendtoaddress(addr1, 0.1)
         daemon.mine()
-        psbt = w.walletcreatefundedpsbt([], [{wdefault.getnewaddress(): 0.002}], 0, {"includeWatching": True, "changeAddress": addr2}, True)
+        psbt = w.walletcreatefundedpsbt([], [{wdefault.getnewaddress(): 0.002}], 0, {"includeWatching": True, "changeAddress": addr2, "fee_rate": 1}, True)
         unsigned = psbt["psbt"]
-        blinded = w.walletprocesspsbt(unsigned)['psbt']
+        try: # master branch
+            blinded = w.blindpsbt(unsigned)
+        except:
+            blinded = w.walletprocesspsbt(unsigned)['psbt']
         psbt = PSBT.from_string(blinded)
-        psbt.sign_with(root, sighash=LSIGHASH.ALL)
+        psbt.sign_with(root)
         final = rpc.finalizepsbt(str(psbt))
-        self.assertTrue(final["complete"])
-        raw = final["hex"]
-        # else:
-        #     print("WARNING: finalize failed, trying with embit")
-        #     tx = finalize_psbt(psbt)
-        #     print(tx)
-        #     raw = str(tx)
+        if final["complete"]:
+            raw = final["hex"]
+        else:
+            print("WARNING: finalize failed, trying with embit")
+            tx = finalize_psbt(psbt)
+            raw = str(tx)
         # test accept
         res = rpc.testmempoolaccept([raw])
         self.assertTrue(res[0]["allowed"])
@@ -79,13 +79,13 @@ class RPCTest(TestCase):
 
         self.sign_with_descriptor(d1, d2, root)
 
-    # def test_sh_wpkh(self):
-    #     path = "49h/1h/0h"
-    #     xpub = root.derive(f"m/{path}").to_public().to_string()
-    #     d1 = f"sh(wpkh([{fgp}/{path}]{xpub}/0/*))"
-    #     d2 = f"sh(wpkh([{fgp}/{path}]{xpub}/1/*))"
+    def test_sh_wpkh(self):
+        path = "49h/1h/0h"
+        xpub = root.derive(f"m/{path}").to_public().to_string()
+        d1 = f"sh(wpkh([{fgp}/{path}]{xpub}/0/*))"
+        d2 = f"sh(wpkh([{fgp}/{path}]{xpub}/1/*))"
 
-    #     self.sign_with_descriptor(d1, d2, root)
+        self.sign_with_descriptor(d1, d2, root)
 
     # def test_legacy(self):
     #     path = "44h/1h/0h"
