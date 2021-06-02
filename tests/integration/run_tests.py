@@ -11,12 +11,12 @@ import time
 
 def main():
     try:
-        # bitcoind.start()
+        bitcoind.start()
         elementsd.start()
         unittest.main('tests')
         time.sleep(10)
     finally:
-        # bitcoind.stop()
+        bitcoind.stop()
         elementsd.stop()
 
 if __name__ == '__main__':

@@ -16,7 +16,7 @@ net = NETWORKS['regtest']
 def random_wallet_name():
     return "test"+random.randint(0,0xFFFFFFFF).to_bytes(4,'big').hex()
 
-class RPCTest(TestCase):
+class PSBTTest(TestCase):
     """Complete tests with Core on regtest - should catch problems with signing of transactions"""
 
     def sign_with_descriptor(self, d1, d2, root):

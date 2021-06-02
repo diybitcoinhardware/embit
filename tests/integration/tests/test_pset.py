@@ -18,7 +18,7 @@ net = get_network('elreg')
 def random_wallet_name():
     return "test"+random.randint(0,0xFFFFFFFF).to_bytes(4,'big').hex()
 
-class RPCTest(TestCase):
+class PSETTest(TestCase):
     """Complete tests with Core on regtest - should catch problems with signing of transactions"""
 
     def sign_with_descriptor(self, d1, d2, root):
