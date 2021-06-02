@@ -101,6 +101,30 @@ class LOutputScope(OutputScope):
                     None if not self.surjection_proof else TxOutWitness(Proof(self.surjection_proof), Proof(self.range_proof))
         )
 
+    def reblind(self, nonce, blinding_pubkey=None, extra_message=b""):
+        """
+        Re-generates range-proof with particular nonce
+        and includes extra message in the range proof.
+        This message can contain some useful info like a label or whatever else.
+        """
+        if not self.is_blinded:
+            return
+        # check blinding pubkey is there
+        blinding_pubkey = blinding_pubkey or self.blinding_pubkey
+        if not blinding_pubkey:
+            raise ValueError("Blinding pubkey required")
+        pub = secp256k1.ec_pubkey_parse(blinding_pubkey)
+        self.ecdh_pubkey = ec.PrivateKey(nonce).sec()
+        secp256k1.ec_pubkey_tweak_mul(pub, nonce)
+        sec = secp256k1.ec_pubkey_serialize(pub)
+        ecdh_nonce = hashlib.sha256(hashlib.sha256(sec).digest()).digest()
+        msg = self.asset[-32:] + self.asset_blinding_factor + extra_message
+        self.range_proof = secp256k1.rangeproof_sign(
+            ecdh_nonce, self.value, secp256k1.pedersen_commitment_parse(self.value_commitment),
+            self.value_blinding_factor, msg,
+            self.script_pubkey.data, secp256k1.generator_parse(self.asset_commitment))
+
+
     def read_value(self, stream, k):
         if (b'\xfc\x08elements' not in k) and (b"\xfc\x04pset" not in k):
             super().read_value(stream, k)

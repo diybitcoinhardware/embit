@@ -9,6 +9,7 @@ from embit.liquid.networks import get_network
 from embit.liquid.pset import PSET as PSBT
 from embit.liquid.transaction import LSIGHASH
 from embit.liquid.finalizer import finalize_psbt
+from embit.liquid.addresses import addr_decode
 
 wallet_prefix = "test"+random.randint(0,0xFFFFFFFF).to_bytes(4,'big').hex()
 root = HDKey.from_string("tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j")
@@ -21,7 +22,7 @@ def random_wallet_name():
 class PSETTest(TestCase):
     """Complete tests with Core on regtest - should catch problems with signing of transactions"""
 
-    def sign_with_descriptor(self, d1, d2, root):
+    def sign_with_descriptor(self, d1, d2, root, reblind=False):
         rpc = daemon.rpc
         wname = random_wallet_name()
         # to derive addresses
@@ -49,16 +50,33 @@ class PSETTest(TestCase):
                 "timestamp": "now",
             }])
         self.assertTrue(all([k["success"] for k in res]))
+        w.importmasterblindingkey((b"1"*32).hex())
+        addr1 = w.getnewaddress()
         wdefault = daemon.wallet()
         wdefault.sendtoaddress(addr1, 0.1)
         daemon.mine()
-        psbt = w.walletcreatefundedpsbt([], [{wdefault.getnewaddress(): 0.002}], 0, {"includeWatching": True, "changeAddress": addr2, "fee_rate": 1}, True)
+        waddr = wdefault.getnewaddress()
+        psbt = w.walletcreatefundedpsbt([], [{waddr: 0.002}], 0, {"includeWatching": True, "changeAddress": addr1, "fee_rate": 1}, True)
         unsigned = psbt["psbt"]
+
+        # fix blinding change address
+        tx = PSBT.from_string(unsigned)
+        _, bpub = addr_decode(addr1)
+        if not tx.outputs[psbt["changepos"]].blinding_pubkey:
+            tx.outputs[psbt["changepos"]].blinding_pubkey = bpub.sec()
+            unsigned = str(tx)
+
         try: # master branch
             blinded = w.blindpsbt(unsigned)
         except:
             blinded = w.walletprocesspsbt(unsigned)['psbt']
         psbt = PSBT.from_string(blinded)
+        # reblind with custom message
+        if reblind:
+            unblinded_psbt = PSBT.from_string(unsigned)
+            for i, out in enumerate(psbt.outputs):
+                if unblinded_psbt.outputs[i].blinding_pubkey:
+                    out.reblind(b"1"*32, unblinded_psbt.outputs[i].blinding_pubkey, b"test message")
         psbt.sign_with(root)
         final = rpc.finalizepsbt(str(psbt))
         if final["complete"]:
@@ -70,6 +88,11 @@ class PSETTest(TestCase):
         # test accept
         res = rpc.testmempoolaccept([raw])
         self.assertTrue(res[0]["allowed"])
+        if reblind:
+            import json
+            raw = w.unblindrawtransaction(raw)["hex"]
+            decoded = w.decoderawtransaction(raw)
+            self.assertEqual(len(decoded["vout"]) - sum([int("value" in out) for out in decoded["vout"]]), 1)
 
     def test_wpkh(self):
         path = "84h/1h/0h"
@@ -79,13 +102,13 @@ class PSETTest(TestCase):
 
         self.sign_with_descriptor(d1, d2, root)
 
-    def test_sh_wpkh(self):
-        path = "49h/1h/0h"
-        xpub = root.derive(f"m/{path}").to_public().to_string()
-        d1 = f"sh(wpkh([{fgp}/{path}]{xpub}/0/*))"
-        d2 = f"sh(wpkh([{fgp}/{path}]{xpub}/1/*))"
+    # def test_sh_wpkh(self):
+    #     path = "49h/1h/0h"
+    #     xpub = root.derive(f"m/{path}").to_public().to_string()
+    #     d1 = f"sh(wpkh([{fgp}/{path}]{xpub}/0/*))"
+    #     d2 = f"sh(wpkh([{fgp}/{path}]{xpub}/1/*))"
 
-        self.sign_with_descriptor(d1, d2, root)
+    #     self.sign_with_descriptor(d1, d2, root)
 
     # def test_legacy(self):
     #     path = "44h/1h/0h"
@@ -94,3 +117,11 @@ class PSETTest(TestCase):
     #     d2 = f"pkh([{fgp}/{path}]{xpub}/1/*)"
 
     #     self.sign_with_descriptor(d1, d2, root)
+
+    def test_reblind(self):
+        path = "84h/1h/0h"
+        xpub = root.derive(f"m/{path}").to_public().to_string()
+        d1 = f"wpkh([{fgp}/{path}]{xpub}/0/*)"
+        d2 = f"wpkh([{fgp}/{path}]{xpub}/1/*)"
+
+        self.sign_with_descriptor(d1, d2, root, reblind=True)
