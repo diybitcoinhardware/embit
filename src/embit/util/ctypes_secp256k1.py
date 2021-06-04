@@ -258,12 +258,61 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
         secp256k1.secp256k1_rangeproof_sign.restype = c_int
 
         # musig
-
         secp256k1.secp256k1_xonly_pubkey_from_pubkey.argtypes = [c_void_p, c_char_p, POINTER(c_int), c_char_p]
         secp256k1.secp256k1_xonly_pubkey_from_pubkey.restype = c_int
 
         secp256k1.secp256k1_musig_pubkey_combine.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p, c_void_p, c_size_t]
         secp256k1.secp256k1_musig_pubkey_combine.restype = c_int
+
+        # surjection proofs
+        secp256k1.secp256k1_surjectionproof_initialize.argtypes = [
+            c_void_p, # const secp256k1_context* ctx,
+            c_char_p, # secp256k1_surjectionproof* proof,
+            POINTER(c_size_t), # size_t *input_index,
+            c_void_p, # c_char_p, # const secp256k1_fixed_asset_tag* fixed_input_tags,
+            c_size_t, # const size_t n_input_tags,
+            c_size_t, # const size_t n_input_tags_to_use,
+            c_char_p, # const secp256k1_fixed_asset_tag* fixed_output_tag,
+            c_size_t, # const size_t n_max_iterations,
+            c_char_p, # const unsigned char *random_seed32
+        ]
+        secp256k1.secp256k1_surjectionproof_initialize.restype = c_int
+
+        secp256k1.secp256k1_surjectionproof_generate.argtypes = [
+            c_void_p, # const secp256k1_context* ctx,
+            c_char_p, # secp256k1_surjectionproof* proof,
+            c_char_p, # const secp256k1_generator* ephemeral_input_tags,
+            c_size_t, # size_t n_ephemeral_input_tags,
+            c_char_p, # const secp256k1_generator* ephemeral_output_tag,
+            c_size_t, # size_t input_index,
+            c_char_p, # const unsigned char *input_blinding_key,
+            c_char_p, # const unsigned char *output_blinding_key
+        ]
+        secp256k1.secp256k1_surjectionproof_generate.restype = c_int
+
+        secp256k1.secp256k1_surjectionproof_verify.argtypes = [
+            c_void_p, # const secp256k1_context* ctx,
+            c_char_p, # const secp256k1_surjectionproof* proof,
+            c_char_p, # const secp256k1_generator* ephemeral_input_tags,
+            c_size_t, # size_t n_ephemeral_input_tags,
+            c_char_p, # const secp256k1_generator* ephemeral_output_tag
+        ]
+        secp256k1.secp256k1_surjectionproof_verify.restype = c_int
+
+        secp256k1.secp256k1_surjectionproof_serialize.argtypes = [
+            c_void_p, # const secp256k1_context* ctx,
+            c_char_p, # unsigned char *output,
+            POINTER(c_size_t), # size_t *outputlen,
+            c_char_p, # const secp256k1_surjectionproof *proof
+        ]
+        secp256k1.secp256k1_surjectionproof_serialize.restype = c_int
+
+        secp256k1.secp256k1_surjectionproof_serialized_size.argtypes = [
+            c_void_p, # const secp256k1_context* ctx,
+            c_char_p, # const secp256k1_surjectionproof* proof
+        ]
+        secp256k1.secp256k1_surjectionproof_serialized_size.restype = c_size_t
+
     except:
         pass
 
@@ -667,3 +716,38 @@ def musig_pubkey_combine(*args, context=_secp.ctx):
     if res == 0:
         raise ValueError("Failed to combine pubkeys")
     return pub
+
+# surjection proof
+def surjectionproof_initialize(in_tags, out_tag, tags_to_use=None, iterations=100, seed=None, context=_secp.ctx):
+    if tags_to_use is None:
+        tags_to_use = min(3, len(in_tags))
+    if seed is None:
+        seed = os.urandom(32)
+    proof = bytes(4+8+256//8+32*257)
+    pointer = POINTER(c_size_t)
+    input_index = pointer(c_size_t(0))
+    input_tags = b"".join(in_tags)
+    res = _secp.secp256k1_surjectionproof_initialize(context, proof, input_index, input_tags, len(in_tags), tags_to_use, out_tag, iterations, seed)
+    if res == 0:
+        raise RuntimeError("Failed to initialize the proof")
+    return proof, input_index.contents.value
+
+def surjectionproof_generate(proof, in_idx, in_tags, out_tag, in_abf, out_abf, context=_secp.ctx):
+    res = _secp.secp256k1_surjectionproof_generate(context, proof, b"".join(in_tags), len(in_tags), out_tag, in_idx, in_abf, out_abf)
+    if not res:
+        raise RuntimeError("Failed to generate surjection proof")
+    return proof
+
+def surjectionproof_verify(proof, in_tags, out_tag, context=_secp.ctx):
+    res = _secp.secp256k1_surjectionproof_verify(context, proof, b"".join(in_tags), len(in_tags), out_tag)
+    return bool(res)
+
+def surjectionproof_serialize(proof, context=_secp.ctx):
+    s = _secp.secp256k1_surjectionproof_serialized_size(context, proof)
+    b = bytes(s)
+    pointer = POINTER(c_size_t)
+    sz = pointer(c_size_t(s))
+    _secp.secp256k1_surjectionproof_serialize(context, b, sz, proof)
+    if s != sz.contents.value:
+        raise RuntimeError("Failed to serialize surjection proof - size mismatch")
+    return b

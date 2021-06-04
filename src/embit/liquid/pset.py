@@ -22,6 +22,7 @@ class LInputScope(InputScope):
         self.value_blinding_factor = None
         self.asset = None
         self.asset_blinding_factor = None
+        self.range_proof = None
         super().__init__(unknown, **kwargs)
 
     @property
@@ -29,7 +30,7 @@ class LInputScope(InputScope):
         return LTransactionInput(self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF))
 
     def read_value(self, stream, k):
-        if b'\xfc\x08elements' not in k:
+        if (b'\xfc\x08elements' not in k) and (b"\xfc\x04pset" not in k):
             super().read_value(stream, k)
         else:
             v = read_string(stream)
@@ -42,6 +43,8 @@ class LInputScope(InputScope):
                 self.asset = v
             elif k == b'\xfc\x08elements\x03':
                 self.asset_blinding_factor = v
+            elif k == b'\xfc\x04pset\x0e':
+                self.range_proof = v
             else:
                 self.unknown[k] = v
 
@@ -60,6 +63,9 @@ class LInputScope(InputScope):
         if self.asset_blinding_factor is not None:
             r += ser_string(stream, b'\xfc\x08elements\x03')
             r += ser_string(stream, self.asset_blinding_factor)
+        if self.range_proof is not None:
+            r += ser_string(stream, b'\xfc\x04pset\x0e')
+            r += ser_string(stream, self.range_proof)
         # separator
         if not skip_separator:
             r += stream.write(b"\x00")
