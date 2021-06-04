@@ -230,6 +230,16 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
         secp256k1.secp256k1_pedersen_commit.argtypes = [c_void_p, c_char_p, c_char_p, c_uint64, c_char_p]
         secp256k1.secp256k1_pedersen_commit.restype = c_int
 
+        secp256k1.secp256k1_pedersen_blind_generator_blind_sum.argtypes = [
+            c_void_p, # const secp256k1_context* ctx,
+            POINTER(c_uint64), # const uint64_t *value,
+            c_void_p, # const unsigned char* const* generator_blind,
+            c_void_p, # unsigned char* const* blinding_factor,
+            c_size_t, # size_t n_total,
+            c_size_t, # size_t n_inputs
+        ]
+        secp256k1.secp256k1_pedersen_blind_generator_blind_sum.restype = c_int
+
         # rangeproof
         secp256k1.secp256k1_rangeproof_rewind.argtypes = [c_void_p, c_char_p, POINTER(c_uint64), c_char_p, POINTER(c_uint64),
                                                           c_char_p, POINTER(c_uint64), POINTER(c_uint64),
@@ -612,6 +622,15 @@ def pedersen_commit(vbf, value, gen, context=_secp.ctx):
     if r == 0:
         raise ValueError("Failed to create commitment")
     return commit
+
+def pedersen_blind_generator_blind_sum(values, gens, vbfs, num_inputs, context=_secp.ctx):
+    vals = (c_uint64 * len(values))(*values)
+    vbfs_joined = (c_char_p * len(vbfs))(*vbfs)
+    gens_joined = (c_char_p * len(gens))(*gens)
+    res = _secp.secp256k1_pedersen_blind_generator_blind_sum(context, vals, gens_joined, vbfs_joined, len(values), num_inputs)
+    if res == 0:
+        raise ValueError("Failed to get the last blinding factor.")
+    return vbfs_joined[-1]
 
 # generator
 def generator_parse(inp, context=_secp.ctx):
