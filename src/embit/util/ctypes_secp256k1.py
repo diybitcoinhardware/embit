@@ -242,6 +242,9 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
         ]
         secp256k1.secp256k1_pedersen_blind_generator_blind_sum.restype = c_int
 
+        secp256k1.secp256k1_pedersen_verify_tally.argtypes = [c_void_p, c_void_p, c_size_t, c_void_p, c_size_t]
+        secp256k1.secp256k1_pedersen_verify_tally.restype = c_int
+
         # rangeproof
         secp256k1.secp256k1_rangeproof_rewind.argtypes = [c_void_p, c_char_p, POINTER(c_uint64), c_char_p, POINTER(c_uint64),
                                                           c_char_p, POINTER(c_uint64), POINTER(c_uint64),
@@ -639,10 +642,15 @@ def pedersen_blind_generator_blind_sum(values, gens, vbfs, num_inputs, context=_
     res = _secp.secp256k1_pedersen_blind_generator_blind_sum(context, vals, gens_joined, vbfs_joined, len(values), num_inputs)
     if res == 0:
         raise ValueError("Failed to get the last blinding factor.")
-    # vbf = vbfs_joined[-1][:32]
     res = (c_char * 32).from_address(address).raw
     assert len(res) == 32
     return res
+
+def pedersen_verify_tally(ins, outs, context=_secp.ctx):
+    in_ptr = (c_char_p * len(ins))(*ins)
+    out_ptr = (c_char_p * len(outs))(*outs)
+    res = _secp.secp256k1_pedersen_verify_tally(context, in_ptr, len(in_ptr), out_ptr, len(out_ptr))
+    return bool(res)
 
 # generator
 def generator_parse(inp, context=_secp.ctx):
