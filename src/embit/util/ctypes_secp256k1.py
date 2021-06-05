@@ -3,7 +3,9 @@ import ctypes.util
 import platform
 
 from ctypes import (
+    cast,
     byref,
+    c_char,
     c_byte,
     c_int,
     c_uint,
@@ -323,6 +325,9 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
         ]
         secp256k1.secp256k1_surjectionproof_serialized_size.restype = c_size_t
 
+        secp256k1.secp256k1_surjectionproof_parse.argtypes = [c_void_p, c_char_p, c_char_p, c_size_t]
+        secp256k1.secp256k1_surjectionproof_parse.restype = c_int
+
     except:
         pass
 
@@ -616,7 +621,7 @@ def pedersen_commit(vbf, value, gen, context=_secp.ctx):
     if len(gen)!=64:
         raise ValueError("Generator should be 64 bytes long")
     if len(vbf)!=32:
-        raise ValueError("Blinding factor should be 32 bytes long")
+        raise ValueError(f"Blinding factor should be 32 bytes long, not {len(vbf)}")
     commit = bytes(64)
     r = _secp.secp256k1_pedersen_commit(context, commit, vbf, value, gen)
     if r == 0:
@@ -625,12 +630,19 @@ def pedersen_commit(vbf, value, gen, context=_secp.ctx):
 
 def pedersen_blind_generator_blind_sum(values, gens, vbfs, num_inputs, context=_secp.ctx):
     vals = (c_uint64 * len(values))(*values)
-    vbfs_joined = (c_char_p * len(vbfs))(*vbfs)
+    vbf = bytes(vbfs[-1])
+    p = c_char_p(vbf) # obtain a pointer of various types
+    address = cast(p,c_void_p).value
+
+    vbfs_joined = (c_char_p * len(vbfs))(*vbfs[:-1], address)
     gens_joined = (c_char_p * len(gens))(*gens)
     res = _secp.secp256k1_pedersen_blind_generator_blind_sum(context, vals, gens_joined, vbfs_joined, len(values), num_inputs)
     if res == 0:
         raise ValueError("Failed to get the last blinding factor.")
-    return vbfs_joined[-1]
+    # vbf = vbfs_joined[-1][:32]
+    res = (c_char * 32).from_address(address).raw
+    assert len(res) == 32
+    return res
 
 # generator
 def generator_parse(inp, context=_secp.ctx):
@@ -770,3 +782,10 @@ def surjectionproof_serialize(proof, context=_secp.ctx):
     if s != sz.contents.value:
         raise RuntimeError("Failed to serialize surjection proof - size mismatch")
     return b
+
+def surjectionproof_parse(proof, context=_secp.ctx):
+    parsed_proof = bytes(4+8+256//8+32*257)
+    res = _secp.secp256k1_surjectionproof_parse(context, parsed_proof, proof, len(proof))
+    if res == 0:
+        raise RuntimeError("Failed to parse surjection proof")
+    return parsed_proof

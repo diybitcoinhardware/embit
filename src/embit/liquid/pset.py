@@ -161,7 +161,7 @@ class LOutputScope(OutputScope):
     @property
     def is_blinded(self):
         # TODO: not great
-        return self.value_blinding_factor or self.asset_blinding_factor
+        return self.value_commitment and self.asset_commitment
 
     def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
         # TODO: super.write_to()
@@ -247,7 +247,7 @@ class PSET(PSBT):
     # def sign_with(self, root, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)) -> int:
     # TODO: change back to sighash rangeproof when deployed
     def sign_with(self, root, sighash=LSIGHASH.ALL) -> int:
-        super().sign_with(root, sighash)
+        return super().sign_with(root, sighash)
 
     def verify(self):
         """Checks that all commitments, values and assets are consistent"""
