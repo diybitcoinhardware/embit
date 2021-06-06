@@ -54,6 +54,30 @@ def write_commitment(c):
         return b"\x01"+c.to_bytes(8, 'big')
     return c
 
+def unblind(pubkey:bytes, blinding_key:bytes, range_proof:bytes, value_commitment:bytes, asset_commitment:bytes, script_pubkey) -> tuple:
+    """Unblinds a range proof and returns value, asset, value blinding factor, asset blinding factor, extra data, min and max values"""
+    assert len(pubkey) in [33, 65]
+    assert len(blinding_key) == 32
+    assert len(value_commitment) == 33
+    assert len(asset_commitment) == 33
+    pub = secp256k1.ec_pubkey_parse(pubkey)
+    secp256k1.ec_pubkey_tweak_mul(pub, blinding_key)
+    sec = secp256k1.ec_pubkey_serialize(pub)
+    nonce = hashlib.sha256(hashlib.sha256(sec).digest()).digest()
+
+    commit = secp256k1.pedersen_commitment_parse(value_commitment)
+    gen = secp256k1.generator_parse(asset_commitment)
+
+    value, vbf, msg, min_value, max_value = secp256k1.rangeproof_rewind(range_proof, nonce, commit, script_pubkey.data, gen)
+    if len(msg) < 64:
+        raise TransactionError("Rangeproof message is too small")
+    asset = msg[:32]
+    abf = msg[32:64]
+    extra = msg[64:]
+    # vbf[:16]+vbf[16:] is an ugly copy that works both in micropython and python3
+    # not sure why rewind() changes previous values after a fresh new call, but this is a fix...
+    return value, asset, vbf[:16]+vbf[16:], abf, extra, min_value, max_value
+
 class Proof(EmbitBase):
     def __init__(self, data=b""):
         self.data = data
@@ -390,22 +414,7 @@ class LTransactionOutput(TransactionOutput):
         if not self.is_blinded:
             return self.value, self.asset, None, None, None, None
 
-        pub = secp256k1.ec_pubkey_parse(self.ecdh_pubkey)
-        secp256k1.ec_pubkey_tweak_mul(pub, blinding_key)
-        sec = secp256k1.ec_pubkey_serialize(pub)
-        nonce = hashlib.sha256(hashlib.sha256(sec).digest()).digest()
-
-        commit = secp256k1.pedersen_commitment_parse(self.value)
-        gen = secp256k1.generator_parse(self.asset)
-
-        res = secp256k1.rangeproof_rewind(self.witness.range_proof.data, nonce, commit, self.script_pubkey.data, gen)
-        value, vbf, msg, min_value, max_value = res
-        if len(msg) < 64:
-            raise TransactionError("Rangeproof message is too small")
-        asset = msg[:32]
-        abf = msg[32:64]
-        extra = msg[64:]
-        return value, asset, vbf, abf, extra, min_value, max_value
+        return unblind(self.ecdh_pubkey, blinding_key, self.witness.range_proof.data, self.value, self.asset, self.script_pubkey)
 
     @classmethod
     def read_from(cls, stream):
