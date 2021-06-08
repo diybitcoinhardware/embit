@@ -54,7 +54,7 @@ def write_commitment(c):
         return b"\x01"+c.to_bytes(8, 'big')
     return c
 
-def unblind(pubkey:bytes, blinding_key:bytes, range_proof:bytes, value_commitment:bytes, asset_commitment:bytes, script_pubkey) -> tuple:
+def unblind(pubkey:bytes, blinding_key:bytes, range_proof:bytes, value_commitment:bytes, asset_commitment:bytes, script_pubkey, message_length=64) -> tuple:
     """Unblinds a range proof and returns value, asset, value blinding factor, asset blinding factor, extra data, min and max values"""
     assert len(pubkey) in [33, 65]
     assert len(blinding_key) == 32
@@ -68,7 +68,7 @@ def unblind(pubkey:bytes, blinding_key:bytes, range_proof:bytes, value_commitmen
     commit = secp256k1.pedersen_commitment_parse(value_commitment)
     gen = secp256k1.generator_parse(asset_commitment)
 
-    value, vbf, msg, min_value, max_value = secp256k1.rangeproof_rewind(range_proof, nonce, commit, script_pubkey.data, gen)
+    value, vbf, msg, min_value, max_value = secp256k1.rangeproof_rewind(range_proof, nonce, commit, script_pubkey.data, gen, message_length)
     if len(msg) < 64:
         raise TransactionError("Rangeproof message is too small")
     asset = msg[:32]
@@ -406,7 +406,7 @@ class LTransactionOutput(TransactionOutput):
     def is_blinded(self):
         return self.ecdh_pubkey is not None
 
-    def unblind(self, blinding_key):
+    def unblind(self, blinding_key, message_length=64):
         """
         Unblinds the output and returns a tuple:
         (value, asset, value_blinding_factor, asset_blinding_factor, min_value, max_value)
@@ -414,7 +414,7 @@ class LTransactionOutput(TransactionOutput):
         if not self.is_blinded:
             return self.value, self.asset, None, None, None, None
 
-        return unblind(self.ecdh_pubkey, blinding_key, self.witness.range_proof.data, self.value, self.asset, self.script_pubkey)
+        return unblind(self.ecdh_pubkey, blinding_key, self.witness.range_proof.data, self.value, self.asset, self.script_pubkey, message_length)
 
     @classmethod
     def read_from(cls, stream):
