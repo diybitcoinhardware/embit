@@ -2,6 +2,8 @@ from unittest import TestCase, skip
 from util.liquid import daemon
 import random
 import time
+import os
+
 from embit.liquid.descriptor import LDescriptor as Descriptor
 from embit.descriptor.checksum import add_checksum
 from embit.bip32 import HDKey
@@ -10,6 +12,7 @@ from embit.liquid.pset import PSET as PSBT
 from embit.liquid.transaction import LSIGHASH
 from embit.liquid.finalizer import finalize_psbt
 from embit.liquid.addresses import addr_decode
+from embit.ec import PrivateKey
 
 wallet_prefix = "test"+random.randint(0,0xFFFFFFFF).to_bytes(4,'big').hex()
 root = HDKey.from_string("tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j")
@@ -22,7 +25,7 @@ def random_wallet_name():
 class PSETTest(TestCase):
     """Complete tests with Core on regtest - should catch problems with signing of transactions"""
 
-    def sign_with_descriptor(self, d1, d2, root, reblind=False):
+    def sign_with_descriptor(self, d1, d2, root, selfblind=False):
         rpc = daemon.rpc
         wname = random_wallet_name()
         # to derive addresses
@@ -50,7 +53,8 @@ class PSETTest(TestCase):
                 "timestamp": "now",
             }])
         self.assertTrue(all([k["success"] for k in res]))
-        w.importmasterblindingkey((b"1"*32).hex())
+        bpk = b"1"*32
+        w.importmasterblindingkey(bpk.hex())
         addr1 = w.getnewaddress()
         wdefault = daemon.wallet()
         wdefault.sendtoaddress(addr1, 0.1)
@@ -66,17 +70,40 @@ class PSETTest(TestCase):
             tx.outputs[psbt["changepos"]].blinding_pubkey = bpub.sec()
             unsigned = str(tx)
 
-        try: # master branch
-            blinded = w.blindpsbt(unsigned)
-        except:
-            blinded = w.walletprocesspsbt(unsigned)['psbt']
-        psbt = PSBT.from_string(blinded)
-        # reblind with custom message
-        if reblind:
+        # blind with custom message
+        if selfblind:
             unblinded_psbt = PSBT.from_string(unsigned)
-            for i, out in enumerate(psbt.outputs):
+            # generate all blinding stuff
+            unblinded_psbt.unblind(PrivateKey(bpk)) # get values and blinding factors for inputs
+            unblinded_psbt.blind(os.urandom(32)) # generate all blinding factors etc
+            for i, out in enumerate(unblinded_psbt.outputs):
                 if unblinded_psbt.outputs[i].blinding_pubkey:
                     out.reblind(b"1"*32, unblinded_psbt.outputs[i].blinding_pubkey, b"test message")
+
+            # remove stuff that Core doesn't like
+            for inp in unblinded_psbt.inputs:
+                inp.value = None
+                inp.asset = None
+                inp.value_blinding_factor = None
+                inp.asset_blinding_factor = None
+
+            for out in unblinded_psbt.outputs:
+                if out.is_blinded:
+                    out.asset = None
+                    out.asset_blinding_factor = None
+                    out.value = None
+                    out.value_blinding_factor = None
+
+            psbt = unblinded_psbt
+        # use rpc to blind transaction
+        else:
+            try: # master branch
+                blinded = w.blindpsbt(unsigned)
+            except:
+                blinded = w.walletprocesspsbt(unsigned)['psbt']
+
+            psbt = PSBT.from_string(blinded)
+
         psbt.sign_with(root)
         final = rpc.finalizepsbt(str(psbt))
         if final["complete"]:
@@ -88,7 +115,8 @@ class PSETTest(TestCase):
         # test accept
         res = rpc.testmempoolaccept([raw])
         self.assertTrue(res[0]["allowed"])
-        if reblind:
+        if selfblind:
+            # check we can reblind all outputs
             import json
             raw = w.unblindrawtransaction(raw)["hex"]
             decoded = w.decoderawtransaction(raw)
@@ -118,10 +146,10 @@ class PSETTest(TestCase):
 
     #     self.sign_with_descriptor(d1, d2, root)
 
-    def test_reblind(self):
+    def test_selfblind(self):
         path = "84h/1h/0h"
         xpub = root.derive(f"m/{path}").to_public().to_string()
         d1 = f"wpkh([{fgp}/{path}]{xpub}/0/*)"
         d2 = f"wpkh([{fgp}/{path}]{xpub}/1/*)"
 
-        self.sign_with_descriptor(d1, d2, root, reblind=True)
+        self.sign_with_descriptor(d1, d2, root, selfblind=True)
