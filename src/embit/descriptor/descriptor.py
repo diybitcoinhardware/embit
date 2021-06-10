@@ -137,6 +137,27 @@ class Descriptor(DescriptorBase):
                 None, self.sh, self.wsh, self.key.derive(idx, branch_index), self.wpkh
             )
 
+    def owns(self, psbt_scope):
+        """Checks if psbt input or output belongs to this descriptor"""
+        # we can't check if we don't know script_pubkey
+        if psbt_scope.script_pubkey is None:
+            return False
+        # quick check of script_pubkey type
+        if psbt_scope.script_pubkey.script_type() != self.scriptpubkey_type():
+            return False
+        for pub, der in psbt_scope.bip32_derivations.items():
+            # check of the fingerprints
+            for k in self.keys:
+                if not k.is_extended:
+                    continue
+                res = k.check_derivation(der)
+                if res:
+                    idx, branch_idx = res
+                    sc = self.derive(idx, branch_index=branch_idx).script_pubkey()
+                    # if derivation is found but scriptpubkey doesn't match - fail
+                    return (sc == psbt_scope.script_pubkey)
+        return False
+
     def check_derivation(self, derivation_path):
         for k in self.keys:
             # returns a tuple branch_idx, idx

@@ -7,12 +7,7 @@ if sys.implementation.name == "micropython":
 else:
     from .util import const
 
-try:
-    # RAM-optimized c-implementation of wordlist lookup
-    from .wordlists.ubip39 import WORDLIST
-except:
-    # normal python list (for desktop embit)
-    from .wordlists.bip39 import WORDLIST
+from .wordlists.bip39 import WORDLIST
 
 PBKDF2_ROUNDS = const(2048)
 

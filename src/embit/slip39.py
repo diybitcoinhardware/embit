@@ -3,12 +3,7 @@ import sys
 import hashlib
 from .bip39 import mnemonic_from_bytes, mnemonic_to_bytes
 
-try:
-    # RAM-optimized c-implementation of wordlist lookup
-    from .wordlists.uslip39 import SLIP39_WORDS
-except:
-    # normal python list (for desktop embit)
-    from .wordlists.slip39 import SLIP39_WORDS
+from .wordlists.slip39 import SLIP39_WORDS
 
 try:
     # if urandom is available from os module:

@@ -80,7 +80,7 @@ class AllowedDerivation(DescriptorBase):
             else:
                 raise ArgumentError("Strange derivation index...")
         if branch_idx is not None and idx is not None:
-            return branch_idx, idx
+            return idx, branch_idx
 
     @classmethod
     def default(cls):
@@ -169,8 +169,19 @@ class Key(DescriptorBase):
         return 34 # <33:sec> - only compressed pubkeys
 
     @property
+    def my_fingerprint(self):
+        if self.is_extended:
+            return self.key.my_fingerprint
+        return None
+
+    @property
     def fingerprint(self):
-        return None if self.origin is None else self.origin.fingerprint
+        if self.origin is not None:
+            return self.origin.fingerprint
+        else:
+            if self.is_extended:
+                return self.key.my_fingerprint
+        return None
 
     @property
     def derivation(self):
@@ -230,16 +241,21 @@ class Key(DescriptorBase):
         return isinstance(self.key, bip32.HDKey)
 
     def check_derivation(self, derivation_path):
-        if self.origin is None:
+        rest = None
+        # full derivation path
+        if self.fingerprint == derivation_path.fingerprint:
+            origin = self.derivation
+            if origin == derivation_path.derivation[: len(origin)]:
+                rest = derivation_path.derivation[len(origin) :]
+        # short derivation path
+        if self.my_fingerprint == derivation_path.fingerprint:
+            rest = derivation_path.derivation
+        if self.allowed_derivation is None or rest is None:
             return None
-        if self.fingerprint != derivation_path.fingerprint:
-            return None
-        origin = self.origin.derivation
-        if origin == derivation_path.derivation[: len(origin)]:
-            rest = derivation_path.derivation[len(origin) :]
-            if self.allowed_derivation is None:
-                return None
-            return self.allowed_derivation.check_derivation(rest)
+        return self.allowed_derivation.check_derivation(rest)
+
+    def get_public_key(self):
+        return self.key.get_public_key() if (self.is_extended or self.is_private) else self.key
 
     def sec(self):
         return self.key.sec()

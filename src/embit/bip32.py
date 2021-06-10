@@ -64,6 +64,11 @@ class HDKey(EmbitKey):
         return cls.parse(b)
 
     @property
+    def my_fingerprint(self):
+        sec = self.sec()
+        return hashes.hash160(sec)[:4]
+
+    @property
     def is_private(self) -> bool:
         """ checks if the HDKey is private or public """
         return self.key.is_private
@@ -147,6 +152,9 @@ class HDKey(EmbitKey):
             fingerprint=self.fingerprint,
             child_number=self.child_number,
         )
+
+    def get_public_key(self):
+        return self.key.get_public_key() if self.is_private else self.key
 
     def sec(self) -> bytes:
         """Returns SEC serialization of the public key"""

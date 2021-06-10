@@ -1,7 +1,4 @@
-# ref: https://github.com/bitcoin-core/HWI/blob/master/hwilib/serializations.py
-
 from collections import OrderedDict
-
 from .transaction import Transaction, TransactionOutput, TransactionInput, SIGHASH
 from . import compact
 from . import bip32
@@ -132,7 +129,11 @@ class InputScope(PSBTScope):
 
     @property
     def utxo(self):
-        return self._utxo or self.witness_utxo or self.non_witness_utxo.vout[self.vout]
+        return self._utxo or self.witness_utxo or (self.non_witness_utxo.vout[self.vout] if self.non_witness_utxo else None)
+
+    @property
+    def script_pubkey(self):
+        return self.utxo.script_pubkey if self.utxo else None
 
     @property
     def is_verified(self):
@@ -614,6 +615,8 @@ class PSBT(EmbitBase):
                 continue
 
             h = self.sighash(i, sighash=inp_sighash)
+
+            sc = inp.witness_script or inp.redeem_script or inp.utxo.script_pubkey
 
             # if we have individual private key
             if not fingerprint:
