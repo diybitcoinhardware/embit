@@ -114,6 +114,8 @@ class InputScope(PSBTScope):
         self.non_witness_utxo = None
         self.witness_utxo = None
         self._utxo = None
+        self._txhash = None
+        self._verified = False
         self.partial_sigs = OrderedDict()
         self.sighash_type = None
         self.redeem_script = None
@@ -137,7 +139,26 @@ class InputScope(PSBTScope):
 
     @property
     def is_verified(self):
-        return self._utxo is not None
+        """Check if prev txid was verified using non_witness_utxo. See `verify()`"""
+        return self._verified
+
+    def verify(self, ignore_missing=False):
+        """Verifies the hash of previous transaction provided in non_witness_utxo.
+        We must verify on a hardware wallet even on segwit transactions to avoid
+        miner fee attack described here:
+        https://blog.trezor.io/details-of-firmware-updates-for-trezor-one-version-1-9-1-and-trezor-model-t-version-2-3-1-1eba8f60f2dd
+        For legacy txs we need to verify it to calculate fee.
+        """
+        if self.non_witness_utxo or self._txhash:
+            txid = bytes(reversed(self._txhash)) or self.non_witness_utxo.txid()
+            if self.txid == txid:
+                self._verified = True
+                return True
+            else:
+                raise PSBTError("Previous txid doesn't match non_witness_utxo txid")
+        if not ignore_missing:
+            raise PSBTError("Missing non_witness_utxo")
+        return False
 
     def read_value(self, stream, k):
         # separator
@@ -154,14 +175,10 @@ class InputScope(PSBTScope):
                 # we verified and saved utxo
                 if self.compress and self.txid and self.vout is not None:
                     txout, txhash = self.TX_CLS.read_vout(stream, self.vout)
-                    if txhash != bytes(reversed(self.txid)):
-                        raise PSBTError("Invalid hash of the non witness utxo")
+                    self._txhash = txhash
                     self._utxo = txout
                 else:
                     tx = self.TX_CLS.read_from(stream)
-                    if self.txid:
-                        if tx.txid() != self.txid:
-                            raise PSBTError("Invalid hash of the non witness utxo")
                     self.non_witness_utxo = tx
             return
         v = read_string(stream)
@@ -421,11 +438,13 @@ class PSBT(EmbitBase):
     def sighash_legacy(self, *args, **kwargs):
         return self.tx.sighash_legacy(*args, **kwargs)
 
-    def verify(self):
+    @property
+    def is_verified(self):
+        return all([inp.is_verified for inp in self.inputs])
+
+    def verify(self, ignore_missing=False):
         for i, inp in enumerate(self.inputs):
-            if inp.non_witness_utxo:
-                if inp.non_witness_utxo.txid() != self.tx.vin[i].txid:
-                    raise PSBTError("Invalid hash of the non witness utxo for input %d" % i)
+            inp.verify(ignore_missing)
 
     def utxo(self, i):
         if self.inputs[i].is_verified:
