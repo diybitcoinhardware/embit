@@ -150,7 +150,7 @@ class InputScope(PSBTScope):
         For legacy txs we need to verify it to calculate fee.
         """
         if self.non_witness_utxo or self._txhash:
-            txid = bytes(reversed(self._txhash)) or self.non_witness_utxo.txid()
+            txid = bytes(reversed(self._txhash)) if self._txhash else self.non_witness_utxo.txid()
             if self.txid == txid:
                 self._verified = True
                 return True

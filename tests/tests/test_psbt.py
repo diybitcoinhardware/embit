@@ -84,6 +84,7 @@ class PSBTTest(TestCase):
             msg = "Valid psbt changed after being parsed & serialized: {}".format(
                 psbt_str
             )
+            psbt_act.verify(ignore_missing=True)
             self.assertEqual(psbt_act.serialize(), psbt_bytes, msg)
 
     def test_sign(self):
