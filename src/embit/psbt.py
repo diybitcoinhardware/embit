@@ -8,7 +8,7 @@ from .script import Script, Witness
 from . import script
 from .base import EmbitBase, EmbitError
 from binascii import b2a_base64, a2b_base64, hexlify
-
+from io import BytesIO
 
 class PSBTError(EmbitError):
     pass
@@ -70,9 +70,8 @@ class PSBTScope(EmbitBase):
     def parse_unknowns(self):
         # go through all the unknowns and parse them
         for k in list(self.unknown):
-            # legacy utxo
             s = BytesIO()
-            ser_string(s, v)
+            ser_string(s, self.unknown[k])
             s.seek(0)
             self.read_value(s, k)
 
@@ -84,6 +83,9 @@ class PSBTScope(EmbitBase):
         if key in self.unknown:
             raise PSBTError("Duplicated key")
         self.unknown[key] = value
+
+    def update(self, other):
+        self.unknown.update(other.unknown)
 
     @classmethod
     def read_from(cls, stream, *args, **kwargs):
@@ -124,6 +126,21 @@ class InputScope(PSBTScope):
         self.final_scriptsig = None
         self.final_scriptwitness = None
         self.parse_unknowns()
+
+    def update(self, other):
+        self.txid = self.txid or other.txid
+        self.vout = self.vout or other.vout
+        self.sequence = self.sequence or other.sequence
+        self.unknown.update(other.unknown)
+        self.non_witness_utxo = self.non_witness_utxo or other.non_witness_utxo
+        self.witness_utxo = self.witness_utxo or other.witness_utxo
+        self.partial_sigs.update(other.partial_sigs)
+        self.sighash_type = self.sighash_type or other.sighash_type
+        self.redeem_script = self.redeem_script or other.redeem_script
+        self.witness_script = self.witness_script or other.witness_script
+        self.bip32_derivations.update(other.bip32_derivations)
+        self.final_scriptsig = self.final_scriptsig or other.final_scriptsig
+        self.final_scriptwitness = self.final_scriptwitness or other.final_scriptwitness
 
     @property
     def vin(self):
@@ -328,6 +345,14 @@ class OutputScope(PSBTScope):
         self.witness_script = None
         self.bip32_derivations = OrderedDict()
         self.parse_unknowns()
+
+    def update(self, other):
+        self.value = self.value or other.value
+        self.script_pubkey = self.script_pubkey or other.script_pubkey
+        self.unknown.update(other.unknown)
+        self.redeem_script = self.redeem_script or other.redeem_script
+        self.witness_script = self.witness_script or other.witness_script
+        self.bip32_derivations.update(other.bip32_derivations)
 
     @property
     def vout(self):

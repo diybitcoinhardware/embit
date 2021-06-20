@@ -8,6 +8,7 @@ from .test_bip39 import *
 from .test_slip39 import *
 from .test_descriptor import *
 from .test_liquid import *
+from .test_psbtview import *
 
 if sys.implementation.name != "micropython":
     from .test_bindings import *

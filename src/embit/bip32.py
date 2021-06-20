@@ -43,6 +43,7 @@ class HDKey(EmbitKey):
         self.chain_code = chain_code
         self.depth = depth
         self.fingerprint = fingerprint
+        self._my_fingerprint = None
         self.child_number = child_number
         # check that base58[1:4] is "prv" or "pub"
         if self.is_private and self.to_base58()[1:4] != "prv":
@@ -65,8 +66,10 @@ class HDKey(EmbitKey):
 
     @property
     def my_fingerprint(self):
-        sec = self.sec()
-        return hashes.hash160(sec)[:4]
+        if self._my_fingerprint is None:
+            sec = self.sec()
+            self._my_fingerprint = hashes.hash160(sec)[:4]
+        return self._my_fingerprint
 
     @property
     def is_private(self) -> bool:
