@@ -23,3 +23,41 @@ Can use [libsecp256k1](https://github.com/bitcoin-core/secp256k1) with ctypes if
 To install run `pip3 install embit`.
 
 To install in development mode (editable) clone and run `pip3 install -e .` from the root folder.
+
+
+## Using non-English BIP39 wordlists
+[BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md) defines wordlists for:
+* English
+* Japanese
+* Korean
+* Spanish
+* Chinese (Simplified)
+* Chinese (Traditional)
+* French
+* Italian
+* Czech
+* Portuguese
+
+`embit` assumes English and does not include the other wordlists in order to keep this as slim as possible.
+
+However, you can override this default by providing an alternate wordlist to any of the mnemonic-handling methods:
+```
+spanish_wordlist = [
+    "ábaco",
+    "abdomen",
+    "abeja",
+    "abierto",
+    "abogado",
+    "abono",
+    "aborto",
+    "abrazo",
+    "abrir",
+    "abuelo",
+    ...
+]
+
+mnemonic_is_valid(mnemonic, wordlist=spanish_wordlist)
+mnemonic_to_seed(mnemonic, wordlist=spanish_wordlist)
+mnemonic_to_bytes(mnemonic, wordlist=spanish_wordlist)
+mnemonic_from_bytes(bytes_data, wordlist=spanish_wordlist)
+```
