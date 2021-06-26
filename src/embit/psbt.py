@@ -128,19 +128,19 @@ class InputScope(PSBTScope):
         self.parse_unknowns()
 
     def update(self, other):
-        self.txid = self.txid or other.txid
-        self.vout = self.vout or other.vout
-        self.sequence = self.sequence or other.sequence
+        self.txid = other.txid or self.txid
+        self.vout = other.vout if other.vout is not None else self.vout
+        self.sequence = other.sequence if other.sequence is not None else self.sequence
         self.unknown.update(other.unknown)
-        self.non_witness_utxo = self.non_witness_utxo or other.non_witness_utxo
-        self.witness_utxo = self.witness_utxo or other.witness_utxo
+        self.non_witness_utxo = other.non_witness_utxo or self.non_witness_utxo
+        self.witness_utxo = other.witness_utxo or self.witness_utxo
         self.partial_sigs.update(other.partial_sigs)
-        self.sighash_type = self.sighash_type or other.sighash_type
-        self.redeem_script = self.redeem_script or other.redeem_script
-        self.witness_script = self.witness_script or other.witness_script
+        self.sighash_type = other.sighash_type if other.sighash_type is not None else self.sighash_type
+        self.redeem_script = other.redeem_script or self.redeem_script
+        self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
-        self.final_scriptsig = self.final_scriptsig or other.final_scriptsig
-        self.final_scriptwitness = self.final_scriptwitness or other.final_scriptwitness
+        self.final_scriptsig = other.final_scriptsig or self.final_scriptsig
+        self.final_scriptwitness = other.final_scriptwitness or self.final_scriptwitness
 
     @property
     def vin(self):
@@ -347,11 +347,11 @@ class OutputScope(PSBTScope):
         self.parse_unknowns()
 
     def update(self, other):
-        self.value = self.value or other.value
-        self.script_pubkey = self.script_pubkey or other.script_pubkey
+        self.value = other.value if other.value is not None else self.value
+        self.script_pubkey = other.script_pubkey or self.script_pubkey
         self.unknown.update(other.unknown)
-        self.redeem_script = self.redeem_script or other.redeem_script
-        self.witness_script = self.witness_script or other.witness_script
+        self.redeem_script = other.redeem_script or self.redeem_script
+        self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
 
     @property

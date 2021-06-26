@@ -261,15 +261,15 @@ class PSBTView:
             return self.tx.vin(i)
 
         self.seek_to_scope(i)
-        v = self._get_value(b"\x0e")
+        v = self._get_value(b"\x0e", from_current=True)
         txid = bytes(reversed(v))
 
         self.seek_to_scope(i)
-        v = self._get_value(b"\x0f")
+        v = self._get_value(b"\x0f", from_current=True)
         vout = int.from_bytes(v, 'little')
 
         self.seek_to_scope(i)
-        v = self._get_value(b"\x10") or b"\xFF\xFF\xFF\xFF"
+        v = self._get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
         sequence = int.from_bytes(v, 'little')
 
         return TransactionInput(txid, vout, sequence=sequence)
@@ -281,11 +281,11 @@ class PSBTView:
             return self.tx.vout(i)
 
         self.seek_to_scope(self.num_inputs + i)
-        v = self._get_value(b"\x03")
+        v = self._get_value(b"\x03", from_current=True)
         value = int.from_bytes(v, 'little')
 
         self.seek_to_scope(self.num_inputs + i)
-        v = self._get_value(b"\x04")
+        v = self._get_value(b"\x04", from_current=True)
         script_pubkey = Script(v)
 
         return TransactionOutput(value, script_pubkey)
@@ -307,9 +307,9 @@ class PSBTView:
     def _get_value(self, key_start, from_current=False):
         if not from_current:
             # go to the start
-            self.stream.seek(self.offset)
+            self.stream.seek(self.offset + len(self.MAGIC))
         while True:
-            key = read_string(stream)
+            key = read_string(self.stream)
             # separator - not found
             if len(key) == 0:
                 return None
@@ -548,7 +548,6 @@ class PSBTView:
             inp = self.input(i)
             # add extra data from extra input streams
             for s in extra_input_streams:
-                # PSBTScope doesn't know shit, so everything goes to unknown
                 extra = InputScope.read_from(s)
                 inp.update(extra)
             res += inp.write_to(writable_stream, version=self.version)
@@ -558,7 +557,6 @@ class PSBTView:
             out = self.output(i)
             # add extra data from extra input streams
             for s in extra_output_streams:
-                # PSBTScope doesn't know shit, so everything goes to unknown
                 extra = OutputScope.read_from(s)
                 out.update(extra)
             res += out.write_to(writable_stream, version=self.version)
