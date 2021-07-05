@@ -15,6 +15,15 @@ class SECPTest(TestCase):
         g_hex = hexlify(der)
         self.assertEqual(answer, g_hex)
 
+    def test_grind(self):
+        pk = PrivateKey(b"1"*32)
+        msgs = [ bytes([i]*32) for i in range(255) ]
+        for msg in msgs:
+            sig = pk.sign(msg)
+            der = sig.serialize()
+            # low R is grinded
+            self.assertTrue(len(der)<=70)
+
     def test_pubkeys(self):
         valid_keys = [
             (

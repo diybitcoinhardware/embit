@@ -147,7 +147,7 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
         c_char_p,
         c_char_p,
         c_void_p,
-        c_void_p,
+        c_char_p,
     ]
     secp256k1.secp256k1_ecdsa_sign.restype = c_int
 
@@ -448,13 +448,15 @@ def ecdsa_verify(sig, msg, pub, context=_secp.ctx):
     return bool(r)
 
 
-def ecdsa_sign(msg, secret, context=_secp.ctx):
+def ecdsa_sign(msg, secret, nonce_function=None, extra_data=None, context=_secp.ctx):
     if len(msg) != 32:
         raise ValueError("Message should be 32 bytes long")
     if len(secret) != 32:
         raise ValueError("Secret key should be 32 bytes long")
+    if extra_data and len(extra_data) != 32:
+        raise ValueError("Extra data should be 32 bytes long")
     sig = bytes(64)
-    r = _secp.secp256k1_ecdsa_sign(context, sig, msg, secret, None, None)
+    r = _secp.secp256k1_ecdsa_sign(context, sig, msg, secret, nonce_function, extra_data)
     if r == 0:
         raise ValueError("Failed to sign")
     return sig

@@ -400,14 +400,16 @@ class ECKey:
         ret.compressed = self.compressed
         return ret
 
-    def sign_ecdsa(self, msg, low_s=True):
+    def sign_ecdsa(self, msg, nonce_function=None, extra_data=None, low_s=True):
         """Construct a DER-encoded ECDSA signature with this key.
 
         See https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm for the
         ECDSA signer algorithm."""
         assert self.valid
         z = int.from_bytes(msg, "big")
-        k = deterministic_k(self.secret, z)
+        if nonce_function is None:
+            nonce_function = deterministic_k
+        k = nonce_function(self.secret, z, extra_data=extra_data)
         R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, k)]))
         r = R[0] % SECP256K1_ORDER
         s = (modinv(k, SECP256K1_ORDER) * (z + self.secret * r)) % SECP256K1_ORDER
@@ -427,7 +429,7 @@ class ECKey:
         )
 
 
-def deterministic_k(secret, z):
+def deterministic_k(secret, z, extra_data=None):
     # RFC6979, optimized for secp256k1
     k = b"\x00" * 32
     v = b"\x01" * 32
@@ -435,6 +437,8 @@ def deterministic_k(secret, z):
         z -= SECP256K1_ORDER
     z_bytes = z.to_bytes(32, "big")
     secret_bytes = secret.to_bytes(32, "big")
+    if extra_data is not None:
+        z_bytes += extra_data
     k = hmac.new(k, v + b"\x00" + secret_bytes + z_bytes, "sha256").digest()
     v = hmac.new(k, v, "sha256").digest()
     k = hmac.new(k, v + b"\x01" + secret_bytes + z_bytes, "sha256").digest()

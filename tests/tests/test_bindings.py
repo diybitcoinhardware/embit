@@ -30,6 +30,11 @@ class BindingsTest(TestCase):
         msg = b"7" * 32
         sig = ctypes_secp256k1.ecdsa_sign(msg, secret)
         self.assertEqual(sig, py_secp256k1.ecdsa_sign(msg, secret))
+
+        # check that extra data is handled in the same way
+        sig = ctypes_secp256k1.ecdsa_sign(msg, secret, None, b"1"*32)
+        self.assertEqual(sig, py_secp256k1.ecdsa_sign(msg, secret, None, b"1"*32))
+
         compact = py_secp256k1.ecdsa_signature_serialize_compact(sig)
         der = py_secp256k1.ecdsa_signature_serialize_der(sig)
         self.assertEqual(

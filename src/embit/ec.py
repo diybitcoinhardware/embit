@@ -13,6 +13,18 @@ from binascii import hexlify, unhexlify
 class ECError(EmbitError):
     pass
 
+class Signature(EmbitBase):
+    def __init__(self, sig):
+        self._sig = sig
+
+    def write_to(self, stream) -> int:
+        return stream.write(secp256k1.ecdsa_signature_serialize_der(self._sig))
+
+    @classmethod
+    def read_from(cls, stream):
+        der = stream.read(2)
+        der += stream.read(der[1])
+        return cls(secp256k1.ecdsa_signature_parse_der(der))
 
 class PublicKey(EmbitKey):
     def __init__(self, point: bytes, compressed: bool = True):
@@ -140,8 +152,17 @@ class PrivateKey(EmbitKey):
     def get_public_key(self):
         return PublicKey(secp256k1.ec_pubkey_create(self._secret), self.compressed)
 
-    def sign(self, msg_hash):
-        return Signature(secp256k1.ecdsa_sign(msg_hash, self._secret))
+    def sign(self, msg_hash, grind=True):
+        sig = Signature(secp256k1.ecdsa_sign(msg_hash, self._secret))
+        if grind:
+            counter = 1
+            while len(sig.serialize()) > 70:
+                sig = Signature(secp256k1.ecdsa_sign(msg_hash, self._secret, None, counter.to_bytes(32, 'little')))
+                counter += 1
+                # just in case we get in infinite loop for some reason
+                if counter > 200:
+                    break
+        return sig
 
     def write_to(self, stream) -> int:
         # return a copy of the secret
@@ -155,17 +176,3 @@ class PrivateKey(EmbitKey):
     @property
     def is_private(self) -> bool:
         return True
-
-
-class Signature(EmbitBase):
-    def __init__(self, sig):
-        self._sig = sig
-
-    def write_to(self, stream) -> int:
-        return stream.write(secp256k1.ecdsa_signature_serialize_der(self._sig))
-
-    @classmethod
-    def read_from(cls, stream):
-        der = stream.read(2)
-        der += stream.read(der[1])
-        return cls(secp256k1.ecdsa_signature_parse_der(der))

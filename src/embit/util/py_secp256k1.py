@@ -170,14 +170,14 @@ def ecdsa_verify(sig, msg, pub, context=None):
     return pubkey.verify_ecdsa(ecdsa_signature_serialize_der(sig), msg)
 
 
-def ecdsa_sign(msg, secret, context=None):
+def ecdsa_sign(msg, secret, nonce_function=None, extra_data=None, context=None):
     if len(msg) != 32:
         raise ValueError("Message should be 32 bytes long")
     if len(secret) != 32:
         raise ValueError("Secret key should be 32 bytes long")
     pk = _key.ECKey()
     pk.set(secret, False)
-    sig = pk.sign_ecdsa(msg)
+    sig = pk.sign_ecdsa(msg, nonce_function, extra_data)
     return ecdsa_signature_parse_der(sig)
 
 
