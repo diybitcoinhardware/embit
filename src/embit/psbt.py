@@ -7,7 +7,7 @@ from . import hashes
 from .script import Script, Witness
 from . import script
 from .base import EmbitBase, EmbitError
-from binascii import b2a_base64, a2b_base64, hexlify
+from binascii import b2a_base64, a2b_base64, hexlify, unhexlify
 from io import BytesIO
 
 class PSBTError(EmbitError):
@@ -127,6 +127,16 @@ class InputScope(PSBTScope):
         self.final_scriptwitness = None
         self.parse_unknowns()
 
+    def clear_metadata(self):
+        """Removes metadata like derivations, utxos etc except final or partial sigs"""
+        self.unknown = {}
+        self.non_witness_utxo = None
+        self.witness_utxo = None
+        self.sighash_type = None
+        self.redeem_script = None
+        self.witness_script = None
+        self.bip32_derivations = OrderedDict()
+
     def update(self, other):
         self.txid = other.txid or self.txid
         self.vout = other.vout if other.vout is not None else self.vout
@@ -134,6 +144,7 @@ class InputScope(PSBTScope):
         self.unknown.update(other.unknown)
         self.non_witness_utxo = other.non_witness_utxo or self.non_witness_utxo
         self.witness_utxo = other.witness_utxo or self.witness_utxo
+        self._utxo = other._utxo or self._utxo
         self.partial_sigs.update(other.partial_sigs)
         self.sighash_type = other.sighash_type if other.sighash_type is not None else self.sighash_type
         self.redeem_script = other.redeem_script or self.redeem_script
@@ -345,6 +356,13 @@ class OutputScope(PSBTScope):
         self.witness_script = None
         self.bip32_derivations = OrderedDict()
         self.parse_unknowns()
+
+    def clear_metadata(self):
+        """Removes metadata like derivations, utxos etc except final or partial sigs"""
+        self.unknown = {}
+        self.redeem_script = None
+        self.witness_script = None
+        self.bip32_derivations = OrderedDict()
 
     def update(self, other):
         self.value = other.value if other.value is not None else self.value

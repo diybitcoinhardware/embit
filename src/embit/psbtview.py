@@ -350,7 +350,7 @@ class PSBTView:
     def sighash_segwit(self, input_index, script_pubkey, value, sighash=SIGHASH.ALL):
         """check out bip-143"""
         if input_index < 0 or input_index >= self.num_inputs:
-            raise TransactionError("Invalid input index")
+            raise PSBTError("Invalid input index")
         sh, anyonecanpay = SIGHASH.check(sighash)
         inp = self.vin(input_index)
         zero = b"\x00"*32 # for sighashes
@@ -383,7 +383,7 @@ class PSBTView:
 
     def sighash_legacy(self, input_index, script_pubkey, sighash=SIGHASH.ALL):
         if input_index < 0 or input_index >= self.num_inputs:
-            raise TransactionError("Invalid input index")
+            raise PSBTError("Invalid input index")
         sh, anyonecanpay = SIGHASH.check(sighash)
         # no corresponding output for this input, we sign 00...01
         if sh == SIGHASH.SINGLE and input_index >= self.num_outputs:
@@ -422,7 +422,7 @@ class PSBTView:
                 h.update(out.serialize())
         else:
             # shouldn't happen
-            raise TransactionError("Invalid sighash")
+            raise PSBTError("Invalid sighash")
         h.update(self.locktime.to_bytes(4, "little"))
         h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
@@ -452,7 +452,7 @@ class PSBTView:
             h = self.sighash_legacy(i, sc, sighash=sighash)
         return h
 
-    def sign_input(self, i, root, sig_stream, extra_scope_data=None, sighash=SIGHASH.ALL) -> int:
+    def sign_input(self, i, root, sig_stream, sighash=SIGHASH.ALL, extra_scope_data=None) -> int:
         """
         Signs input taking into account additional derivation information for this input.
         It's helpful if your wallet knows more than provided in PSBT.
@@ -525,7 +525,7 @@ class PSBTView:
             sig_stream.write(b"\x00")
         return counter
 
-    def write_to(self, writable_stream, compressed=False,
+    def write_to(self, writable_stream, compress=False,
             extra_input_streams=[],
             extra_output_streams=[],
     ):
@@ -550,6 +550,8 @@ class PSBTView:
             for s in extra_input_streams:
                 extra = InputScope.read_from(s)
                 inp.update(extra)
+            if compress:
+                inp.clear_metadata()
             res += inp.write_to(writable_stream, version=self.version)
 
         # write all outputs
@@ -559,6 +561,8 @@ class PSBTView:
             for s in extra_output_streams:
                 extra = OutputScope.read_from(s)
                 out.update(extra)
+            if compress:
+                out.clear_metadata()
             res += out.write_to(writable_stream, version=self.version)
 
         return res
