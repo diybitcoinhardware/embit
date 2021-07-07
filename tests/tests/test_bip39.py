@@ -229,7 +229,7 @@ class Bip39Test(TestCase):
         for mnemonic, expected_seed in mnemonics:
             self.assertTrue(mnemonic_is_valid(mnemonic, wordlist=ES_WORDLIST))
 
-            self.assertEqual(mnemonic_to_seed(mnemonic, wordlist=ES_WORDLIST).hex(), expected_seed)
+            self.assertEqual(hexlify(mnemonic_to_seed(mnemonic, wordlist=ES_WORDLIST)).decode(), expected_seed)
 
             self.assertEqual(
                 mnemonic_from_bytes(
