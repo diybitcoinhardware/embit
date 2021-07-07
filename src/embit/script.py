@@ -10,7 +10,7 @@ SIGHASH_ALL = 1
 
 
 class Script(EmbitBase):
-    def __init__(self, data):
+    def __init__(self, data=b""):
         self.data = data
 
     def address(self, network=NETWORKS["main"]):
@@ -74,9 +74,15 @@ class Script(EmbitBase):
     def __ne__(self, other):
         return self.data != other.data
 
+    def __hash__(self):
+        return hash(self.data)
+
+    def __len__(self):
+        return len(self.data)
+
 
 class Witness(EmbitBase):
-    def __init__(self, items):
+    def __init__(self, items=[]):
         self.items = items[:]
 
     def write_to(self, stream):
@@ -95,6 +101,12 @@ class Witness(EmbitBase):
             data = stream.read(l)
             items.append(data)
         return cls(items)
+
+    def __hash__(self):
+        return hash(self.items)
+
+    def __len__(self):
+        return len(self.items)
 
 
 def p2pkh(pubkey):
