@@ -20,19 +20,19 @@ class DescriptorBase:
         return type(self).__name__ + "(%s)" % str(self)
 
     @classmethod
-    def read_from(cls, stream):
+    def read_from(cls, stream, *args, **kwargs):
         raise NotImplementedError(
             "%s doesn't implement reading from stream" % type(cls)
         )
 
     @classmethod
-    def parse(cls, b):
+    def parse(cls, b, *args, **kwargs):
         stream = BytesIO(b)
-        return cls.read_from(stream)
+        return cls.read_from(stream, *args, **kwargs)
 
     @classmethod
-    def from_string(cls, s):
-        return cls.parse(s.encode())
+    def from_string(cls, s, *args, **kwargs):
+        return cls.parse(s.encode(), *args, **kwargs)
 
     def __str__(self):
         return self.to_string()
