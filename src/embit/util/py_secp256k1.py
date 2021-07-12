@@ -195,17 +195,14 @@ def ec_privkey_negate(secret, context=None):
         raise ValueError("Secret should be 32 bytes long")
     s = int.from_bytes(secret, "big")
     s2 = _key.SECP256K1_ORDER - s
-    s2arr = s2.to_bytes(32, "big")
-    for i in range(len(secret)):
-        secret[i] = s2arr[i]
+    return s2.to_bytes(32, "big")
 
 
 def ec_pubkey_negate(pubkey, context=None):
     if len(pubkey) != 64:
         raise ValueError("Pubkey should be a 64-byte structure")
-    r = _secp.secp256k1_ec_pubkey_negate(context, pubkey)
-    if r == 0:
-        raise ValueError("Failed to negate pubkey")
+    sec = ec_pubkey_serialize(pubkey)
+    return ec_pubkey_parse(bytes([0x05-sec[0]]) + sec[1:])
 
 
 def ec_privkey_tweak_add(secret, tweak, context=None):

@@ -471,15 +471,19 @@ def ec_seckey_verify(secret, context=_secp.ctx):
 def ec_privkey_negate(secret, context=_secp.ctx):
     if len(secret) != 32:
         raise ValueError("Secret should be 32 bytes long")
-    _secp.secp256k1_ec_privkey_negate(context, secret)
+    b = secret[:1] + secret[1:]
+    _secp.secp256k1_ec_privkey_negate(context, b)
+    return b
 
 
 def ec_pubkey_negate(pubkey, context=_secp.ctx):
     if len(pubkey) != 64:
         raise ValueError("Pubkey should be a 64-byte structure")
-    r = _secp.secp256k1_ec_pubkey_negate(context, pubkey)
+    pub = pubkey[:1] + pubkey[1:]
+    r = _secp.secp256k1_ec_pubkey_negate(context, pub)
     if r == 0:
         raise ValueError("Failed to negate pubkey")
+    return pub
 
 
 def ec_privkey_tweak_add(secret, tweak, context=_secp.ctx):

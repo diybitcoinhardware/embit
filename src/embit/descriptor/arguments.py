@@ -158,15 +158,16 @@ class AllowedDerivation(DescriptorBase):
 
 
 class Key(DescriptorBase):
-    def __init__(self, key, origin=None, derivation=None):
+    def __init__(self, key, origin=None, derivation=None, taproot=False):
         self.origin = origin
         self.key = key
+        self.taproot = taproot
         if not hasattr(key, "derive") and derivation is not None:
             raise ArgumentError("Key %s doesn't support derivation" % key)
         self.allowed_derivation = derivation
 
     def __len__(self):
-        return 34 # <33:sec> - only compressed pubkeys
+        return 34 - int(self.taproot) # <33:sec> or <32:xonly>
 
     @property
     def my_fingerprint(self):
@@ -188,7 +189,12 @@ class Key(DescriptorBase):
         return [] if self.origin is None else self.origin.derivation
 
     @classmethod
-    def read_from(cls, s):
+    def read_from(cls, s, taproot:bool = False):
+        """
+        Reads key argument from stream.
+        If taproot is set to True - allows both x-only and sec pubkeys.
+        If taproot is False - will raise when finds xonly pubkey.
+        """
         first = s.read(1)
         origin = None
         if first == b"[":
@@ -215,21 +221,24 @@ class Key(DescriptorBase):
         if char is not None:
             s.seek(-1, 1)
         # parse key
-        k = cls.parse_key(k)
+        k = cls.parse_key(k, taproot)
         # parse derivation
         allow_hardened = isinstance(k, bip32.HDKey) and isinstance(k.key, ec.PrivateKey)
         derivation = AllowedDerivation.from_string(
             der.decode(), allow_hardened=allow_hardened
         )
-        return cls(k, origin, derivation)
+        return cls(k, origin, derivation, taproot)
 
     @classmethod
-    def parse_key(cls, k: bytes):
+    def parse_key(cls, k: bytes, taproot:bool = False):
         # convert to string
         k = k.decode()
         if len(k) in [66, 130] and k[:2] in ["02", "03", "04"]:
             # bare public key
             return ec.PublicKey.parse(unhexlify(k))
+        elif taproot and len(k) == 64:
+            # x-only pubkey
+            return ec.PublicKey.parse(b"\x02"+unhexlify(k))
         elif k[1:4] in ["pub", "prv"]:
             # bip32 key
             return bip32.HDKey.from_base58(k)
@@ -261,6 +270,8 @@ class Key(DescriptorBase):
         return self.key.sec()
 
     def serialize(self):
+        if self.taproot:
+            return self.sec()[1:33]
         return self.sec()
 
     def compile(self):
@@ -291,7 +302,7 @@ class Key(DescriptorBase):
 
     def branch(self, branch_index=None):
         der = self.allowed_derivation.branch(branch_index)
-        return type(self)(self.key, self.origin, der)
+        return type(self)(self.key, self.origin, der, self.taproot)
 
     @property
     def is_wildcard(self):
@@ -309,7 +320,7 @@ class Key(DescriptorBase):
             origin = KeyOrigin(self.key.child(0).fingerprint, der)
         # empty derivation
         derivation = None
-        return type(self)(k, origin, derivation)
+        return type(self)(k, origin, derivation, self.taproot)
 
     @property
     def is_private(self):
@@ -338,13 +349,13 @@ class Key(DescriptorBase):
         return self.prefix + self.key
 
     @classmethod
-    def from_string(cls, s):
-        return cls.parse(s.encode())
+    def from_string(cls, s, taproot=False):
+        return cls.parse(s.encode(), taproot)
 
 
 class KeyHash(Key):
     @classmethod
-    def parse_key(cls, k: bytes):
+    def parse_key(cls, k: bytes, *args, **kwargs):
         # convert to string
         k = k.decode()
         # raw 20-byte hash
@@ -359,7 +370,7 @@ class KeyHash(Key):
         else:
             return ec.PrivateKey.from_wif(k)
 
-    def serialize(self):
+    def serialize(self, *args, **kwargs):
         if isinstance(self.key, str):
             return unhexlify(self.key)
         return hashes.hash160(self.key.sec())
