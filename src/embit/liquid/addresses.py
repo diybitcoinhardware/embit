@@ -65,7 +65,7 @@ def detect_network(addr):
     for net in NETWORKS.values():
         if addr.lower().startswith(net.get("bech32")):
             return net
-        if addr.lower().startswith(net.get("blech32")):
+        if "blech32" in net and addr.lower().startswith(net.get("blech32")):
             return net
     # if not - it's base58
     data = base58.decode_check(addr)
