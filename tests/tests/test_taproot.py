@@ -2,8 +2,10 @@ from unittest import TestCase
 from embit.bip32 import HDKey
 from embit.networks import NETWORKS
 from embit.script import p2tr, address_to_scriptpubkey
+from embit.descriptor import Descriptor
 
-ROOT = HDKey.from_string("tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j")
+KEY = "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
+ROOT = HDKey.from_string(KEY)
 NET = NETWORKS["regtest"]
 
 DERIVED_ADDRESSES = [
@@ -27,3 +29,14 @@ class TaprootTest(TestCase):
             sc = p2tr(pub)
             self.assertEqual(sc.address(NET), addr)
             self.assertEqual(address_to_scriptpubkey(addr), sc)
+
+    def test_descriptor(self):
+        descstr = "tr(%s/0/*)" % ROOT.to_public()
+        desc = Descriptor.from_string(descstr)
+        self.assertTrue(desc.is_taproot)
+        self.assertEqual(str(desc), descstr)
+        for i, expected in enumerate(DERIVED_ADDRESSES):
+            d = desc.derive(i)
+            addr = d.address(NET)
+            self.assertEqual(addr, expected)
+            self.assertEqual(d.script_pubkey(), address_to_scriptpubkey(expected))

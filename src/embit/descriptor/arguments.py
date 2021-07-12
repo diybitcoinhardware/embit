@@ -355,7 +355,7 @@ class Key(DescriptorBase):
 
 class KeyHash(Key):
     @classmethod
-    def parse_key(cls, k: bytes):
+    def parse_key(cls, k: bytes, *args, **kwargs):
         # convert to string
         k = k.decode()
         # raw 20-byte hash
@@ -370,7 +370,7 @@ class KeyHash(Key):
         else:
             return ec.PrivateKey.from_wif(k)
 
-    def serialize(self):
+    def serialize(self, *args, **kwargs):
         if isinstance(self.key, str):
             return unhexlify(self.key)
         return hashes.hash160(self.key.sec())
