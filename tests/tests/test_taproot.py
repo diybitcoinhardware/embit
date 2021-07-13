@@ -40,3 +40,13 @@ class TaprootTest(TestCase):
             addr = d.address(NET)
             self.assertEqual(addr, expected)
             self.assertEqual(d.script_pubkey(), address_to_scriptpubkey(expected))
+
+    def test_invalid(self):
+        with self.assertRaises(Exception):
+            Descriptor.from_string("wsh(tr(%s/0/*))" % ROOT)
+        with self.assertRaises(Exception):
+            Descriptor.from_string("sh(tr(%s/0/*))" % ROOT)
+        # x-only is only allowed in tr
+        Descriptor.from_string("tr(b4ca2da5380d9aeb5ca67e4f18c487ae9b668748517e12b788496f63765e2efa)")
+        with self.assertRaises(Exception):
+            Descriptor.from_string("wpkh(b4ca2da5380d9aeb5ca67e4f18c487ae9b668748517e12b788496f63765e2efa)")

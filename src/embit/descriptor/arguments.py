@@ -357,22 +357,18 @@ class KeyHash(Key):
     @classmethod
     def parse_key(cls, k: bytes, *args, **kwargs):
         # convert to string
-        k = k.decode()
+        kd = k.decode()
         # raw 20-byte hash
-        if len(k) == 40:
-            return k
-        if len(k) in [66, 130] and k[:2] in ["02", "03", "04"]:
-            # bare public key
-            return ec.PublicKey.parse(unhexlify(k))
-        elif k[1:4] in ["pub", "prv"]:
-            # bip32 key
-            return bip32.HDKey.from_base58(k)
-        else:
-            return ec.PrivateKey.from_wif(k)
+        if len(kd) == 40:
+            return kd
+        return super().parse_key(k, *args, **kwargs)
 
     def serialize(self, *args, **kwargs):
         if isinstance(self.key, str):
             return unhexlify(self.key)
+        # TODO: should it be xonly?
+        if self.taproot:
+            return hashes.hash160(self.key.sec()[1:33])
         return hashes.hash160(self.key.sec())
 
     def __len__(self):
