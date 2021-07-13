@@ -3,10 +3,15 @@ from embit.bip32 import HDKey
 from embit.networks import NETWORKS
 from embit.script import p2tr, address_to_scriptpubkey
 from embit.descriptor import Descriptor
+from embit.psbt import PSBT
 
 KEY = "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
 ROOT = HDKey.from_string(KEY)
 NET = NETWORKS["regtest"]
+
+# tx without derivations. inp0 should be signed with addr0, inp1 with addr1
+B64PSBT = "cHNidP8BAKYCAAAAAsBlMEaxkJwNZ6V+BZ06bKIb5q2CpF9sHDDj0/eJfzA1AAAAAAD+////kqnvuD+I8rLf8eELSAqvqBiEy5+IpOKpn/acu+gs0E8BAAAAAP7///8CAA4nBwAAAAAWABStYQVCeoRPwINTcqOPmDkTReYZVbjCyQEAAAAAIlEgDTyyEUjN1Oyxc6Z5xifyM3Kamy+Hrt0UdV86CeDMvf8AAAAAAAEAfQIAAAABRL1RocN1LnP4aONGuWFAJm0+Hej0SWAqlSlJ9caTP/gBAAAAAP7///8CAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmc4uGh4BAAAAFgAU1ZjhFjq1hmtoVb2+6O7jHrtqYsDLAAAAAQErAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmQABAH0CAAAAAcBlMEaxkJwNZ6V+BZ06bKIb5q2CpF9sHDDj0/eJfzA1AQAAAAD+////ArU9HxsBAAAAFgAUOGUymdaBcR3nQVoZ804qGf9H9iKA8PoCAAAAACJRIDrGIL80dDh9Y5xIBek776O9xpVrAtiuyiy8HXZSuTUZzAAAAAEBK4Dw+gIAAAAAIlEgOsYgvzR0OH1jnEgF6Tvvo73GlWsC2K7KLLwddlK5NRkAAAA="
+B64SIGNED = "cHNidP8BAKYCAAAAAsBlMEaxkJwNZ6V+BZ06bKIb5q2CpF9sHDDj0/eJfzA1AAAAAAD+////kqnvuD+I8rLf8eELSAqvqBiEy5+IpOKpn/acu+gs0E8BAAAAAP7///8CAA4nBwAAAAAWABStYQVCeoRPwINTcqOPmDkTReYZVbjCyQEAAAAAIlEgDTyyEUjN1Oyxc6Z5xifyM3Kamy+Hrt0UdV86CeDMvf8AAAAAAAEAfQIAAAABRL1RocN1LnP4aONGuWFAJm0+Hej0SWAqlSlJ9caTP/gBAAAAAP7///8CAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmc4uGh4BAAAAFgAU1ZjhFjq1hmtoVb2+6O7jHrtqYsDLAAAAAQErAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmQEIQwFBApOkiV6PkijNENaddILURidJhTlnK3EnYT1zPnksBel0HHz4TyPDhF3VJA0RG480dr0yAy1l1agcbyZFKduv9QEAAQB9AgAAAAHAZTBGsZCcDWelfgWdOmyiG+atgqRfbBww49P3iX8wNQEAAAAA/v///wK1PR8bAQAAABYAFDhlMpnWgXEd50FaGfNOKhn/R/YigPD6AgAAAAAiUSA6xiC/NHQ4fWOcSAXpO++jvcaVawLYrsosvB12Urk1GcwAAAABASuA8PoCAAAAACJRIDrGIL80dDh9Y5xIBek776O9xpVrAtiuyiy8HXZSuTUZAQhDAUGRfNtYnHLUoAOM57UwVvcuqe0bUAiaO5PAnxp0AcyqdrV3d4Q8303FOCNp8SUDlbTs2idGiNqa+TCaUVQC6AmdAQAAAA=="
 
 DERIVED_ADDRESSES = [
   "bcrt1pgg2exs6vjrhekft0eve0ldse7pfjr3jfm86pc0qgn4pzflfp7wvsc0kwqa",
@@ -50,3 +55,10 @@ class TaprootTest(TestCase):
         Descriptor.from_string("tr(b4ca2da5380d9aeb5ca67e4f18c487ae9b668748517e12b788496f63765e2efa)")
         with self.assertRaises(Exception):
             Descriptor.from_string("wpkh(b4ca2da5380d9aeb5ca67e4f18c487ae9b668748517e12b788496f63765e2efa)")
+
+    def test_sign_verify(self):
+        unsigned = PSBT.from_string(B64PSBT)
+        signed = PSBT.from_string(B64SIGNED)
+        tx = unsigned.tx
+        hsh = tx.sighash_taproot()
+        # sig = SchnorrSig
