@@ -11,6 +11,7 @@ class TransactionError(EmbitError):
 
 # micropython doesn't support typing and Enum
 class SIGHASH:
+    DEFAULT = 0
     ALL = 1
     NONE = 2
     SINGLE = 3
@@ -23,7 +24,7 @@ class SIGHASH:
             # remove ANYONECANPAY flag
             sighash = sighash ^ cls.ANYONECANPAY
             anyonecanpay = True
-        if sighash not in [cls.ALL, cls.NONE, cls.SINGLE]:
+        if sighash not in [cls.DEFAULT, cls.ALL, cls.NONE, cls.SINGLE]:
             raise TransactionError("Invalid SIGHASH type")
         return sighash, anyonecanpay
 
@@ -36,10 +37,15 @@ class Transaction(EmbitBase):
         self.locktime = locktime
         self.vin = vin
         self.vout = vout
+        self.clear_cache()
+
+    def clear_cache(self):
         # cache for digests
         self._hash_prevouts = None
         self._hash_sequence = None
         self._hash_outputs = None
+        self._hash_amounts = None
+        self._hash_script_pubkeys = None
 
     @property
     def is_segwit(self):
@@ -164,11 +170,62 @@ class Transaction(EmbitBase):
             self._hash_outputs = h.digest()
         return self._hash_outputs
 
+    def hash_amounts(self, amounts):
+        if self._hash_amounts is None:
+            h = hashlib.sha256()
+            for a in amounts:
+                h.update(a.to_bytes(8, "little"))
+            self._hash_amounts = h.digest()
+        return self._hash_amounts
+
+    def hash_script_pubkeys(self, script_pubkeys):
+        if self._hash_script_pubkeys is None:
+            h = hashlib.sha256()
+            for sc in script_pubkeys:
+                h.update(sc.serialize())
+            self._hash_script_pubkeys = h.digest()
+        return self._hash_script_pubkeys
+
+    def sighash_taproot(self, input_index, script_pubkeys, values, sighash=SIGHASH.DEFAULT):
+        """check out bip-341"""
+        if input_index < 0 or input_index >= len(self.vin):
+            raise TransactionError("Invalid input index")
+        if len(values) != len(self.vin):
+            raise TransactionError("All spent amounts are required")
+        sh, anyonecanpay = SIGHASH.check(sighash)
+        h = hashes.tagged_hash_init("TapSighash", b"\x00")
+        h.update(bytes([sighash]))
+        h.update(self.version.to_bytes(4, "little"))
+        h.update(self.locktime.to_bytes(4, "little"))
+        if not anyonecanpay:
+            h.update(self.hash_prevouts())
+            h.update(self.hash_amounts(values))
+            h.update(self.hash_script_pubkeys(script_pubkeys))
+            h.update(self.hash_sequence())
+        if sh not in [SIGHASH.SINGLE, SIGHASH.NONE]:
+            h.update(self.hash_outputs())
+        # data about this input
+        h.update(b"\x00") # ext_flags and annex are not supported
+        if anyonecanpay:
+            h.update(self.vin[input_index].serialize())
+            h.update(values[input_index].to_bytes(8, "little"))
+            h.update(script_pubkeys[input_index].serialize())
+            h.update(self.vin[input_index].sequence.to_bytes(4, "little"))
+        else:
+            h.update(input_index.to_bytes(4, "little"))
+        # annex is not supported
+        if sh == SIGHASH.SINGLE:
+            h.update(self.vout[input_index].serialize())
+        return h.digest()
+
     def sighash_segwit(self, input_index, script_pubkey, value, sighash=SIGHASH.ALL):
         """check out bip-143"""
         if input_index < 0 or input_index >= len(self.vin):
             raise TransactionError("Invalid input index")
         sh, anyonecanpay = SIGHASH.check(sighash)
+        # default sighash is used only in taproot
+        if sh == SIGHASH.DEFAULT:
+            sh = SIGHASH.ALL
         inp = self.vin[input_index]
         zero = b"\x00"*32 # for sighashes
         h = hashlib.sha256()
@@ -202,6 +259,8 @@ class Transaction(EmbitBase):
         if input_index < 0 or input_index >= len(self.vin):
             raise TransactionError("Invalid input index")
         sh, anyonecanpay = SIGHASH.check(sighash)
+        if sh == SIGHASH.DEFAULT:
+            sh = SIGHASH.ALL
         # no corresponding output for this input, we sign 00...01
         if sh == SIGHASH.SINGLE and input_index >= len(self.vout):
             return b"\x00"*31+b"\x01"
