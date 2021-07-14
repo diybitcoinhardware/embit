@@ -1,7 +1,6 @@
 from unittest import TestCase, skip
 from util.bitcoin import daemon
 import random
-import time
 from embit.descriptor import Descriptor
 from embit.descriptor.checksum import add_checksum
 from embit.bip32 import HDKey

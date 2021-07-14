@@ -5,6 +5,7 @@ from embit.script import p2tr, address_to_scriptpubkey
 from embit.descriptor import Descriptor
 from embit.psbt import PSBT
 from embit.ec import SchnorrSig, PublicKey
+from embit.transaction import SIGHASH
 
 KEY = "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
 ROOT = HDKey.from_string(KEY)
