@@ -4,6 +4,7 @@ from embit.networks import NETWORKS
 from embit.script import p2tr, address_to_scriptpubkey
 from embit.descriptor import Descriptor
 from embit.psbt import PSBT
+from embit.ec import SchnorrSig, PublicKey
 
 KEY = "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
 ROOT = HDKey.from_string(KEY)
@@ -30,10 +31,19 @@ DERIVED_ADDRESSES = [
 class TaprootTest(TestCase):
     def test_script(self):
         for i, addr in enumerate(DERIVED_ADDRESSES):
-            pub = ROOT.derive([0, i])
+            prv = ROOT.derive([0, i])
+            pub = prv.to_public()
             sc = p2tr(pub)
             self.assertEqual(sc.address(NET), addr)
             self.assertEqual(address_to_scriptpubkey(addr), sc)
+
+    def test_tweak(self):
+        for i in range(10):
+            prv = ROOT.child(i)
+            pub = prv.to_public()
+            tprv = prv.taproot_tweak(b"")
+            tpub = pub.taproot_tweak(b"")
+            self.assertEqual(tprv.sec(), tpub.sec())
 
     def test_descriptor(self):
         descstr = "tr(%s/0/*)" % ROOT.to_public()
@@ -60,5 +70,22 @@ class TaprootTest(TestCase):
         unsigned = PSBT.from_string(B64PSBT)
         signed = PSBT.from_string(B64SIGNED)
         tx = unsigned.tx
-        hsh = tx.sighash_taproot()
-        # sig = SchnorrSig
+        values = [inp.utxo.value for inp in unsigned.inputs]
+        scripts = [inp.utxo.script_pubkey for inp in unsigned.inputs]
+        for i, inp in enumerate(signed.inputs):
+            wit = inp.final_scriptwitness.items[0]
+            sig = SchnorrSig.parse(wit[:64])
+            if len(wit) == 65:
+                sighash = wit[64]
+            else:
+                sighash = SIGHASH.DEFAULT
+            hsh = tx.sighash_taproot(i, script_pubkeys=scripts, values=values, sighash=sighash)
+            pub = PublicKey.from_xonly(inp.utxo.script_pubkey.data[2:])
+            self.assertTrue(pub.schnorr_verify(sig, hsh))
+            # check signing and derivation
+            prv = ROOT.derive([0, i])
+            tweaked = prv.taproot_tweak(b"")
+            self.assertEqual(pub.xonly(), tweaked.xonly())
+            sig2 = tweaked.schnorr_sign(hsh)
+            self.assertTrue(pub.schnorr_verify(sig2, hsh))
+            self.assertEqual(sig, sig2)

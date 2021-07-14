@@ -269,6 +269,13 @@ class Key(DescriptorBase):
     def sec(self):
         return self.key.sec()
 
+    def xonly(self):
+        return self.key.xonly()
+
+    def taproot_tweak(self, h=b""):
+        assert self.taproot
+        return self.key.taproot_tweak(h)
+
     def serialize(self):
         if self.taproot:
             return self.sec()[1:33]

@@ -6,7 +6,7 @@ else:
     from .util import secp256k1
 import hashlib
 from . import ec
-from .base import EmbitKey, EmbitError
+from .base import EmbitKey, EmbitError, copy
 from .networks import NETWORKS
 from . import base58
 from . import hashes
@@ -163,6 +163,19 @@ class HDKey(EmbitKey):
         """Returns SEC serialization of the public key"""
         return self.key.sec()
 
+    def xonly(self) -> bytes:
+        return self.key.xonly()
+
+    def taproot_tweak(self, h=b""):
+        return HDKey(
+            self.key.taproot_tweak(h),
+            self.chain_code,
+            version=self.version,
+            depth=self.depth,
+            fingerprint=self.fingerprint,
+            child_number=self.child_number,
+        )
+
     def child(self, index: int, hardened: bool = False):
         """Derives a child HDKey"""
         if index > 0xFFFFFFFF:
@@ -189,13 +202,13 @@ class HDKey(EmbitKey):
             key = ec.PrivateKey(secret)
         else:
             # copy of internal secp256k1 point structure
-            point = self.key._point[:]
+            point = copy(self.key._point)
             point = secp256k1.ec_pubkey_add(point, secret)
             key = ec.PublicKey(point)
         return HDKey(
             key,
             chain_code,
-            version=self.version[:],
+            version=self.version,
             depth=self.depth + 1,
             fingerprint=fingerprint,
             child_number=index,
@@ -217,12 +230,16 @@ class HDKey(EmbitKey):
             raise HDError("HD public key can't sign")
         return self.key.sign(msg_hash)
 
-    def verify(self, sig: ec.Signature, msg_hash: bytes) -> bool:
-        """Verifies a signature agains 32-byte message hash"""
-        if self.is_private:
-            return self.key.get_public_key().verify(sig, msg_hash)
-        else:
-            return self.key.verify(sig, msg_hash)
+    def schnorr_sign(self, msg_hash):
+        if not self.is_private:
+            raise HDError("HD public key can't sign")
+        return self.key.schnorr_sign(msg_hash)
+
+    def verify(self, sig, msg_hash) -> bool:
+        return self.key.verify(sig, msg_hash)
+
+    def schnorr_verify(self, sig, msg_hash) -> bool:
+        return self.key.schnorr_verify(sig, msg_hash)
 
     def __eq__(self, other):
         # skip version

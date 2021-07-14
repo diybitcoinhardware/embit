@@ -5,6 +5,7 @@ if sys.implementation.name == "micropython":
 else:
     from .util import secp256k1
 from . import base58
+from . import hashes
 from .networks import NETWORKS
 from .base import EmbitBase, EmbitError, EmbitKey
 from binascii import hexlify, unhexlify
@@ -25,6 +26,18 @@ class Signature(EmbitBase):
         der = stream.read(2)
         der += stream.read(der[1])
         return cls(secp256k1.ecdsa_signature_parse_der(der))
+
+class SchnorrSig(EmbitBase):
+    def __init__(self, sig):
+        assert len(sig) == 64
+        self._sig = sig
+
+    def write_to(self, stream) -> int:
+        return stream.write(self._sig)
+
+    @classmethod
+    def read_from(cls, stream):
+        return cls(stream.read(64))
 
 class PublicKey(EmbitKey):
     def __init__(self, point: bytes, compressed: bool = True):
@@ -52,6 +65,20 @@ class PublicKey(EmbitKey):
         flag = secp256k1.EC_COMPRESSED if self.compressed else secp256k1.EC_UNCOMPRESSED
         return secp256k1.ec_pubkey_serialize(self._point, flag)
 
+    def xonly(self) -> bytes:
+        return self.sec()[1:33]
+
+    def taproot_tweak(self, h=b""):
+        """Returns a tweaked public key"""
+        x = self.xonly()
+        tweak = hashes.tagged_hash("TapTweak", x + h)
+        if not secp256k1.ec_seckey_verify(tweak):
+            raise EmbitError("Tweak is too large")
+        point = secp256k1.ec_pubkey_parse(b"\x02" + x)
+        pub = secp256k1.ec_pubkey_add(point, tweak)
+        sec = secp256k1.ec_pubkey_serialize(pub)
+        return PublicKey.from_xonly(sec[1:33])
+
     def write_to(self, stream) -> int:
         return stream.write(self.sec())
 
@@ -60,6 +87,19 @@ class PublicKey(EmbitKey):
 
     def verify(self, sig, msg_hash) -> bool:
         return bool(secp256k1.ecdsa_verify(sig._sig, msg_hash, self._point))
+
+    def _xonly(self):
+        """Returns internal representation of the xonly-pubkey (64 bytes)"""
+        pub, _ = secp256k1.xonly_pubkey_from_pubkey(self._point)
+        return pub
+
+    @classmethod
+    def from_xonly(cls, data:bytes):
+        assert len(data) == 32
+        return cls.parse(b"\x02"+data)
+
+    def schnorr_verify(self, sig, msg_hash) -> bool:
+        return bool(secp256k1.schnorrsig_verify(sig._sig, msg_hash, self._xonly()))
 
     @classmethod
     def from_string(cls, s):
@@ -121,6 +161,27 @@ class PrivateKey(EmbitKey):
         """Sec representation of the corresponding public key"""
         return self.get_public_key().sec()
 
+    def xonly(self) -> bytes:
+        return self.sec()[1:]
+
+    def taproot_tweak(self, h=b""):
+        """Returns a tweaked private key"""
+        sec = self.sec()
+        negate = (sec[0] != 0x02)
+        x = sec[1:33]
+        tweak = hashes.tagged_hash("TapTweak", x + h)
+        if not secp256k1.ec_seckey_verify(tweak):
+            raise EmbitError("Tweak is too large")
+        if negate:
+            secret = secp256k1.ec_privkey_negate(self._secret)
+        else:
+            secret = self._secret
+        res = secp256k1.ec_privkey_tweak_add(secret, tweak)
+        pk = PrivateKey(res)
+        if pk.sec()[0] == 0x03:
+            pk = PrivateKey(secp256k1.ec_privkey_negate(res))
+        return pk
+
     @classmethod
     def from_wif(cls, s):
         """Import private key from Wallet Import Format string."""
@@ -163,6 +224,15 @@ class PrivateKey(EmbitKey):
                 if counter > 200:
                     break
         return sig
+
+    def schnorr_sign(self, msg_hash):
+        return SchnorrSig(secp256k1.schnorrsig_sign(msg_hash, self._secret))
+
+    def verify(self, sig, msg_hash):
+        self.get_public_key().verify(sig, msg_hash)
+
+    def schnorr_verify(self, sig, msg_hash) -> bool:
+        self.get_public_key().schnorr_verify(sig, msg_hash)
 
     def write_to(self, stream) -> int:
         # return a copy of the secret

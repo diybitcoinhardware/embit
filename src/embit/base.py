@@ -9,6 +9,12 @@ class EmbitError(Exception):
     pass
 
 
+def copy(a:bytes) -> bytes:
+    """Ugly copy that works everywhere incl micropython"""
+    if len(a) == 0:
+        return b""
+    return a[:1] + a[1:]
+
 class EmbitBase:
     @classmethod
     def read_from(cls, stream, *args, **kwargs):
