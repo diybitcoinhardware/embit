@@ -87,11 +87,17 @@ class BindingsTest(TestCase):
             pub2, par = py_secp256k1.xonly_pubkey_from_pubkey(pub2)
             self.assertEqual(pub1, pub2)
             msg = b"q"*32
+
+            # without aux data
             sig1 = ctypes_secp256k1.schnorrsig_sign(msg, secret)
             sig2 = py_secp256k1.schnorrsig_sign(msg, secret)
-            # nonce generation seems to be diffrerent
-            # so we just check that signatures are valid
-            # in both implementations
+            self.assertEqual(sig1, sig2)
+
+            # with aux data
+            sig1 = ctypes_secp256k1.schnorrsig_sign(msg, secret, None, b"4"*32)
+            sig2 = py_secp256k1.schnorrsig_sign(msg, secret, None, b"4"*32)
+            self.assertEqual(sig1, sig2)
+
             self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig1, msg, pub1))
             self.assertTrue(py_secp256k1.schnorrsig_verify(sig2, msg, pub2))
             self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig2, msg, pub1))
