@@ -176,7 +176,7 @@ class PrivateKey(EmbitKey):
             secret = secp256k1.ec_privkey_negate(self._secret)
         else:
             secret = self._secret
-        res = secp256k1.ec_privkey_tweak_add(secret, tweak)
+        res = secp256k1.ec_privkey_add(secret, tweak)
         pk = PrivateKey(res)
         if pk.sec()[0] == 0x03:
             pk = PrivateKey(secp256k1.ec_privkey_negate(res))

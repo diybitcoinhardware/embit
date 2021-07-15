@@ -528,22 +528,20 @@ def ec_pubkey_negate(pubkey, context=_secp.ctx):
 def ec_privkey_tweak_add(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
-    b = _copy(secret)
     t = _copy(tweak)
-    if _secp.secp256k1_ec_privkey_tweak_add(context, b, tweak) == 0:
+    if _secp.secp256k1_ec_privkey_tweak_add(context, secret, tweak) == 0:
         raise ValueError("Failed to tweak the secret")
-    return b
+    return None
 
 def ec_pubkey_tweak_add(pub, tweak, context=_secp.ctx):
     if len(pub) != 64:
         raise ValueError("Public key should be 64 bytes long")
     if len(tweak) != 32:
         raise ValueError("Tweak should be 32 bytes long")
-    b = _copy(pub)
     t = _copy(tweak)
     if _secp.secp256k1_ec_pubkey_tweak_add(context, pub, tweak) == 0:
         raise ValueError("Failed to tweak the public key")
-    return b
+    return None
 
 
 def ec_privkey_add(secret, tweak, context=_secp.ctx):
