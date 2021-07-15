@@ -76,3 +76,30 @@ class BindingsTest(TestCase):
             pub = ctypes_secp256k1.ecdsa_recover(sig + bytes([i]), msg)
             pub2 = py_secp256k1.ecdsa_recover(sig + bytes([i]), msg)
             self.assertEqual(pub, pub2)
+
+    def test_schnorr(self):
+        for i in range(1,10):
+            secret = bytes([i]*32)
+            pub1 = ctypes_secp256k1.ec_pubkey_create(secret)
+            pub2 = py_secp256k1.ec_pubkey_create(secret)
+            self.assertEqual(pub1, pub2)
+            pub1, par = ctypes_secp256k1.xonly_pubkey_from_pubkey(pub1)
+            pub2, par = py_secp256k1.xonly_pubkey_from_pubkey(pub2)
+            self.assertEqual(pub1, pub2)
+            msg = b"q"*32
+            sig1 = ctypes_secp256k1.schnorrsig_sign(msg, secret)
+            sig2 = py_secp256k1.schnorrsig_sign(msg, secret)
+            # nonce generation seems to be diffrerent
+            # so we just check that signatures are valid
+            # in both implementations
+            self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig1, msg, pub1))
+            self.assertTrue(py_secp256k1.schnorrsig_verify(sig2, msg, pub2))
+            self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig2, msg, pub1))
+            self.assertTrue(py_secp256k1.schnorrsig_verify(sig1, msg, pub2))
+
+            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig1, b"w"*32, pub1))
+            self.assertFalse(py_secp256k1.schnorrsig_verify(sig2, b"w"*32, pub2))
+            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig2, b"w"*32, pub1))
+            self.assertFalse(py_secp256k1.schnorrsig_verify(sig1, b"w"*32, pub2))
+
+            self.assertEqual(ctypes_secp256k1.keypair_create(secret), py_secp256k1.keypair_create(secret))
