@@ -3,7 +3,7 @@ from embit.bip32 import HDKey
 from embit.networks import NETWORKS
 from embit.script import p2tr, address_to_scriptpubkey
 from embit.descriptor import Descriptor
-from embit.psbt import PSBT
+from embit.psbt import DerivationPath, PSBT
 from embit.ec import SchnorrSig, PublicKey
 from embit.transaction import SIGHASH
 
@@ -90,3 +90,20 @@ class TaprootTest(TestCase):
             sig2 = tweaked.schnorr_sign(hsh)
             self.assertTrue(pub.schnorr_verify(sig2, hsh))
             self.assertEqual(sig, sig2)
+            # sign with individual pks
+            sigcount = unsigned.sign_with(prv.key, SIGHASH.ALL)
+            self.assertEqual(sigcount, 1)
+            self.assertEqual(unsigned.inputs[i].final_scriptwitness, signed.inputs[i].final_scriptwitness)
+
+        for i, inp in enumerate(unsigned.inputs):
+            prv = ROOT.derive([0, i])
+            # remove final scriptwitness to test signing with root
+            inp.final_scriptwitness = None
+            # populate derivation
+            inp.bip32_derivations[prv.key.get_public_key()] = DerivationPath(ROOT.my_fingerprint, [0, i])
+
+        # test signing with root key
+        counter = unsigned.sign_with(ROOT, SIGHASH.ALL)
+        self.assertEqual(counter, 2)
+        for inp1, inp2 in zip(unsigned.inputs, signed.inputs):
+            self.assertEqual(inp1.final_scriptwitness, inp2.final_scriptwitness)
