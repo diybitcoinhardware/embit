@@ -6,6 +6,9 @@ from embit.descriptor import Descriptor
 from embit.psbt import DerivationPath, PSBT
 from embit.ec import SchnorrSig, PublicKey
 from embit.transaction import SIGHASH
+from embit.psbtview import PSBTView
+from io import BytesIO
+from binascii import a2b_base64
 
 KEY = "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
 ROOT = HDKey.from_string(KEY)
@@ -107,3 +110,15 @@ class TaprootTest(TestCase):
         self.assertEqual(counter, 2)
         for inp1, inp2 in zip(unsigned.inputs, signed.inputs):
             self.assertEqual(inp1.final_scriptwitness, inp2.final_scriptwitness)
+            inp1.final_scriptwitness = None
+
+        # test signing with psbtview, unsigned already has derivations
+        stream = BytesIO(unsigned.serialize())
+        psbtv = PSBTView.view(stream, compress=False)
+        sigs = BytesIO()
+        sigcount = psbtv.sign_with(ROOT, sigs, SIGHASH.ALL)
+        self.assertEqual(sigcount, len(unsigned.inputs))
+        v = sigs.getvalue()
+        # check sigs are in the stream
+        for inp in signed.inputs:
+            self.assertTrue(inp.final_scriptwitness.items[0] in v)

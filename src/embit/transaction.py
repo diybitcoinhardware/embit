@@ -28,6 +28,20 @@ class SIGHASH:
             raise TransactionError("Invalid SIGHASH type")
         return sighash, anyonecanpay
 
+# util functions
+
+def hash_amounts(amounts):
+    h = hashlib.sha256()
+    for a in amounts:
+        h.update(a.to_bytes(8, "little"))
+    return h.digest()
+
+def hash_script_pubkeys(script_pubkeys):
+    h = hashlib.sha256()
+    for sc in script_pubkeys:
+        h.update(sc.serialize())
+    return h.digest()
+
 # API similar to bitcoin-cli decoderawtransaction
 
 
@@ -172,18 +186,12 @@ class Transaction(EmbitBase):
 
     def hash_amounts(self, amounts):
         if self._hash_amounts is None:
-            h = hashlib.sha256()
-            for a in amounts:
-                h.update(a.to_bytes(8, "little"))
-            self._hash_amounts = h.digest()
+            self._hash_amounts = hash_amounts(amounts)
         return self._hash_amounts
 
     def hash_script_pubkeys(self, script_pubkeys):
         if self._hash_script_pubkeys is None:
-            h = hashlib.sha256()
-            for sc in script_pubkeys:
-                h.update(sc.serialize())
-            self._hash_script_pubkeys = h.digest()
+            self._hash_script_pubkeys = hash_script_pubkeys(script_pubkeys)
         return self._hash_script_pubkeys
 
     def sighash_taproot(self, input_index, script_pubkeys, values, sighash=SIGHASH.DEFAULT):
