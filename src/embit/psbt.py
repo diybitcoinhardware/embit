@@ -170,6 +170,10 @@ class InputScope(PSBTScope):
         """Check if prev txid was verified using non_witness_utxo. See `verify()`"""
         return self._verified
 
+    @property
+    def is_taproot(self):
+        return self.utxo.script_pubkey.script_type() == "p2tr"
+
     def verify(self, ignore_missing=False):
         """Verifies the hash of previous transaction provided in non_witness_utxo.
         We must verify on a hardware wallet even on segwit transactions to avoid
@@ -481,6 +485,9 @@ class PSBT(EmbitBase):
     def sighash_legacy(self, *args, **kwargs):
         return self.tx.sighash_legacy(*args, **kwargs)
 
+    def sighash_taproot(self, *args, **kwargs):
+        return self.tx.sighash_taproot(*args, **kwargs)
+
     @property
     def is_verified(self):
         return all([inp.is_verified for inp in self.inputs])
@@ -630,6 +637,11 @@ class PSBT(EmbitBase):
     def sighash(self, i, sighash=SIGHASH.ALL):
         inp = self.inputs[i]
 
+        if inp.is_taproot:
+            values = [inp.utxo.value for inp in self.inputs]
+            scripts = [inp.utxo.script_pubkey for inp in self.inputs]
+            return self.sighash_taproot(i, script_pubkeys=scripts, values=values, sighash=sighash)
+
         value = inp.utxo.value
         sc = inp.witness_script or inp.redeem_script or inp.utxo.script_pubkey
 
@@ -652,7 +664,7 @@ class PSBT(EmbitBase):
             h = self.sighash_legacy(i, sc, sighash=sighash)
         return h
 
-    def sign_with(self, root, sighash=SIGHASH.ALL) -> int:
+    def sign_with(self, root, sighash=SIGHASH.DEFAULT) -> int:
         """
         Signs psbt with root key (HDKey or similar).
         Returns number of signatures added to PSBT.
@@ -668,17 +680,56 @@ class PSBT(EmbitBase):
             pkh = hashes.hash160(sec)
 
         counter = 0
-        tx = self.tx
         for i, inp in enumerate(self.inputs):
             # check which sighash to use
-            inp_sighash = inp.sighash_type or sighash or SIGHASH.ALL
-            # if input sighash is set and is different from kwarg - skip input
+            inp_sighash = inp.sighash_type or sighash or SIGHASH.DEFAULT
+
+            # if input sighash is set and is different from kwarg - don't sign this input
             if sighash is not None and inp_sighash != sighash:
                 continue
+
+            # SIGHASH.DEFAULT is only for taproot
+            if not inp.is_taproot and inp_sighash == SIGHASH.DEFAULT:
+                inp_sighash = SIGHASH.ALL
 
             h = self.sighash(i, sighash=inp_sighash)
 
             sc = inp.witness_script or inp.redeem_script or inp.utxo.script_pubkey
+
+            # taproot is special
+            # currently works only for single key
+            if inp.is_taproot:
+                # individual private key
+                if not fingerprint:
+                    # TODO: tweak using taproot psbt fields
+                    pk = root.taproot_tweak(b"")
+                    if pk.xonly() in sc.data:
+                        sig = pk.schnorr_sign(h)
+                        wit = sig.serialize()
+                        if inp_sighash != SIGHASH.DEFAULT:
+                            wit += bytes([inp_sighash])
+                        inp.final_scriptwitness = Witness([wit])
+                        counter += 1
+                # if we use HDKey
+                else:
+                    # TODO: add taproot derivation paths and scripts
+                    for pub in inp.bip32_derivations:
+                        # check if it is root key
+                        if inp.bip32_derivations[pub].fingerprint == fingerprint:
+                            hdkey = root.derive(inp.bip32_derivations[pub].derivation)
+                            mypub = hdkey.key.get_public_key()
+                            if mypub != pub:
+                                raise PSBTError("Derivation path doesn't look right")
+                            pk = hdkey.taproot_tweak(b"")
+                            if pk.xonly() in sc.data:
+                                sig = pk.schnorr_sign(h)
+                                # sig plus sighash flag
+                                wit = sig.serialize()
+                                if inp_sighash != SIGHASH.DEFAULT:
+                                    wit += bytes([inp_sighash])
+                                inp.final_scriptwitness = Witness([wit])
+                                counter += 1
+                continue
 
             # if we have individual private key
             if not fingerprint:

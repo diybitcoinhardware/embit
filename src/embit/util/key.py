@@ -4,7 +4,13 @@ This is a fallback option if the library can't do ctypes bindings to secp256k1 l
 """
 import random
 import hmac
+import hashlib
 
+def TaggedHash(tag, data):
+    ss = hashlib.sha256(tag.encode('utf-8')).digest()
+    ss += ss
+    ss += data
+    return hashlib.sha256(ss).digest()
 
 def modinv(a, n):
     """Compute the modular inverse of a modulo n using the extended Euclidean
@@ -505,3 +511,58 @@ def tweak_add_pubkey(key, tweak):
     if Q is None:
         return None
     return (Q[0].to_bytes(32, "big"), not SECP256K1.has_even_y(Q))
+
+def verify_schnorr(key, sig, msg):
+    """Verify a Schnorr signature (see BIP 340).
+    - key is a 32-byte xonly pubkey (computed using compute_xonly_pubkey).
+    - sig is a 64-byte Schnorr signature
+    - msg is a 32-byte message
+    """
+    assert len(key) == 32
+    assert len(msg) == 32
+    assert len(sig) == 64
+
+    x_coord = int.from_bytes(key, 'big')
+    if x_coord == 0 or x_coord >= SECP256K1_FIELD_SIZE:
+        return False
+    P = SECP256K1.lift_x(x_coord)
+    if P is None:
+        return False
+    r = int.from_bytes(sig[0:32], 'big')
+    if r >= SECP256K1_FIELD_SIZE:
+        return False
+    s = int.from_bytes(sig[32:64], 'big')
+    if s >= SECP256K1_ORDER:
+        return False
+    e = int.from_bytes(TaggedHash("BIP0340/challenge", sig[0:32] + key + msg), 'big') % SECP256K1_ORDER
+    R = SECP256K1.mul([(SECP256K1_G, s), (P, SECP256K1_ORDER - e)])
+    if not SECP256K1.has_even_y(R):
+        return False
+    if ((r * R[2] * R[2]) % SECP256K1_FIELD_SIZE) != R[0]:
+        return False
+    return True
+
+def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
+    """Create a Schnorr signature (see BIP 340)."""
+
+    assert len(key) == 32
+    assert len(msg) == 32
+    if aux is not None:
+        assert len(aux) == 32
+
+    sec = int.from_bytes(key, 'big')
+    if sec == 0 or sec >= SECP256K1_ORDER:
+        return None
+    P = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, sec)]))
+    if SECP256K1.has_even_y(P) == flip_p:
+        sec = SECP256K1_ORDER - sec
+    if aux is not None:
+        t = (sec ^ int.from_bytes(TaggedHash("BIP0340/aux", aux), 'big')).to_bytes(32, 'big')
+    else:
+        t = sec.to_bytes(32, 'big')
+    kp = int.from_bytes(TaggedHash("BIP0340/nonce", t + P[0].to_bytes(32, 'big') + msg), 'big') % SECP256K1_ORDER
+    assert kp != 0
+    R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, kp)]))
+    k = kp if SECP256K1.has_even_y(R) != flip_r else SECP256K1_ORDER - kp
+    e = int.from_bytes(TaggedHash("BIP0340/challenge", R[0].to_bytes(32, 'big') + P[0].to_bytes(32, 'big') + msg), 'big') % SECP256K1_ORDER
+    return R[0].to_bytes(32, 'big') + ((k + e * sec) % SECP256K1_ORDER).to_bytes(32, 'big')

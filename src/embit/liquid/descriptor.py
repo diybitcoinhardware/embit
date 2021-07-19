@@ -52,7 +52,7 @@ class LDescriptor(Descriptor):
         if not start.startswith(b"blinded("):
             s.seek(-8, 1)
             d = Descriptor.read_from(s)
-            return cls(d.miniscript, sh=d.sh, wsh=d.wsh, key=d.key, wpkh=d.wpkh, blinding_key=None)
+            return cls(d.miniscript, sh=d.sh, wsh=d.wsh, key=d.key, wpkh=d.wpkh, blinding_key=None, taproot=d.taproot)
 
         blinding_key = BlindingKey.read_from(s)
         if s.read(1) != b",":
@@ -65,7 +65,7 @@ class LDescriptor(Descriptor):
                 raise DescriptorError("Wildcards mismatch in blinded key and descriptor")
             if blinding_key.num_branches != d.num_branches:
                 raise DescriptorError("Branches mismatch in blinded key and descriptor")
-        return cls(d.miniscript, sh=d.sh, wsh=d.wsh, key=d.key, wpkh=d.wpkh, blinding_key=blinding_key)
+        return cls(d.miniscript, sh=d.sh, wsh=d.wsh, key=d.key, wpkh=d.wpkh, blinding_key=blinding_key, taproot=d.taproot)
 
     def to_string(self, blinded=True):
         res = super().to_string()

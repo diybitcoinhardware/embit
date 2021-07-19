@@ -136,18 +136,6 @@ def p2wsh(script):
     return Script(b"\x00\x20" + hashes.sha256(script.data))
 
 
-# TODO: move to key classes?
-def taproot_tweak_pubkey(pubkey, h):
-    x = pubkey.sec()[1:33]
-    tweak = hashes.tagged_hash("TapTweak", x + h)
-    if not secp256k1.ec_seckey_verify(tweak):
-        raise EmbitError("Tweak is too large")
-    point = secp256k1.ec_pubkey_parse(b"\x02" + x)
-    pub = secp256k1.ec_pubkey_add(point, tweak)
-    sec = secp256k1.ec_pubkey_serialize(pub)
-    return sec[0]-0x02, sec[1:33]
-
-
 def p2tr(pubkey, script_tree=None):
     """Return Pay-To-Taproot ScriptPubkey"""
     if script_tree is None:
@@ -155,8 +143,8 @@ def p2tr(pubkey, script_tree=None):
     else:
         raise NotImplementedError("Taproot script trees are not supported yet")
         _, h = taproot_tree_helper(script_tree)
-    _, output_pubkey = taproot_tweak_pubkey(pubkey, h)
-    return Script(b"\x51\x20" + output_pubkey)
+    output_pubkey = pubkey.taproot_tweak(h)
+    return Script(b"\x51\x20" + output_pubkey.xonly())
 
 
 def p2pkh_from_p2wpkh(script):

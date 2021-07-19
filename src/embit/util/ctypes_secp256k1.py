@@ -27,6 +27,11 @@ CONTEXT_NONE = 0b0000000001
 EC_COMPRESSED = 0b0100000010
 EC_UNCOMPRESSED = 0b0000000010
 
+def _copy(a:bytes) -> bytes:
+    """Ugly copy that works everywhere incl micropython"""
+    if len(a) == 0:
+        return b""
+    return a[:1] + a[1:]
 
 def _find_library():
     library_path = None
@@ -162,6 +167,43 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
     ]
     secp256k1.secp256k1_ec_pubkey_combine.restype = c_int
 
+    # schnorr sig
+    try:
+        secp256k1.secp256k1_xonly_pubkey_from_pubkey.argtypes = [
+            c_void_p, # ctx
+            c_char_p, # xonly pubkey
+            POINTER(c_int), # parity
+            c_char_p, # pubkey
+        ]
+        secp256k1.secp256k1_xonly_pubkey_from_pubkey.restype = c_int
+
+        secp256k1.secp256k1_schnorrsig_verify.argtypes = [
+            c_void_p, # ctx
+            c_char_p, # sig
+            c_char_p, # msg
+            c_char_p, # pubkey
+        ]
+        secp256k1.secp256k1_schnorrsig_verify.restype = c_int
+
+        secp256k1.secp256k1_schnorrsig_sign.argtypes = [
+            c_void_p, # ctx
+            c_char_p, # sig
+            c_char_p, # msg
+            c_char_p, # keypair
+            c_void_p, # nonce_function
+            c_char_p, # extra data
+        ]
+        secp256k1.secp256k1_schnorrsig_sign.restype = c_int
+
+        secp256k1.secp256k1_keypair_create.argtypes = [
+            c_void_p, # ctx
+            c_char_p, # keypair
+            c_char_p, # secret
+        ]
+        secp256k1.secp256k1_keypair_create.restype = c_int
+    except:
+        pass
+
     # recoverable module
     try:
         secp256k1.secp256k1_ecdsa_sign_recoverable.argtypes = [
@@ -273,9 +315,6 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
         secp256k1.secp256k1_rangeproof_sign.restype = c_int
 
         # musig
-        secp256k1.secp256k1_xonly_pubkey_from_pubkey.argtypes = [c_void_p, c_char_p, POINTER(c_int), c_char_p]
-        secp256k1.secp256k1_xonly_pubkey_from_pubkey.restype = c_int
-
         secp256k1.secp256k1_musig_pubkey_combine.argtypes = [c_void_p, c_void_p, c_char_p, c_void_p, c_void_p, c_size_t]
         secp256k1.secp256k1_musig_pubkey_combine.restype = c_int
 
@@ -471,7 +510,7 @@ def ec_seckey_verify(secret, context=_secp.ctx):
 def ec_privkey_negate(secret, context=_secp.ctx):
     if len(secret) != 32:
         raise ValueError("Secret should be 32 bytes long")
-    b = secret[:1] + secret[1:]
+    b = _copy(secret)
     _secp.secp256k1_ec_privkey_negate(context, b)
     return b
 
@@ -479,7 +518,7 @@ def ec_privkey_negate(secret, context=_secp.ctx):
 def ec_pubkey_negate(pubkey, context=_secp.ctx):
     if len(pubkey) != 64:
         raise ValueError("Pubkey should be a 64-byte structure")
-    pub = pubkey[:1] + pubkey[1:]
+    pub = _copy(pubkey)
     r = _secp.secp256k1_ec_pubkey_negate(context, pub)
     if r == 0:
         raise ValueError("Failed to negate pubkey")
@@ -489,25 +528,29 @@ def ec_pubkey_negate(pubkey, context=_secp.ctx):
 def ec_privkey_tweak_add(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
+    t = _copy(tweak)
     if _secp.secp256k1_ec_privkey_tweak_add(context, secret, tweak) == 0:
         raise ValueError("Failed to tweak the secret")
-
+    return None
 
 def ec_pubkey_tweak_add(pub, tweak, context=_secp.ctx):
     if len(pub) != 64:
         raise ValueError("Public key should be 64 bytes long")
     if len(tweak) != 32:
         raise ValueError("Tweak should be 32 bytes long")
+    t = _copy(tweak)
     if _secp.secp256k1_ec_pubkey_tweak_add(context, pub, tweak) == 0:
         raise ValueError("Failed to tweak the public key")
+    return None
 
 
 def ec_privkey_add(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
     # ugly copy that works in mpy and py
-    s = secret[:1] + secret[1:]
-    if _secp.secp256k1_ec_privkey_tweak_add(context, s, tweak) == 0:
+    s = _copy(secret)
+    t = _copy(tweak)
+    if _secp.secp256k1_ec_privkey_tweak_add(context, s, t) == 0:
         raise ValueError("Failed to tweak the secret")
     return s
 
@@ -517,7 +560,7 @@ def ec_pubkey_add(pub, tweak, context=_secp.ctx):
         raise ValueError("Public key should be 64 bytes long")
     if len(tweak) != 32:
         raise ValueError("Tweak should be 32 bytes long")
-    p = pub[:1] + pub[1:]
+    p = _copy(pub)
     if _secp.secp256k1_ec_pubkey_tweak_add(context, p, tweak) == 0:
         raise ValueError("Failed to tweak the public key")
     return p
@@ -547,7 +590,45 @@ def ec_pubkey_combine(*args, context=_secp.ctx):
         raise ValueError("Failed to combine pubkeys")
     return pub
 
+# schnorrsig
+def xonly_pubkey_from_pubkey(pubkey, context=_secp.ctx):
+    if len(pubkey)!=64:
+        raise ValueError("Pubkey should be 64 bytes long")
+    pointer = POINTER(c_int)
+    parity = pointer(c_int(0))
+    xonly_pub = bytes(64)
+    res = _secp.secp256k1_xonly_pubkey_from_pubkey(context, xonly_pub, parity, pubkey)
+    if res != 1:
+        raise RuntimeError("Failed to convert the pubkey")
+    return xonly_pub, bool(parity.contents.value)
 
+def schnorrsig_verify(sig, msg, pubkey, context=_secp.ctx):
+    assert len(sig) == 64
+    assert len(msg) == 32
+    assert len(pubkey) == 64
+    res = _secp.secp256k1_schnorrsig_verify(context, sig, msg, pubkey)
+    return bool(res)
+
+def keypair_create(secret, context=_secp.ctx):
+    assert len(secret) == 32
+    keypair = bytes(96)
+    r = _secp.secp256k1_keypair_create(context, keypair, secret)
+    if r == 0:
+        raise ValueError("Failed to create keypair")
+    return keypair
+
+def schnorrsig_sign(msg, keypair, nonce_function=None, extra_data=None, context=_secp.ctx):
+    assert len(msg) == 32
+    if len(keypair) == 32:
+        keypair = keypair_create(keypair, context=context)
+    assert len(keypair) == 96
+    sig = bytes(64)
+    r = _secp.secp256k1_schnorrsig_sign(context, sig, msg, keypair, nonce_function, extra_data)
+    if r == 0:
+        raise ValueError("Failed to sign")
+    return sig
+
+# recoverable
 def ecdsa_sign_recoverable(msg, secret, context=_secp.ctx):
     if len(msg) != 32:
         raise ValueError("Message should be 32 bytes long")
@@ -741,17 +822,6 @@ def rangeproof_sign(nonce, value, value_commitment, vbf, message, extra, gen, mi
     if res != 1:
         raise RuntimeError("Failed to generate the proof")
     return bytes(proof[:prooflen.contents.value])
-
-def xonly_pubkey_from_pubkey(pubkey, context=_secp.ctx):
-    if len(pubkey)!=64:
-        raise ValueError("Pubkey should be 64 bytes long")
-    pointer = POINTER(c_int)
-    parity = pointer(c_int(0))
-    xonly_pub = bytes(64)
-    res = _secp.secp256k1_xonly_pubkey_from_pubkey(context, xonly_pub, parity, pubkey)
-    if res != 1:
-        raise RuntimeError("Failed to convert the pubkey")
-    return xonly_pub, bool(parity.contents.value)
 
 def musig_pubkey_combine(*args, context=_secp.ctx):
     pub = bytes(64)

@@ -26,3 +26,9 @@ def tagged_hash(tag: str, data: bytes) -> bytes:
     """BIP-Schnorr tag-specific key derivation"""
     hashtag = hashlib.sha256(tag.encode()).digest()
     return hashlib.sha256(hashtag + hashtag + data).digest()
+
+def tagged_hash_init(tag: str, data: bytes):
+    """Prepares a tagged hash function to digest extra data"""
+    hashtag = hashlib.sha256(tag.encode()).digest()
+    h = hashlib.sha256(hashtag + hashtag + data)
+    return h

@@ -8,6 +8,7 @@ to sign a wrong transactions.
 Makes sense to run gc.collect() after processing of each scope to free memory.
 """
 from .psbt import *
+from .transaction import hash_amounts, hash_script_pubkeys
 import hashlib
 
 def skip_string(stream) -> bytes:
@@ -154,9 +155,15 @@ class PSBTView:
         self.compress = compress
         self._tx_version = self.tx.version if self.tx else None
         self._locktime = self.tx.locktime if self.tx else None
+        self.clear_cache()
+
+    def clear_cache(self):
+        # cache for digests
         self._hash_prevouts = None
-        self._hash_outputs = None
         self._hash_sequence = None
+        self._hash_outputs = None
+        self._hash_amounts = None
+        self._hash_script_pubkeys = None
 
     @classmethod
     def view(cls, stream, offset=None, compress=False):
@@ -347,11 +354,57 @@ class PSBTView:
             self._hash_outputs = h.digest()
         return self._hash_outputs
 
+    def hash_amounts(self, amounts):
+        if self._hash_amounts is None:
+            self._hash_amounts = hash_amounts(amounts)
+        return self._hash_amounts
+
+    def hash_script_pubkeys(self, script_pubkeys):
+        if self._hash_script_pubkeys is None:
+            self._hash_script_pubkeys = hash_script_pubkeys(script_pubkeys)
+        return self._hash_script_pubkeys
+
+    def sighash_taproot(self, input_index, script_pubkeys, values, sighash=SIGHASH.DEFAULT):
+        """check out bip-341"""
+        if input_index < 0 or input_index >= self.num_inputs:
+            raise PSBTError("Invalid input index")
+        if len(values) != self.num_inputs:
+            raise PSBTError("All spent amounts are required")
+        sh, anyonecanpay = SIGHASH.check(sighash)
+        h = hashes.tagged_hash_init("TapSighash", b"\x00")
+        h.update(bytes([sighash]))
+        h.update(self.tx_version.to_bytes(4, "little"))
+        h.update(self.locktime.to_bytes(4, "little"))
+        if not anyonecanpay:
+            h.update(self.hash_prevouts())
+            h.update(self.hash_amounts(values))
+            h.update(self.hash_script_pubkeys(script_pubkeys))
+            h.update(self.hash_sequence())
+        if sh not in [SIGHASH.SINGLE, SIGHASH.NONE]:
+            h.update(self.hash_outputs())
+        # data about this input
+        h.update(b"\x00") # ext_flags and annex are not supported
+        if anyonecanpay:
+            vin = self.vin(input_index)
+            h.update(vin.serialize())
+            h.update(values[input_index].to_bytes(8, "little"))
+            h.update(script_pubkeys[input_index].serialize())
+            h.update(vin.sequence.to_bytes(4, "little"))
+        else:
+            h.update(input_index.to_bytes(4, "little"))
+        # annex is not supported
+        if sh == SIGHASH.SINGLE:
+            h.update(self.vout(input_index).serialize())
+        return h.digest()
+
     def sighash_segwit(self, input_index, script_pubkey, value, sighash=SIGHASH.ALL):
         """check out bip-143"""
         if input_index < 0 or input_index >= self.num_inputs:
             raise PSBTError("Invalid input index")
         sh, anyonecanpay = SIGHASH.check(sighash)
+        # default sighash is used only in taproot
+        if sh == SIGHASH.DEFAULT:
+            sh = SIGHASH.ALL
         inp = self.vin(input_index)
         zero = b"\x00"*32 # for sighashes
         h = hashlib.sha256()
@@ -385,6 +438,9 @@ class PSBTView:
         if input_index < 0 or input_index >= self.num_inputs:
             raise PSBTError("Invalid input index")
         sh, anyonecanpay = SIGHASH.check(sighash)
+        # default sighash is used only in taproot
+        if sh == SIGHASH.DEFAULT:
+            sh = SIGHASH.ALL
         # no corresponding output for this input, we sign 00...01
         if sh == SIGHASH.SINGLE and input_index >= self.num_outputs:
             return b"\x00"*31+b"\x01"
@@ -430,6 +486,16 @@ class PSBTView:
     def sighash(self, i, sighash=SIGHASH.ALL, input_scope=None):
         inp = self.input(i) if input_scope is None else input_scope
 
+        if inp.is_taproot:
+            # TODO: not very optimal. Maybe use build_cache() or something?
+            values = []
+            scripts = []
+            for idx in range(self.num_inputs):
+                inp = self.input(idx)
+                values.append(inp.utxo.value)
+                scripts.append(inp.utxo.script_pubkey)
+            return self.sighash_taproot(i, script_pubkeys=scripts, values=values, sighash=sighash)
+
         value = inp.utxo.value
         sc = inp.witness_script or inp.redeem_script or inp.utxo.script_pubkey
 
@@ -452,7 +518,7 @@ class PSBTView:
             h = self.sighash_legacy(i, sc, sighash=sighash)
         return h
 
-    def sign_input(self, i, root, sig_stream, sighash=SIGHASH.ALL, extra_scope_data=None) -> int:
+    def sign_input(self, i, root, sig_stream, sighash=SIGHASH.DEFAULT, extra_scope_data=None) -> int:
         """
         Signs input taking into account additional derivation information for this input.
         It's helpful if your wallet knows more than provided in PSBT.
@@ -472,10 +538,14 @@ class PSBTView:
         if extra_scope_data is not None:
             inp.update(extra_scope_data)
         # check which sighash to use
-        inp_sighash = inp.sighash_type or sighash or SIGHASH.ALL
+        inp_sighash = inp.sighash_type or sighash or SIGHASH.DEFAULT
         # if input sighash is set and is different from kwarg - skip input
         if sighash is not None and inp_sighash != sighash:
             return 0
+
+        # SIGHASH.DEFAULT is only for taproot
+        if not inp.is_taproot and inp_sighash == SIGHASH.DEFAULT:
+            inp_sighash = SIGHASH.ALL
 
         h = self.sighash(i, sighash=inp_sighash, input_scope=inp)
 
@@ -483,6 +553,45 @@ class PSBTView:
 
         counter = 0
         partial_sigs = OrderedDict()
+
+        # taproot is special
+        # currently works only for single key
+        if inp.is_taproot:
+            # individual private key
+            if not fingerprint:
+                # TODO: tweak using taproot psbt fields
+                pk = root.taproot_tweak(b"")
+                if pk.xonly() in sc.data:
+                    sig = pk.schnorr_sign(h)
+                    wit = sig.serialize()
+                    if inp_sighash != SIGHASH.DEFAULT:
+                        wit += bytes([inp_sighash])
+                    inp.final_scriptwitness = Witness([wit])
+                    counter = 1
+            # if we use HDKey
+            else:
+                # TODO: add taproot derivation paths and scripts
+                for pub in inp.bip32_derivations:
+                    # check if it is root key
+                    if inp.bip32_derivations[pub].fingerprint == fingerprint:
+                        hdkey = root.derive(inp.bip32_derivations[pub].derivation)
+                        mypub = hdkey.key.get_public_key()
+                        if mypub != pub:
+                            raise PSBTError("Derivation path doesn't look right")
+                        pk = hdkey.taproot_tweak(b"")
+                        if pk.xonly() in sc.data:
+                            sig = pk.schnorr_sign(h)
+                            # sig plus sighash flag
+                            wit = sig.serialize()
+                            if inp_sighash != SIGHASH.DEFAULT:
+                                wit += bytes([inp_sighash])
+                            inp.final_scriptwitness = Witness([wit])
+                            counter = 1
+            if counter:
+                ser_string(sig_stream, b"\x08")
+                ser_string(sig_stream, inp.final_scriptwitness.serialize())
+            return counter
+
         # if we have individual private key
         if not fingerprint:
             # check if we are included in the script
@@ -509,12 +618,12 @@ class PSBTView:
             ser_string(sig_stream, partial_sigs[pub])
         return counter
 
-    def sign_with(self, root, sig_stream, sighash=SIGHASH.ALL) -> int:
+    def sign_with(self, root, sig_stream, sighash=SIGHASH.DEFAULT) -> int:
         """
         Signs psbtview with root key (HDKey or similar) and writes per-input signatures to the sig_stream.
         It can be either a simple BytesIO object or a file stream open for writing.
         Returns number of signatures added to PSBT.
-        Sighash kwarg is set to SIGHASH.ALL by default,
+        Sighash kwarg is set to SIGHASH.DEFAULT, for segwit and legacy it's replaced to SIGHASH.ALL
         so if PSBT is asking to sign with a different sighash this function won't sign.
         If you want to sign with sighashes provided in the PSBT - set sighash=None.
         """
