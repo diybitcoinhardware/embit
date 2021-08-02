@@ -12,7 +12,6 @@ from . import base58
 from . import hashes
 import hmac
 from binascii import hexlify
-import io
 
 class HDError(EmbitError):
     pass

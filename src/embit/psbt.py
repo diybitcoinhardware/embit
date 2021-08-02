@@ -8,7 +8,10 @@ from .script import Script, Witness
 from . import script
 from .base import EmbitBase, EmbitError
 from binascii import b2a_base64, a2b_base64, hexlify, unhexlify
-from io import BytesIO
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 
 class PSBTError(EmbitError):
     pass

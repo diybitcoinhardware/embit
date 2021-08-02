@@ -1,5 +1,4 @@
 import sys
-import io
 import hashlib
 from . import compact
 from .script import Script, Witness

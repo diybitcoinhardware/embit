@@ -8,7 +8,6 @@ else:
 from .. import compact, hashes
 from ..psbt import *
 from collections import OrderedDict
-from io import BytesIO
 from .transaction import LTransaction, LTransactionOutput, LTransactionInput, TxOutWitness, Proof, LSIGHASH, unblind
 from . import slip77
 import hashlib

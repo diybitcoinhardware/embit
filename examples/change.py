@@ -7,8 +7,10 @@ Multisig transaction verification example:
 """
 from embit import bip39, bip32, psbt, script, ec
 from binascii import a2b_base64, b2a_base64
-from io import BytesIO
-
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 
 def parse_multisig(sc):
     """Takes a script and extracts m,n and pubkeys from it"""

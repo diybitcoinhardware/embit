@@ -1,5 +1,7 @@
-from io import BytesIO
-
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 
 def read_until(s, chars=b",)(#"):
     res = b""

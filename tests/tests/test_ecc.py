@@ -1,8 +1,10 @@
 from binascii import unhexlify, hexlify
 from unittest import TestCase
 from embit.ec import PublicKey, PrivateKey, Signature, secp256k1
-from io import BytesIO
-
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 
 class SECPTest(TestCase):
     def test_identity(self):

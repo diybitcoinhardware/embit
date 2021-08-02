@@ -1,5 +1,8 @@
 """Base classes"""
-from io import BytesIO
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 from binascii import hexlify, unhexlify
 
 

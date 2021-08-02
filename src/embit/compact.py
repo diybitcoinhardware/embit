@@ -1,6 +1,8 @@
 """ Compact Int parsing / serialization """
-import io
-
+try:
+	import io
+except ImportError:
+	import uio as io
 
 def to_bytes(i: int):
     """encodes an integer as a compact int"""

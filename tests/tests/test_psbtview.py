@@ -3,7 +3,10 @@ from embit.psbtview import PSBTView
 from embit.psbt import PSBT, InputScope
 from embit import bip32, bip39
 from binascii import a2b_base64, b2a_base64
-from io import BytesIO
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 
 ROOT = bip32.HDKey.from_seed(bip39.mnemonic_to_seed("toy fault beef holiday later unit boring merge shield detail scrap negative"))
 # tprv8ZgxMBicQKsPeDhmZay7WoN2W9gkmZNv4bkPRgCsaqKAnafo2YkpmJFQUAv34PTdYciNteTu8A1tvDUBsusThseGfiPkdFAniazFzxRd8xv

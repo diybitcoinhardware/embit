@@ -1,4 +1,3 @@
-import io
 from .. import compact
 from ..script import Script, Witness
 from .. import hashes

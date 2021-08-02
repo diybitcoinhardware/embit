@@ -7,7 +7,10 @@ from embit.psbt import DerivationPath, PSBT
 from embit.ec import SchnorrSig, PublicKey
 from embit.transaction import SIGHASH
 from embit.psbtview import PSBTView
-from io import BytesIO
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 from binascii import a2b_base64
 
 KEY = "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"

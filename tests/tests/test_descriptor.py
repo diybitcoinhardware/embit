@@ -1,6 +1,9 @@
 from unittest import TestCase
 from binascii import hexlify
-from io import BytesIO
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
 from embit.descriptor.miniscript import OPERATORS, WRAPPERS

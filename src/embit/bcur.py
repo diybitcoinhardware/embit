@@ -1,4 +1,7 @@
-from io import BytesIO
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 import hashlib
 
 CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"

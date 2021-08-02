@@ -1,5 +1,8 @@
 from binascii import hexlify, unhexlify
-from io import BytesIO
+try:
+	from io import BytesIO
+except ImportError:
+	from uio import BytesIO
 from .. import hashes, compact, ec, bip32, script
 from ..networks import NETWORKS
 from .errors import DescriptorError
