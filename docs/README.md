@@ -49,6 +49,7 @@ xpub = root.derive("m/84h/0h/0h").to_public()
 # Generate native segwit descriptors.
 # You can use {0,1} for combined receive and change descriptors
 desc = Descriptor.from_string("wpkh([%s/84h/0h/0h]%s/{0,1}/*)" % (hexlify(root.my_fingerprint).decode(), xpub))
+# >>> wpkh([67c32a74/84h/0h/0h]xpub6CH26VtYLqm5nw8UKA2qH8doMrvGZUpeQst1JkrmyGo9LYRoKVnyfgdvjcVQoK4XSWUwyZEcupk8wBh6a2mLJ82ouUo9x2n1Y3zeoEcRSYr/{0,1}/*)
 
 # Print first 5 addresses
 for i in range(5):

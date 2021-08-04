@@ -80,7 +80,9 @@ def mnemonic_is_valid(mnemonic: str, wordlist=WORDLIST):
 def mnemonic_to_seed(mnemonic: str, password: str = "", wordlist=WORDLIST):
     # first we try to convert mnemonic to bytes
     # and raise a correct error if it is invalid
-    mnemonic_to_bytes(mnemonic, wordlist=wordlist)
+    # If wordlist is None - don't check mnemonic.
+    if wordlist is not None:
+        mnemonic_to_bytes(mnemonic, wordlist=wordlist)
     return hashlib.pbkdf2_hmac(
         "sha512",
         mnemonic.encode("utf-8"),
@@ -99,7 +101,7 @@ def _extract_index(bits, b, n):
     return value
 
 
-def mnemonic_from_bytes(b, wordlist=WORDLIST):
+def mnemonic_from_bytes(entropy, wordlist=WORDLIST):
     if len(b) % 4 != 0:
         raise ValueError("Byte array should be multiple of 4 long (16, 20, ..., 32)")
     total_bits = len(b) * 8
