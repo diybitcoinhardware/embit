@@ -128,7 +128,7 @@ class PublicKey(EmbitKey):
 
 
 class PrivateKey(EmbitKey):
-    def __init__(self, secret, compressed: bool = True, network=None):
+    def __init__(self, secret, compressed: bool = True, network=NETWORKS["main"]):
         """Creates a private key from 32-byte array"""
         if len(secret) != 32:
             raise ECError("Secret should be 32-byte array")
@@ -136,8 +136,6 @@ class PrivateKey(EmbitKey):
             raise ECError("Secret is not valid (larger then N?)")
         self.compressed = compressed
         self._secret = secret
-        if network is None:
-            network = NETWORKS["main"]
         self.network = network
 
     def wif(self, network=None) -> str:

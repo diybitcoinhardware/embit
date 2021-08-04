@@ -11,6 +11,7 @@
 	- [transaction](/api/transaction.md)
 	- [psbt](/api/psbt.md)
 	- [psbtview](/api/psbtview.md)
+	- [networks](/api/networks.md)
 	- [base58](/api/base58.md)
 	- [bech32](/api/bech32.md)
 	- [compact](/api/compact.md)
