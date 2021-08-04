@@ -1,0 +1,1 @@
+# BIP-39 mnemonics
