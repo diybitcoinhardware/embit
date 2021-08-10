@@ -27,7 +27,7 @@ def tagged_hash(tag: str, data: bytes) -> bytes:
     hashtag = hashlib.sha256(tag.encode()).digest()
     return hashlib.sha256(hashtag + hashtag + data).digest()
 
-def tagged_hash_init(tag: str, data: bytes):
+def tagged_hash_init(tag: str, data: bytes = b""):
     """Prepares a tagged hash function to digest extra data"""
     hashtag = hashlib.sha256(tag.encode()).digest()
     h = hashlib.sha256(hashtag + hashtag + data)

@@ -1,6 +1,8 @@
 # Overview
 
-`embit` is designed to run both on full Python 3 or with [MicroPython](https://micropython.org/) on embedded devices. It uses [libsecp256k1](https://github.com/bitcoin-core/secp256k1) maintained by [Bitcoin Core](https://bitcoincore.org/) team for elliptic curve operations, and everything else is implemented in python.
+`embit` is a bitcoin library designed to run either with Python 3 on a PC or with [MicroPython](https://micropython.org/) on embedded devices.
+
+For cryptography it uses [libsecp256k1](https://github.com/bitcoin-core/secp256k1) library maintained by [Bitcoin Core](https://bitcoincore.org/) team for elliptic, and everything else is implemented in python.
 
 ## Supported features:
 
@@ -14,12 +16,14 @@
 
 ## Installation
 
-Python: 
+**Python 3:**
 ```sh
 pip3 install embit
 ```
 
-Micropython: requires custom build with C bindings to hashlib and secp256k1. Docs TBD, see examples for now: [stm32](https://github.com/diybitcoinhardware/f469-disco), [RiscV](https://github.com/stepansnigirev/MaixPy), [esp32](https://github.com/stepansnigirev/esp32_embit)
+**Micropython:** requires custom build with C bindings to hashlib and secp256k1. Docs TBD, see examples for now: [stm32](https://github.com/diybitcoinhardware/f469-disco), [RiscV](https://github.com/stepansnigirev/MaixPy), [esp32](https://github.com/stepansnigirev/esp32_embit)
+
+<!-- For more details check out [installation instructions](./install.md). -->
 
 ## Basic usage
 
