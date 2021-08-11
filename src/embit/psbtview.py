@@ -424,7 +424,7 @@ class PSBTView:
         h.update(inp.sequence.to_bytes(4, "little"))
         if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
             h.update(hashlib.sha256(self.hash_outputs()).digest())
-        elif sh == SIGHASH.SINGLE and input_index < len(self.vout):
+        elif sh == SIGHASH.SINGLE and input_index < self.num_outputs:
             h.update(hashlib.sha256(
                 hashlib.sha256(self.vout(input_index).serialize()).digest()
             ).digest())
