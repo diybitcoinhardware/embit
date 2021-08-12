@@ -43,9 +43,10 @@ class GlobalTransactionView:
     """
     Global transaction in PSBT is
     - unsigned (with empty scriptsigs)
-    - doesn't have witness 
+    - doesn't have witness
     """
     LEN_VIN = 32 + 4 + 1 + 4 # txid, vout, scriptsig, sequence
+    NUM_VIN_OFFSET = 4 # version
     def __init__(self, stream, offset):
         self.stream = stream
         self.offset = offset
@@ -66,7 +67,7 @@ class GlobalTransactionView:
     @property
     def num_vin(self):
         if self._num_vin is None:
-            self.stream.seek(self.offset + 4)
+            self.stream.seek(self.offset + self.NUM_VIN_OFFSET)
             self._num_vin = compact.read_from(self.stream)
         return self._num_vin
 
@@ -81,7 +82,7 @@ class GlobalTransactionView:
     @property
     def vin0_offset(self):
         if self._vin0_offset is None:
-            self._vin0_offset = self.offset + 4 + len(compact.to_bytes(self.num_vin))
+            self._vin0_offset = self.offset + self.NUM_VIN_OFFSET + len(compact.to_bytes(self.num_vin))
         return self._vin0_offset
 
     @property

@@ -102,17 +102,17 @@ def _extract_index(bits, b, n):
 
 
 def mnemonic_from_bytes(entropy, wordlist=WORDLIST):
-    if len(b) % 4 != 0:
+    if len(entropy) % 4 != 0:
         raise ValueError("Byte array should be multiple of 4 long (16, 20, ..., 32)")
-    total_bits = len(b) * 8
+    total_bits = len(entropy) * 8
     checksum_bits = total_bits // 32
     total_mnemonics = (total_bits + checksum_bits) // 11
     # no need to truncate checksum - we already know total_mnemonics
-    checksum = bytearray(hashlib.sha256(b).digest())
-    b += checksum
+    checksum = bytearray(hashlib.sha256(entropy).digest())
+    entropy += checksum
     mnemonic = []
     for i in range(0, total_mnemonics):
-        idx = _extract_index(11, b, i)
+        idx = _extract_index(11, entropy, i)
         mnemonic.append(wordlist[idx])
     return " ".join(mnemonic)
 

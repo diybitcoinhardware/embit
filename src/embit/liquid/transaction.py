@@ -143,7 +143,7 @@ class LTransaction(Transaction):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._hash_outputs_rangeproofs = None
+        self._hash_rangeproofs = None
         self._hash_issuance = None
 
     @property
@@ -251,13 +251,13 @@ class LTransaction(Transaction):
         return hashlib.sha256(b"\x00"*len(self.vin)).digest()
 
     def hash_rangeproofs(self):
-        if self._hash_outputs_rangeproofs is None:
+        if self._hash_rangeproofs is None:
             h = hashlib.sha256()
             for out in self.vout:
                 h.update(out.witness.range_proof.serialize())
                 h.update(out.witness.surjection_proof.serialize())
-            self._hash_outputs_rangeproofs = h.digest()
-        return self._hash_outputs_rangeproofs
+            self._hash_rangeproofs = h.digest()
+        return self._hash_rangeproofs
 
     def hash_outputs(self):
         if self._hash_outputs is None:

@@ -9,6 +9,7 @@ from .test_slip39 import *
 from .test_descriptor import *
 from .test_liquid import *
 from .test_psbtview import *
+from .test_psetview import *
 from .test_taproot import *
 
 if sys.implementation.name != "micropython":
