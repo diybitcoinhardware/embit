@@ -6,7 +6,7 @@
 	- [ec](/api/ec/README.md)
 		- [PrivateKey](/api/ec/private_key.md)
 		- [PublicKey](/api/ec/public_key.md)
-		- [Signature](/api/ec/signature_key.md)
+		- [Signature](/api/ec/signature.md)
 		- [SchnorrSig](/api/ec/schnorr_sig.md)
 	- [bip39](/api/bip39.md)
 	- [bip32](/api/bip32.md)

@@ -39,8 +39,10 @@ pub.xonly()
 print(pub)
 # >>> 036930f46dd0b1...1cafceb82
 
-# sign a message using ECDSA
-msg = b"5"*32
+# sign a message
+msg = b"5"*32 # should be a 32-byte hash of the message
+
+# ECDSA siganture:
 sig = pk.sign(msg)
 # serialization - DER encoding
 # string repr - hex of DER serialization
@@ -52,15 +54,16 @@ pub.verify(sig, msg)
 # >>> True
 
 # tweak private key (taproot)
-# argument is hash of tapscript
-tweak = b"3"*32
+# argument is the hash of tapscripts
+# or empty bytes if you don't need tapscripts.
+tweak = b""
 tweaked_pk = pk.taproot_tweak(tweak)
 # sign a message with Schnorr
 schnorrsig = tweaked_pk.schnorr_sign(msg)
 # serialization - 64 byte encoded sig
 # string repr - hex of serialization
 print(schnorrsig)
-# >>> 2b81e113a3a1498...13952ece745513
+# >>> 15492285664fc22...f05fd38abdda9dd95
 
 # verify schnorr signature
 tweaked_pub = pub.taproot_tweak(tweak)

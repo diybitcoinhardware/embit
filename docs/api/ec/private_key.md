@@ -16,12 +16,15 @@ PrivateKey(secret, compressed=True, network=NETWORKS['main'])`
 
 `32`-byte big-endian scalar.
 
-- `PrivateKey.read_from(stream)` - reads `32` bytes from stream and parses them as big-endian scalar.
+**Parsing (class methods):**
+
 - `PrivateKey.parse(bytes)` - parses a `32`-byte array as a big-endian scalar.
+- `PrivateKey.read_from(stream)` - reads `32` bytes from stream and parses them as big-endian scalar.
 
+**Serialization:**
 
-- `pk.write_to(stream)` - writes `32` bytes with the secret to stream.
 - `pk.serialize()` - returns `32` bytes with secret.
+- `pk.write_to(stream)` - writes `32` bytes with the secret to stream.
 
 ## String representation
 
@@ -34,21 +37,40 @@ Can receive desired [network](../networks.md) as an optional argument (i.e. `pk.
 
 
 - `pk.wif(network=None)` - encodes private key to WIF string. Optional argument
-- `pk.to_string(network=None)` - same as `wif()`
+- `pk.to_string(network=None)` - same as `pk.wif(network)`
+- `str(pk)` - same as `pk.wif()` using default network.
 
 ## Attributes
+
+You can change them at any time.
 
 - `network` - [network dict](../networks.md) used for serialization.
 - `compressed` - compressed flag, `bool`
 
+**Example**
+
+```python
+from embit import ec
+from embit.networks import NETWORKS
+
+pk = ec.PrivateKey.from_string("KxsLKrFM2X4kK4zkxGtmTaWv2tvyNLdZmuMWhni3DeKDcDFeS3DU")
+
+pk.compressed = False
+pk.network = NETWORKS['test']
+print(pk)
+# >>> 91xaiBUgkdecTArApWPQXLVKGtUxHidJs4HXzpchGMPFhMCmEqc
+```
+
 ## Properties
+
+These properties only implement getter, so you can't change them.
 
 - `secret` - `32`-byte big-endian scalar.
 - `is_private` - `bool`, always returns `True`. Useful in things like `Descriptor` or `HDKey` where internal key can be either private or public.
 
 ## Methods
 
-Table of contents:
+Methods of `PrivateKey`:
 
 - [`wif()`](#wif)
 - [`from_wif()`](#from_wif)
@@ -57,7 +79,18 @@ Table of contents:
 - [`schnorr_sign()`](#schnorr_sign)
 - [`taproot_tweak()`](#taproot_tweak)
 
+Aliases from [`PublicKey`](./public_key.md) class - same as calling these methods on the key returned by [`pk.get_public_key()`](#get_public_key):
+
+- [`sec()`](./public_key.md#sec) - SEC serialization of the public key.
+- [`xonly()`](./public_key.md#xonly) - x-only serialization of the public key (for taproot).
+- [`verify(sig, msg)`](./public_key.md#verify) - verifies ECDSA signature for the message.
+- [`schnorr_verify(schnorrsig, msg)`](./public_key.md#schnorr_verify) - verifies schnorr signature for the message.
+
 ### `wif()`
+
+[WIF](https://en.bitcoin.it/wiki/Wallet_import_format) (wallet import format) is a default human-readable format for individual private keys.
+
+It is a base58-encoded private key with network-dependent prefix and compressed flag.
 
 **Arguments**
 
@@ -65,9 +98,7 @@ Table of contents:
 
 **Returns**
 
-A [WIF](https://en.bitcoin.it/wiki/Wallet_import_format) string (wallet import format) with serialized private key.
-
-WIF is a base58-encoded private key with network-dependent prefix and compressed flag.
+WIF string
 
 **Example**
 
@@ -149,11 +180,3 @@ Tweaks the private key with taproot script hash according to [BIP-341](https://g
 
 A tweaked instance of `PrivateKey`.
 
-## Aliases
-
-Aliases from [`PublicKey`](./public_key.md) class - same as calling these methods on the key returned by [`pk.get_public_key()`](#get_public_key):
-
-- [`sec()`](./public_key.md#sec) - SEC serialization of the public key.
-- [`xonly()`](./public_key.md#xonly) - x-only serialization of the public key (for taproot).
-- [`verify(sig, msg)`](./public_key.md#verify) - verifies ECDSA signature for the message.
-- [`schnorr_verify(schnorrsig, msg)`](./public_key.md#schnorr_verify) - verifies schnorr signature for the message.
