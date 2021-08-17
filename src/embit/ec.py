@@ -121,7 +121,7 @@ class PublicKey(EmbitKey):
         return self.sec() > other.sec()
 
     def __eq__(self, other):
-        return self._point == other._point
+        return self.sec() == other.sec()
 
     def __hash__(self):
         return hash(self._point)
