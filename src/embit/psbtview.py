@@ -11,11 +11,6 @@ from .psbt import *
 from .transaction import hash_amounts, hash_script_pubkeys
 import hashlib
 
-def skip_string(stream) -> bytes:
-    l = compact.read_from(stream)
-    stream.seek(l, 1)
-    return len(compact.to_bytes(l)) + l
-
 def read_write(sin, sout, l=None, chunk_size=32) -> int:
     """Reads l or all bytes from sin and writes to sout"""
     # number of bytes written
@@ -220,13 +215,16 @@ class PSBTView:
                    first_scope, version, tx_offset, compress)
 
     def _skip_scope(self):
+        off = 0
         while True:
             # read key and update cursor
-            key = read_string(self.stream)
-            # separator
-            if len(key) == 0:
+            keylen = skip_string(self.stream)
+            off += keylen
+            # separator: zero-length key
+            if keylen == 1:
                 break
-            skip_string(self.stream)
+            off += skip_string(self.stream)
+        return off
 
     def seek_to_scope(self, n):
         """
@@ -234,17 +232,22 @@ class PSBTView:
         n can be from 0 to num_inputs+num_outputs or None.
         If n = None it seeks to global scope.
         If n = num_inputs + num_outputs it seeks to the end of PSBT.
-        This can be useful to check that nothing is left in the stream (i.e. for tests)
+        This can be useful to check that nothing is left in the stream (i.e. for tests).
+        Returns an offset at this scope.
         """
         if n is None:
-            self.stream.seek(self.offset)
+            off = self.offset+len(self.MAGIC)
+            self.stream.seek(off)
+            return off
         if n > self.num_inputs + self.num_outputs:
             raise PSBTError("Invalid scope number")
         # seek to first scope
         self.stream.seek(self.first_scope)
+        off = self.first_scope
         while n:
-            self._skip_scope()
+            off += self._skip_scope()
             n -= 1
+        return off
 
     def input(self, i):
         """Reads, parses and returns PSBT InputScope #i"""
@@ -269,15 +272,15 @@ class PSBTView:
             return self.tx.vin(i)
 
         self.seek_to_scope(i)
-        v = self._get_value(b"\x0e", from_current=True)
+        v = self.get_value(b"\x0e", from_current=True)
         txid = bytes(reversed(v))
 
         self.seek_to_scope(i)
-        v = self._get_value(b"\x0f", from_current=True)
+        v = self.get_value(b"\x0f", from_current=True)
         vout = int.from_bytes(v, 'little')
 
         self.seek_to_scope(i)
-        v = self._get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
+        v = self.get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
         sequence = int.from_bytes(v, 'little')
 
         return TransactionInput(txid, vout, sequence=sequence)
@@ -289,11 +292,11 @@ class PSBTView:
             return self.tx.vout(i)
 
         self.seek_to_scope(self.num_inputs + i)
-        v = self._get_value(b"\x03", from_current=True)
+        v = self.get_value(b"\x03", from_current=True)
         value = int.from_bytes(v, 'little')
 
         self.seek_to_scope(self.num_inputs + i)
-        v = self._get_value(b"\x04", from_current=True)
+        v = self.get_value(b"\x04", from_current=True)
         script_pubkey = Script(v)
 
         return TransactionOutput(value, script_pubkey)
@@ -301,31 +304,44 @@ class PSBTView:
     @property
     def locktime(self):
         if self._locktime is None:
-            v = self._get_value(b"\x03")
+            v = self.get_value(b"\x03")
             self._locktime = int.from_bytes(v, 'little') if v is not None else 0
         return self._locktime
 
     @property
     def tx_version(self):
         if self._tx_version is None:
-            v = self._get_value(b"\x02")
+            v = self.get_value(b"\x02")
             self._tx_version = int.from_bytes(v, 'little') if v is not None else 0
         return self._tx_version
 
-    def _get_value(self, key_start, from_current=False):
+    def seek_to_value(self, key_start, from_current=False):
+        """
+        Seeks to value with key starting with key_start.
+        Returns offset - relative if from_current=True, absolute otherwise.
+        If key is not found - returns None.
+        """
+        off = 0
         if not from_current:
             # go to the start
             self.stream.seek(self.offset + len(self.MAGIC))
+            off = self.offset + len(self.MAGIC)
         while True:
             key = read_string(self.stream)
+            off += len(key) + len(compact.to_bytes(len(key)))
             # separator - not found
             if len(key) == 0:
                 return None
             # matches
             if key.startswith(key_start):
-                return read_string(self.stream)
+                return off
             # continue to the next key
-            skip_string(self.stream)
+            off += skip_string(self.stream)
+
+    def get_value(self, key_start, from_current=False):
+        off = self.seek_to_value(key_start, from_current)
+        if off:
+            return read_string(self.stream)
 
     def hash_prevouts(self):
         if self._hash_prevouts is None:

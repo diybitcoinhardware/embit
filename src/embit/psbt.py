@@ -26,6 +26,12 @@ def read_string(stream) -> bytes:
     return s
 
 
+def skip_string(stream) -> bytes:
+    l = compact.read_from(stream)
+    stream.seek(l, 1)
+    return len(compact.to_bytes(l)) + l
+
+
 class DerivationPath(EmbitBase):
     def __init__(self, fingerprint: bytes, derivation: list):
         self.fingerprint = fingerprint
@@ -196,7 +202,7 @@ class InputScope(PSBTScope):
         # separator
         if len(k) == 0:
             return
-        # non witness utxo, can be parsed and verifies without too much memory
+        # non witness utxo, can be parsed and verified without too much memory
         if k[0] == 0x00:
             if len(k) != 1:
                 raise PSBTError("Invalid non-witness utxo key")

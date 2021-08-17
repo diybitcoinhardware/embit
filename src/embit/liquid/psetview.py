@@ -121,15 +121,15 @@ class PSETView(PSBTView):
             return self.tx.vin(i)
 
         self.seek_to_scope(i)
-        v = self._get_value(b"\x0e", from_current=True)
+        v = self.get_value(b"\x0e", from_current=True)
         txid = bytes(reversed(v))
 
         self.seek_to_scope(i)
-        v = self._get_value(b"\x0f", from_current=True)
+        v = self.get_value(b"\x0f", from_current=True)
         vout = int.from_bytes(v, 'little')
 
         self.seek_to_scope(i)
-        v = self._get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
+        v = self.get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
         sequence = int.from_bytes(v, 'little')
 
         return LTransactionInput(txid, vout, sequence=sequence)

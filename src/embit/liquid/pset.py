@@ -51,8 +51,16 @@ class LInputScope(InputScope):
         return LTransactionInput(self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF))
 
     def read_value(self, stream, k):
+        # standard bitcoin stuff
         if (b'\xfc\x08elements' not in k) and (b"\xfc\x04pset" not in k):
             super().read_value(stream, k)
+        elif k == b'\xfc\x04pset\x0e':
+            # range proof is very large,
+            # so we don't load it if compress flag is set.
+            if self.compress:
+                skip_string(stream)
+            else:
+                self.range_proof = read_string(stream)
         else:
             v = read_string(stream)
             # liquid-specific fields
@@ -64,8 +72,6 @@ class LInputScope(InputScope):
                 self.asset = v
             elif k == b'\xfc\x08elements\x03':
                 self.asset_blinding_factor = v
-            elif k == b'\xfc\x04pset\x0e':
-                self.range_proof = v
             else:
                 self.unknown[k] = v
 
@@ -155,6 +161,18 @@ class LOutputScope(OutputScope):
     def read_value(self, stream, k):
         if (b'\xfc\x08elements' not in k) and (b"\xfc\x04pset" not in k):
             super().read_value(stream, k)
+        # range proof and surjection proof are very large,
+        # so we don't load them if compress flag is set.
+        elif k in [b'\xfc\x08elements\x04', b'\xfc\x04pset\x04']:
+            if self.compress:
+                skip_string(stream)
+            else:
+                self.range_proof = read_string(stream)
+        elif k in [b'\xfc\x08elements\x05', b'\xfc\x04pset\x05']:
+            if self.compress:
+                skip_string(stream)
+            else:
+                self.surjection_proof = read_string(stream)
         else:
             v = read_string(stream)
             # liquid-specific fields
@@ -168,10 +186,6 @@ class LOutputScope(OutputScope):
                 self.asset_commitment = v
             elif k == b'\xfc\x08elements\x03':
                 self.asset_blinding_factor = v
-            elif k in [b'\xfc\x08elements\x04', b'\xfc\x04pset\x04']:
-                self.range_proof = v
-            elif k in [b'\xfc\x08elements\x05', b'\xfc\x04pset\x05']:
-                self.surjection_proof = v
             elif k in [b'\xfc\x08elements\x06', b'\xfc\x04pset\x06']:
                 self.blinding_pubkey = v
             elif k in [b'\xfc\x08elements\x07', b'\xfc\x04pset\x07']:
