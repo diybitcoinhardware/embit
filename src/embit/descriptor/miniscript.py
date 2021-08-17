@@ -604,6 +604,7 @@ class Thresh(Miniscript):
             if "d" not in p or "u" not in p:
                 raise MiniscriptError("thresh: X%d should be du" % (i + 1))
 
+    @property
     def properties(self):
         # z=all are z; o=all are z except one is o; d; u
         props = ""
