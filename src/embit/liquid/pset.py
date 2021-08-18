@@ -11,7 +11,7 @@ from collections import OrderedDict
 from io import BytesIO
 from .transaction import LTransaction, LTransactionOutput, LTransactionInput, TxOutWitness, Proof, LSIGHASH, unblind
 from . import slip77
-import hashlib
+import hashlib, gc
 
 class LInputScope(InputScope):
     TX_CLS = LTransaction
@@ -307,9 +307,11 @@ class PSET(PSBT):
             out.value_commitment = secp256k1.pedersen_commitment_serialize(value_commitment)
 
             proof_seed = hashes.tagged_hash("liquid/surjection_proof", txseed+i.to_bytes(4,'little'))
-            proof, in_idx = secp256k1.surjectionproof_initialize(in_tags, out.asset, seed=proof_seed)
+            proof, in_idx = secp256k1.surjectionproof_initialize(in_tags, out.asset, proof_seed)
             secp256k1.surjectionproof_generate(proof, in_idx, in_gens, gen, self.inputs[in_idx].asset_blinding_factor, out.asset_blinding_factor)
             out.surjection_proof = secp256k1.surjectionproof_serialize(proof)
+            del proof
+            gc.collect()
 
             # generate range proof
             rangeproof_nonce = hashes.tagged_hash("liquid/range_proof", txseed+i.to_bytes(4,'little'))

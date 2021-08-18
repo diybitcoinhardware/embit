@@ -49,7 +49,8 @@ class SECPTest(TestCase):
             self.assertEqual(str(pub), sec)
             self.assertEqual(pub, PublicKey.from_string(sec))
             pub.compressed = not pub.compressed
-            self.assertEqual(pub, PublicKey.from_string(sec))
+            # compressed and uncompressed are considered different now
+            self.assertFalse(pub == PublicKey.from_string(sec))
             s = BytesIO()
             self.assertEqual(pub.write_to(s), 33 + 32 * int(not pub.compressed))
             self.assertEqual(priv.write_to(s), 32)
