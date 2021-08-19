@@ -97,7 +97,12 @@ class HDKey(EmbitKey):
 
     def to_base58(self, version=None) -> str:
         b = self.serialize(version)
-        return base58.encode_check(b)
+        res = base58.encode_check(b)
+        if res[1:4] == "prv" and not self.is_private:
+            raise HDError("Invalid version for private key")
+        if res[1:4] == "pub" and self.is_private:
+            raise HDError("Invalid version for public key")
+        return res
 
     @classmethod
     def from_string(cls, s: str):
@@ -249,29 +254,30 @@ class HDKey(EmbitKey):
         return hash(self.serialize())
 
 
-def detect_version(path: str, default="xprv", network=None) -> bytes:
+def detect_version(path, default="xprv", network=None) -> bytes:
     """
-    Detects slip-132? version from the path for certain network.
+    Detects slip-132 version from the path for certain network.
     Trying to be smart, use if you want, but with care.
     """
     key = default
     net = network
     if network is None:
         net = NETWORKS["main"]
-    arr = parse_path(path)
-    if len(arr) == 0:
+    if isinstance(path, str):
+        path = parse_path(path)
+    if len(path) == 0:
         return network[key]
-    if arr[0] == 0x80000000 + 84:
+    if path[0] == 0x80000000 + 84:
         key = "z" + default[1:]
-    elif arr[0] == 0x80000000 + 49:
+    elif path[0] == 0x80000000 + 49:
         key = "y" + default[1:]
-    elif arr[0] == 0x80000000 + 48:
-        if len(arr) >= 4:
-            if arr[3] == 0x80000000 + 1:
+    elif path[0] == 0x80000000 + 48:
+        if len(path) >= 4:
+            if path[3] == 0x80000000 + 1:
                 key = "Y" + default[1:]
-            elif arr[3] == 0x80000000 + 2:
+            elif path[3] == 0x80000000 + 2:
                 key = "Z" + default[1:]
-    if network is None and len(arr) > 1 and arr[1] == 0x80000000 + 1:
+    if network is None and len(path) > 1 and path[1] == 0x80000000 + 1:
         net = NETWORKS["test"]
     return net[key]
 

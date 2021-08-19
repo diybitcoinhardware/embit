@@ -36,7 +36,7 @@ Can receive desired [network](../networks.md) as an optional argument (i.e. `pk.
 - `PrivateKey.from_string(wif)` - same as `from_wif()`
 
 
-- `pk.wif(network=None)` - encodes private key to WIF string. Optional argument
+- `pk.wif(network=None)` - encodes private key to WIF string. Optional argument is one of the `NETWORKS` to use for conversion.
 - `pk.to_string(network=None)` - same as `pk.wif(network)`
 - `str(pk)` - same as `pk.wif()` using default network.
 
@@ -72,12 +72,12 @@ These properties only implement getter, so you can't change them.
 
 Methods of `PrivateKey`:
 
-- [`wif()`](#wif)
-- [`from_wif()`](#from_wif)
-- [`get_public_key()`](#get_public_key)
-- [`sign()`](#sign)
-- [`schnorr_sign()`](#schnorr_sign)
-- [`taproot_tweak()`](#taproot_tweak)
+- [`wif()`](#wif) - returns base58-encoded private key.
+- [`from_wif(s)`](#from_wif) - class method, parses a base58-encoded string and returns corresponding `PrivateKey`. 
+- [`get_public_key()`](#get_public_key) - returns a `PublicKey` corresponding to private key.
+- [`sign(msg)`](#sign) - signs a 32-byte message hash and returns ECDSA `Signature`.
+- [`schnorr_sign(msg)`](#schnorr_sign) - signs a 32-byte message hash and returns `SchnorrSig`.
+- [`taproot_tweak(tweak=b"")`](#taproot_tweak) - returns tweaked `PrivateKey` according to taproot rules.
 
 Aliases from [`PublicKey`](./public_key.md) class - same as calling these methods on the key returned by [`pk.get_public_key()`](#get_public_key):
 
