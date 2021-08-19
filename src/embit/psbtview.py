@@ -554,15 +554,20 @@ class PSBTView:
         inp = self.input(i)
         if extra_scope_data is not None:
             inp.update(extra_scope_data)
-        # check which sighash to use
-        inp_sighash = inp.sighash_type or sighash or SIGHASH.DEFAULT
-        # if input sighash is set and is different from kwarg - skip input
-        if sighash is not None and inp_sighash != sighash:
-            return 0
 
-        # SIGHASH.DEFAULT is only for taproot
+        # SIGHASH.DEFAULT is only for taproot, fallback to SIGHASH.ALL for other inputs
+        required_sighash = sighash
+        if not inp.is_taproot and required_sighash == SIGHASH.DEFAULT:
+            required_sighash = SIGHASH.ALL
+
+        # check which sighash to use
+        inp_sighash = inp.sighash_type or required_sighash or SIGHASH.DEFAULT
         if not inp.is_taproot and inp_sighash == SIGHASH.DEFAULT:
             inp_sighash = SIGHASH.ALL
+
+        # if input sighash is set and is different from kwarg - don't sign this input
+        if required_sighash is not None and inp_sighash != required_sighash:
+            return 0
 
         h = self.sighash(i, sighash=inp_sighash, input_scope=inp)
 
