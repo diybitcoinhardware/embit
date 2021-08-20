@@ -674,7 +674,7 @@ class PSBT(EmbitBase):
         """
         Signs psbt with root key (HDKey or similar).
         Returns number of signatures added to PSBT.
-        Sighash kwarg is set to SIGHASH.ALL by default,
+        Sighash kwarg is set to SIGHASH.DEFAULT, for segwit and legacy it's replaced to SIGHASH.ALL
         so if PSBT is asking to sign with a different sighash this function won't sign.
         If you want to sign with sighashes provided in the PSBT - set sighash=None.
         """
@@ -687,16 +687,19 @@ class PSBT(EmbitBase):
 
         counter = 0
         for i, inp in enumerate(self.inputs):
+            # SIGHASH.DEFAULT is only for taproot, fallback to SIGHASH.ALL for other inputs
+            required_sighash = sighash
+            if not inp.is_taproot and required_sighash == SIGHASH.DEFAULT:
+                required_sighash = SIGHASH.ALL
+
             # check which sighash to use
-            inp_sighash = inp.sighash_type or sighash or SIGHASH.DEFAULT
-
-            # if input sighash is set and is different from kwarg - don't sign this input
-            if sighash is not None and inp_sighash != sighash:
-                continue
-
-            # SIGHASH.DEFAULT is only for taproot
+            inp_sighash = inp.sighash_type or required_sighash or SIGHASH.DEFAULT
             if not inp.is_taproot and inp_sighash == SIGHASH.DEFAULT:
                 inp_sighash = SIGHASH.ALL
+
+            # if input sighash is set and is different from kwarg - don't sign this input
+            if required_sighash is not None and inp_sighash != required_sighash:
+                continue
 
             h = self.sighash(i, sighash=inp_sighash)
 
