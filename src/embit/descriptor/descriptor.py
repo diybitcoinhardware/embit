@@ -79,7 +79,7 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_legacy(self):
-        return not self.is_segwit
+        return not (self.is_segwit or self.is_taproot)
 
     @property
     def is_segwit(self):
