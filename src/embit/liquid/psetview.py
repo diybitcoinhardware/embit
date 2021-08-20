@@ -146,13 +146,39 @@ class PSETView(PSBTView):
             self._hash_issuances = hashlib.sha256(b"\x00"*self.num_inputs).digest()
         return self._hash_issuances
 
+    def _hash_to(self, h, l):
+        while l > 32:
+            h.update(self.stream.read(32))
+            l -= 32
+        h.update(self.stream.read(l))
+
     def hash_rangeproofs(self):
         if self._hash_rangeproofs is None:
             h = hashlib.sha256()
             for i in range(self.num_outputs):
-                out = self.blinded_vout(i)
-                h.update(out.witness.range_proof.serialize())
-                h.update(out.witness.surjection_proof.serialize())
+                off = self.seek_to_scope(self.num_inputs + i)
+                rangeproof_offset = self.seek_to_value(b'\xfc\x04pset\x04', from_current=True)
+                if not rangeproof_offset:
+                    self.stream.seek(off)
+                    rangeproof_offset = self.seek_to_value(b'\xfc\x08elements\x04', from_current=True)
+                if not rangeproof_offset:
+                    h.update(b"\x00")
+                else:
+                    l = compact.read_from(self.stream)
+                    h.update(compact.to_bytes(l))
+                    self._hash_to(h, l)
+
+                self.stream.seek(off)
+                surj_proof_offset = self.seek_to_value(b'\xfc\x04pset\x05', from_current=True)
+                if not surj_proof_offset:
+                    self.stream.seek(off)
+                    surj_proof_offset = self.seek_to_value(b'\xfc\x08elements\x05', from_current=True)
+                if not surj_proof_offset:
+                    h.update(b"\x00")
+                else:
+                    l = compact.read_from(self.stream)
+                    h.update(compact.to_bytes(l))
+                    self._hash_to(h, l)
             self._hash_rangeproofs = h.digest()
         return self._hash_rangeproofs
 
