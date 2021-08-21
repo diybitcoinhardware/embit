@@ -501,6 +501,7 @@ class PSBT(EmbitBase):
     def verify(self, ignore_missing=False):
         for i, inp in enumerate(self.inputs):
             inp.verify(ignore_missing)
+        return self.is_verified
 
     def utxo(self, i):
         if self.inputs[i].is_verified:
