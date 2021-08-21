@@ -26,6 +26,15 @@ class LInputScope(InputScope):
         self.range_proof = None
         super().__init__(unknown, **kwargs)
 
+    def clear_metadata(self):
+        """Removes metadata like derivations, utxos etc except final or partial sigs"""
+        super().clear_metadata()
+        self.range_proof = None
+        self.value_blinding_factor = None
+        self.asset_blinding_factor = None
+        self.value = None
+        self.asset = None
+
     def unblind(self, blinding_key):
         if self.range_proof is None:
             return
@@ -111,10 +120,24 @@ class LOutputScope(OutputScope):
         self.ecdh_pubkey = None
         self.blinding_pubkey = None
         self.asset = None
+        self.blinder_index = None
         if vout:
             self.asset = vout.asset
         # super calls parse_unknown() at the end
         super().__init__(unknown, vout=vout, **kwargs)
+
+    def clear_metadata(self):
+        """Removes metadata like derivations, utxos etc except final or partial sigs"""
+        super().clear_metadata()
+        self.range_proof = None
+        self.surjection_proof = None
+        self.value_blinding_factor = None
+        self.asset_blinding_factor = None
+        if self.value_commitment:
+            self.value = None
+        if self.asset_commitment:
+            self.asset = None
+        self.blinder_index = None
 
     @property
     def vout(self):
@@ -190,6 +213,8 @@ class LOutputScope(OutputScope):
                 self.blinding_pubkey = v
             elif k in [b'\xfc\x08elements\x07', b'\xfc\x04pset\x07']:
                 self.ecdh_pubkey = v
+            elif k == b"\xfc\x04pset\x08":
+                self.blinder_index = int.from_bytes(v, 'little')
             else:
                 self.unknown[k] = v
 
@@ -248,6 +273,9 @@ class LOutputScope(OutputScope):
             else:
                 r += ser_string(stream, b'\xfc\x08elements\x05')
             r += ser_string(stream, self.surjection_proof)
+        if self.blinder_index is not None:
+            r += ser_string(stream, b"\xfc\x04pset\x08")
+            r += ser_string(stream, self.blinder_index.to_bytes(4, 'little'))
         # separator
         if not skip_separator:
             r += stream.write(b"\x00")
