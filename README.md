@@ -18,12 +18,17 @@ To install copy the content of `embit` folder to the board. To save some space y
 
 ## Python 3
 
-Can use [libsecp256k1](https://github.com/bitcoin-core/secp256k1) with ctypes if it is installed in the system. Otherwise uses pure python implementation.
-
 To install run `pip3 install embit`.
 
 To install in development mode (editable) clone and run `pip3 install -e .` from the root folder.
 
+PyPi installation includes prebuilt libraries for common platforms (win, macos, linux, raspi) - see [`src/embit/util/prebuilt/`](./src/embit/util/prebuilt/) folder. Library is built from [libsecp-zkp](https://github.com/ElementsProject/secp256k1-zkp) fork for Liquid support, but will work with pure [libsecp256k1](https://github.com/bitcoin-core/secp256k1) as well - just Liquid functionality doesn't work. If it fails to use the prebuilt or system library it will fallback to pure python implementation.
+
+If you want to build the lib yourself, [clone it](https://github.com/ElementsProject/secp256k1-zkp) and configure it with the following flags:
+
+```sh
+./configure --enable-module-ecdh --enable-module-musig --enable-module-recovery --enable-module-generator --enable-module-rangeproof --enable-module-schnorrsig --enable-module-surjectionproof --enable-experimental
+```
 
 ## Using non-English BIP39 wordlists
 [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md) defines wordlists for:
