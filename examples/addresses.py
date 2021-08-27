@@ -27,7 +27,7 @@ def main():
     sc = script.p2sh(script.p2wpkh(pub))
     print(sc.address(network))
 
-    print("\nMiltisig address (2 of 3):")
+    print("\nMultisig address (2 of 3):")
     # unsorted
     pubs = [
         ec.PublicKey.parse(
