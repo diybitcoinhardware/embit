@@ -30,7 +30,7 @@ def parse_multisig(sc):
     for i in range(n):
         char = s.read(1)
         if char != b"\x21":
-            raise ValueError("Invlid pubkey")
+            raise ValueError("Invalid pubkey")
         pubkeys.append(ec.PublicKey.parse(s.read(33)))
     # check that nothing left
     if s.read() != sc.data[-2:]:
