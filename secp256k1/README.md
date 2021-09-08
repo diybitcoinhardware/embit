@@ -1,12 +1,22 @@
-This document describes how to build a library from **libsecp256k1** fork -
+# Building secp256k1 for embit
+
+If you don't want to use prebuilt binary packaged with `embit` you can build it yourself.
+
+We are using **libsecp256k1** fork -
 [**secp256k1-zkp**](https://github.com/ElementsProject/secp256k1-zkp).
 
-# Building the library on Linux or MacOS
+# Building the library under target platform
 
-Just run:
+To build the library run:
 
 ```sh
 make
+```
+
+To clean build directory use:
+
+```shell
+make clean
 ```
 
 # Cross-compiling Windows DLL
@@ -41,14 +51,8 @@ choco install mingw make
 
 ## Building the library
 
-To build the DLL and the companion library from the source code type:
+To build the Windows DLL and the companion library from other platforms run:
 
 ```shell
-make
-```
-
-To clean build directory use:
-
-```shell
-make clean
+make CROSS_DLL=1
 ```
