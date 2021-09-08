@@ -833,7 +833,7 @@ def musig_pubkey_combine(*args, context=_secp.ctx):
     return pub
 
 # surjection proof
-def surjectionproof_initialize(in_tags, out_tag, tags_to_use=None, iterations=100, seed=None, context=_secp.ctx):
+def surjectionproof_initialize(in_tags, out_tag, seed, tags_to_use=None, iterations=100, context=_secp.ctx):
     if tags_to_use is None:
         tags_to_use = min(3, len(in_tags))
     if seed is None:
