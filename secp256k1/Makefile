@@ -39,9 +39,15 @@ DEPS := $(OBJS:.o=.d)
 CFLAGS = -fPIC -O2 -Werror -Wno-unused-function \
 	$(addprefix -I,$(C_INCLUDES)) $(addprefix -D,$(C_DEFS))
 
+ifeq ($(PLATFORM),darwin)
+LDFLAGS = -dynamiclib
+EXT = .dylib
+else
 LDFLAGS = -shared
+EXT = .so
+endif
 
-$(BUILD_DIR)/$(TARGET)_$(PLATFORM)_$(ARCH).so: $(OBJS) Makefile
+$(BUILD_DIR)/$(TARGET)_$(PLATFORM)_$(ARCH)$(EXT): $(OBJS) Makefile
 	$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
 $(BUILD_DIR)/%.o: %.c Makefile
