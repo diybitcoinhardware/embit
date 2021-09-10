@@ -1,6 +1,7 @@
 import ctypes, os
 import ctypes.util
 import platform
+import threading
 
 from ctypes import (
     cast,
@@ -17,6 +18,14 @@ from ctypes import (
     CFUNCTYPE,
     POINTER,
 )
+
+_lock = threading.Lock()
+# @locked decorator
+def locked(func):
+    def wrapper(*args, **kwargs):
+        with _lock:
+            return func(*args, **kwargs)
+    return wrapper
 
 # Flags to pass to context_create.
 CONTEXT_VERIFY = 0b0100000001
@@ -63,7 +72,7 @@ def _find_library():
             library_path = "/usr/local/lib/libsecp256k1.so.0"
     return library_path
 
-
+@locked
 def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
     library_path = _find_library()
     # meh, can't find library
@@ -383,6 +392,7 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
 _secp = _init()
 
 # bindings equal to ones in micropython
+@locked
 def context_randomize(seed, context=_secp.ctx):
     if len(seed) != 32:
         raise ValueError("Seed should be 32 bytes long")
@@ -390,6 +400,7 @@ def context_randomize(seed, context=_secp.ctx):
         raise RuntimeError("Failed to randomize context")
 
 
+@locked
 def ec_pubkey_create(secret, context=_secp.ctx):
     if len(secret) != 32:
         raise ValueError("Private key should be 32 bytes long")
@@ -400,6 +411,7 @@ def ec_pubkey_create(secret, context=_secp.ctx):
     return pub
 
 
+@locked
 def ec_pubkey_parse(sec, context=_secp.ctx):
     if len(sec) != 33 and len(sec) != 65:
         raise ValueError("Serialized pubkey should be 33 or 65 bytes long")
@@ -416,6 +428,7 @@ def ec_pubkey_parse(sec, context=_secp.ctx):
     return pub
 
 
+@locked
 def ec_pubkey_serialize(pubkey, flag=EC_COMPRESSED, context=_secp.ctx):
     if len(pubkey) != 64:
         raise ValueError("Pubkey should be 64 bytes long")
@@ -429,6 +442,7 @@ def ec_pubkey_serialize(pubkey, flag=EC_COMPRESSED, context=_secp.ctx):
     return sec
 
 
+@locked
 def ecdsa_signature_parse_compact(compact_sig, context=_secp.ctx):
     if len(compact_sig) != 64:
         raise ValueError("Compact signature should be 64 bytes long")
@@ -439,6 +453,7 @@ def ecdsa_signature_parse_compact(compact_sig, context=_secp.ctx):
     return sig
 
 
+@locked
 def ecdsa_signature_parse_der(der, context=_secp.ctx):
     sig = bytes(64)
     r = _secp.secp256k1_ecdsa_signature_parse_der(context, sig, der, len(der))
@@ -447,6 +462,7 @@ def ecdsa_signature_parse_der(der, context=_secp.ctx):
     return sig
 
 
+@locked
 def ecdsa_signature_serialize_der(sig, context=_secp.ctx):
     if len(sig) != 64:
         raise ValueError("Signature should be 64 bytes long")
@@ -458,6 +474,7 @@ def ecdsa_signature_serialize_der(sig, context=_secp.ctx):
     return der[: sz.value]
 
 
+@locked
 def ecdsa_signature_serialize_compact(sig, context=_secp.ctx):
     if len(sig) != 64:
         raise ValueError("Signature should be 64 bytes long")
@@ -468,6 +485,7 @@ def ecdsa_signature_serialize_compact(sig, context=_secp.ctx):
     return ser
 
 
+@locked
 def ecdsa_signature_normalize(sig, context=_secp.ctx):
     if len(sig) != 64:
         raise ValueError("Signature should be 64 bytes long")
@@ -476,6 +494,7 @@ def ecdsa_signature_normalize(sig, context=_secp.ctx):
     return sig2
 
 
+@locked
 def ecdsa_verify(sig, msg, pub, context=_secp.ctx):
     if len(sig) != 64:
         raise ValueError("Signature should be 64 bytes long")
@@ -487,6 +506,7 @@ def ecdsa_verify(sig, msg, pub, context=_secp.ctx):
     return bool(r)
 
 
+@locked
 def ecdsa_sign(msg, secret, nonce_function=None, extra_data=None, context=_secp.ctx):
     if len(msg) != 32:
         raise ValueError("Message should be 32 bytes long")
@@ -501,12 +521,14 @@ def ecdsa_sign(msg, secret, nonce_function=None, extra_data=None, context=_secp.
     return sig
 
 
+@locked
 def ec_seckey_verify(secret, context=_secp.ctx):
     if len(secret) != 32:
         raise ValueError("Secret should be 32 bytes long")
     return bool(_secp.secp256k1_ec_seckey_verify(context, secret))
 
 
+@locked
 def ec_privkey_negate(secret, context=_secp.ctx):
     if len(secret) != 32:
         raise ValueError("Secret should be 32 bytes long")
@@ -515,6 +537,7 @@ def ec_privkey_negate(secret, context=_secp.ctx):
     return b
 
 
+@locked
 def ec_pubkey_negate(pubkey, context=_secp.ctx):
     if len(pubkey) != 64:
         raise ValueError("Pubkey should be a 64-byte structure")
@@ -525,6 +548,7 @@ def ec_pubkey_negate(pubkey, context=_secp.ctx):
     return pub
 
 
+@locked
 def ec_privkey_tweak_add(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
@@ -533,6 +557,7 @@ def ec_privkey_tweak_add(secret, tweak, context=_secp.ctx):
         raise ValueError("Failed to tweak the secret")
     return None
 
+@locked
 def ec_pubkey_tweak_add(pub, tweak, context=_secp.ctx):
     if len(pub) != 64:
         raise ValueError("Public key should be 64 bytes long")
@@ -544,6 +569,7 @@ def ec_pubkey_tweak_add(pub, tweak, context=_secp.ctx):
     return None
 
 
+@locked
 def ec_privkey_add(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
@@ -555,6 +581,7 @@ def ec_privkey_add(secret, tweak, context=_secp.ctx):
     return s
 
 
+@locked
 def ec_pubkey_add(pub, tweak, context=_secp.ctx):
     if len(pub) != 64:
         raise ValueError("Public key should be 64 bytes long")
@@ -566,6 +593,7 @@ def ec_pubkey_add(pub, tweak, context=_secp.ctx):
     return p
 
 
+@locked
 def ec_privkey_tweak_mul(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
@@ -573,6 +601,7 @@ def ec_privkey_tweak_mul(secret, tweak, context=_secp.ctx):
         raise ValueError("Failed to tweak the secret")
 
 
+@locked
 def ec_pubkey_tweak_mul(pub, tweak, context=_secp.ctx):
     if len(pub) != 64:
         raise ValueError("Public key should be 64 bytes long")
@@ -582,6 +611,7 @@ def ec_pubkey_tweak_mul(pub, tweak, context=_secp.ctx):
         raise ValueError("Failed to tweak the public key")
 
 
+@locked
 def ec_pubkey_combine(*args, context=_secp.ctx):
     pub = bytes(64)
     pubkeys = (c_char_p * len(args))(*args)
@@ -591,6 +621,7 @@ def ec_pubkey_combine(*args, context=_secp.ctx):
     return pub
 
 # schnorrsig
+@locked
 def xonly_pubkey_from_pubkey(pubkey, context=_secp.ctx):
     if len(pubkey)!=64:
         raise ValueError("Pubkey should be 64 bytes long")
@@ -602,6 +633,7 @@ def xonly_pubkey_from_pubkey(pubkey, context=_secp.ctx):
         raise RuntimeError("Failed to convert the pubkey")
     return xonly_pub, bool(parity.contents.value)
 
+@locked
 def schnorrsig_verify(sig, msg, pubkey, context=_secp.ctx):
     assert len(sig) == 64
     assert len(msg) == 32
@@ -609,6 +641,7 @@ def schnorrsig_verify(sig, msg, pubkey, context=_secp.ctx):
     res = _secp.secp256k1_schnorrsig_verify(context, sig, msg, pubkey)
     return bool(res)
 
+@locked
 def keypair_create(secret, context=_secp.ctx):
     assert len(secret) == 32
     keypair = bytes(96)
@@ -617,18 +650,21 @@ def keypair_create(secret, context=_secp.ctx):
         raise ValueError("Failed to create keypair")
     return keypair
 
+# not @locked because it uses keypair_create inside
 def schnorrsig_sign(msg, keypair, nonce_function=None, extra_data=None, context=_secp.ctx):
     assert len(msg) == 32
     if len(keypair) == 32:
         keypair = keypair_create(keypair, context=context)
-    assert len(keypair) == 96
-    sig = bytes(64)
-    r = _secp.secp256k1_schnorrsig_sign(context, sig, msg, keypair, nonce_function, extra_data)
-    if r == 0:
-        raise ValueError("Failed to sign")
-    return sig
+    with _lock:
+        assert len(keypair) == 96
+        sig = bytes(64)
+        r = _secp.secp256k1_schnorrsig_sign(context, sig, msg, keypair, nonce_function, extra_data)
+        if r == 0:
+            raise ValueError("Failed to sign")
+        return sig
 
 # recoverable
+@locked
 def ecdsa_sign_recoverable(msg, secret, context=_secp.ctx):
     if len(msg) != 32:
         raise ValueError("Message should be 32 bytes long")
@@ -641,6 +677,7 @@ def ecdsa_sign_recoverable(msg, secret, context=_secp.ctx):
     return sig
 
 
+@locked
 def ecdsa_recoverable_signature_serialize_compact(sig, context=_secp.ctx):
     if len(sig) != 65:
         raise ValueError("Recoverable signature should be 65 bytes long")
@@ -654,6 +691,7 @@ def ecdsa_recoverable_signature_serialize_compact(sig, context=_secp.ctx):
     return ser, idx[0]
 
 
+@locked
 def ecdsa_recoverable_signature_parse_compact(compact_sig, recid, context=_secp.ctx):
     if len(compact_sig) != 64:
         raise ValueError("Signature should be 64 bytes long")
@@ -666,6 +704,7 @@ def ecdsa_recoverable_signature_parse_compact(compact_sig, recid, context=_secp.
     return sig
 
 
+@locked
 def ecdsa_recoverable_signature_convert(sigin, context=_secp.ctx):
     if len(sigin) != 65:
         raise ValueError("Recoverable signature should be 65 bytes long")
@@ -676,6 +715,7 @@ def ecdsa_recoverable_signature_convert(sigin, context=_secp.ctx):
     return sig
 
 
+@locked
 def ecdsa_recover(sig, msghash, context=_secp.ctx):
     if len(sig) != 65:
         raise ValueError("Recoverable signature should be 65 bytes long")
@@ -689,6 +729,7 @@ def ecdsa_recover(sig, msghash, context=_secp.ctx):
 
 # zkp modules
 
+@locked
 def pedersen_commitment_parse(inp, context=_secp.ctx):
     if len(inp)!=33:
         raise ValueError("Serialized commitment should be 33 bytes long")
@@ -698,6 +739,7 @@ def pedersen_commitment_parse(inp, context=_secp.ctx):
         raise ValueError("Failed to parse commitment")
     return commit
 
+@locked
 def pedersen_commitment_serialize(commit, context=_secp.ctx):
     if len(commit)!=64:
         raise ValueError("Commitment should be 64 bytes long")
@@ -707,6 +749,7 @@ def pedersen_commitment_serialize(commit, context=_secp.ctx):
         raise ValueError("Failed to serialize commitment")
     return sec
 
+@locked
 def pedersen_commit(vbf, value, gen, context=_secp.ctx):
     if len(gen)!=64:
         raise ValueError("Generator should be 64 bytes long")
@@ -718,6 +761,7 @@ def pedersen_commit(vbf, value, gen, context=_secp.ctx):
         raise ValueError("Failed to create commitment")
     return commit
 
+@locked
 def pedersen_blind_generator_blind_sum(values, gens, vbfs, num_inputs, context=_secp.ctx):
     vals = (c_uint64 * len(values))(*values)
     vbf = bytes(vbfs[-1])
@@ -733,6 +777,7 @@ def pedersen_blind_generator_blind_sum(values, gens, vbfs, num_inputs, context=_
     assert len(res) == 32
     return res
 
+@locked
 def pedersen_verify_tally(ins, outs, context=_secp.ctx):
     in_ptr = (c_char_p * len(ins))(*ins)
     out_ptr = (c_char_p * len(outs))(*outs)
@@ -740,6 +785,7 @@ def pedersen_verify_tally(ins, outs, context=_secp.ctx):
     return bool(res)
 
 # generator
+@locked
 def generator_parse(inp, context=_secp.ctx):
     if len(inp)!=33:
         raise ValueError("Serialized generator should be 33 bytes long")
@@ -749,6 +795,7 @@ def generator_parse(inp, context=_secp.ctx):
         raise ValueError("Failed to parse generator")
     return gen
 
+@locked
 def generator_generate(asset, context=_secp.ctx):
     if len(asset)!=32:
         raise ValueError("Asset should be 32 bytes long")
@@ -758,6 +805,7 @@ def generator_generate(asset, context=_secp.ctx):
         raise ValueError("Failed to generate generator")
     return gen
 
+@locked
 def generator_generate_blinded(asset, abf, context=_secp.ctx):
     if len(asset)!=32:
         raise ValueError("Asset should be 32 bytes long")
@@ -769,6 +817,7 @@ def generator_generate_blinded(asset, abf, context=_secp.ctx):
         raise ValueError("Failed to generate generator")
     return gen
 
+@locked
 def generator_serialize(generator, context=_secp.ctx):
     if len(generator)!=64:
         raise ValueError("Generator should be 64 bytes long")
@@ -778,6 +827,7 @@ def generator_serialize(generator, context=_secp.ctx):
     return sec
 
 # rangeproof
+@locked
 def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, message_length=64, context=_secp.ctx):
     if len(generator)!=64:
         raise ValueError("Generator should be 64 bytes long")
@@ -804,6 +854,7 @@ def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, 
         raise RuntimeError("Failed to rewind the proof")
     return value_out.contents.value, vbf_out, msg[:msglen.contents.value], min_value.contents.value, max_value.contents.value
 
+@locked
 def rangeproof_sign(nonce, value, value_commitment, vbf, message, extra, gen, min_value=1, exp=0, min_bits=52, context=_secp.ctx):
     if len(gen)!=64:
         raise ValueError("Generator should be 64 bytes long")
@@ -823,6 +874,7 @@ def rangeproof_sign(nonce, value, value_commitment, vbf, message, extra, gen, mi
         raise RuntimeError("Failed to generate the proof")
     return bytes(proof[:prooflen.contents.value])
 
+@locked
 def musig_pubkey_combine(*args, context=_secp.ctx):
     pub = bytes(64)
     # TODO: strange that behaviour is different from pubkey_combine...
@@ -833,6 +885,7 @@ def musig_pubkey_combine(*args, context=_secp.ctx):
     return pub
 
 # surjection proof
+@locked
 def surjectionproof_initialize(in_tags, out_tag, seed, tags_to_use=None, iterations=100, context=_secp.ctx):
     if tags_to_use is None:
         tags_to_use = min(3, len(in_tags))
@@ -847,16 +900,19 @@ def surjectionproof_initialize(in_tags, out_tag, seed, tags_to_use=None, iterati
         raise RuntimeError("Failed to initialize the proof")
     return proof, input_index.contents.value
 
+@locked
 def surjectionproof_generate(proof, in_idx, in_tags, out_tag, in_abf, out_abf, context=_secp.ctx):
     res = _secp.secp256k1_surjectionproof_generate(context, proof, b"".join(in_tags), len(in_tags), out_tag, in_idx, in_abf, out_abf)
     if not res:
         raise RuntimeError("Failed to generate surjection proof")
     return proof
 
+@locked
 def surjectionproof_verify(proof, in_tags, out_tag, context=_secp.ctx):
     res = _secp.secp256k1_surjectionproof_verify(context, proof, b"".join(in_tags), len(in_tags), out_tag)
     return bool(res)
 
+@locked
 def surjectionproof_serialize(proof, context=_secp.ctx):
     s = _secp.secp256k1_surjectionproof_serialized_size(context, proof)
     b = bytes(s)
@@ -867,6 +923,7 @@ def surjectionproof_serialize(proof, context=_secp.ctx):
         raise RuntimeError("Failed to serialize surjection proof - size mismatch")
     return b
 
+@locked
 def surjectionproof_parse(proof, context=_secp.ctx):
     parsed_proof = bytes(4+8+256//8+32*257)
     res = _secp.secp256k1_surjectionproof_parse(context, parsed_proof, proof, len(proof))

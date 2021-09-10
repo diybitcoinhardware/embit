@@ -14,3 +14,4 @@ from .test_taproot import *
 
 if sys.implementation.name != "micropython":
     from .test_bindings import *
+    from .test_threading import *
