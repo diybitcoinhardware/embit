@@ -333,7 +333,7 @@ class PSET(PSBT):
         blinding_outs = []
         for i, out in enumerate(self.outputs):
             # skip ones where we don't need blinding
-            if out.blinding_pubkey is None:
+            if out.blinding_pubkey is None or out.value is None:
                 continue
             out.asset_blinding_factor = hashes.tagged_hash("liquid/abf", txseed+i.to_bytes(4,'little'))
             out.value_blinding_factor = hashes.tagged_hash("liquid/vbf", txseed+i.to_bytes(4,'little'))
@@ -341,19 +341,35 @@ class PSET(PSBT):
         if len(blinding_outs) == 0:
             raise PSBTError("Nothing to blind")
         # calculate last vbf
-        vals = [sc.value for sc in self.inputs + blinding_outs]
-        abfs = [sc.asset_blinding_factor or b"\x00"*32 for sc in self.inputs + blinding_outs]
-        vbfs = [sc.value_blinding_factor or b"\x00"*32 for sc in self.inputs + blinding_outs]
-        last_vbf = secp256k1.pedersen_blind_generator_blind_sum(vals, abfs, vbfs, len(self.inputs))
+        vals = []
+        abfs = []
+        vbfs = []
+        for sc in self.inputs + blinding_outs:
+            value = sc.value or sc.utxo.value
+            asset = sc.asset or sc.utxo.asset
+            if not (isinstance(value, int) and len(asset) == 32):
+                continue
+            vals.append(value)
+            abfs.append(sc.asset_blinding_factor or b"\x00" * 32)
+            vbfs.append(sc.value_blinding_factor or b"\x00" * 32)
+        last_vbf = secp256k1.pedersen_blind_generator_blind_sum(vals, abfs, vbfs, len(vals)-len(blinding_outs))
         blinding_outs[-1].value_blinding_factor = last_vbf
 
         # calculate commitments (surj proof etc)
 
-        in_tags = [inp.asset for inp in self.inputs]
-        in_gens = [secp256k1.generator_parse(inp.utxo.asset) for inp in self.inputs]
+        in_tags = []
+        in_gens = []
+        for inp in self.inputs:
+            if inp.asset:
+                in_tags.append(inp.asset)
+                in_gens.append(secp256k1.generator_parse(inp.utxo.asset))
+            # if we have unconfidential input
+            elif len(inp.utxo.asset) == 32:
+                in_tags.append(inp.utxo.asset)
+                in_gens.append(secp256k1.generator_generate(inp.utxo.asset))
 
         for i, out in enumerate(self.outputs):
-            if out.blinding_pubkey is None:
+            if None in [out.blinding_pubkey, out.value, out.asset_blinding_factor]:
                 continue
             gen = secp256k1.generator_generate_blinded(out.asset, out.asset_blinding_factor)
             out.asset_commitment = secp256k1.generator_serialize(gen)
@@ -362,7 +378,7 @@ class PSET(PSBT):
 
             proof_seed = hashes.tagged_hash("liquid/surjection_proof", txseed+i.to_bytes(4,'little'))
             proof, in_idx = secp256k1.surjectionproof_initialize(in_tags, out.asset, proof_seed)
-            secp256k1.surjectionproof_generate(proof, in_idx, in_gens, gen, self.inputs[in_idx].asset_blinding_factor, out.asset_blinding_factor)
+            secp256k1.surjectionproof_generate(proof, in_idx, in_gens, gen, abfs[in_idx], out.asset_blinding_factor)
             out.surjection_proof = secp256k1.surjectionproof_serialize(proof)
             del proof
             gc.collect()
