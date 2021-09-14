@@ -2,7 +2,7 @@ from setuptools import setup, find_namespace_packages
 
 setup(
     name="embit",
-    version="0.4.8",
+    version="0.4.9",
     license="MIT license",
     url="https://github.com/diybitcoinhardware/embit",
     description="yet another bitcoin library",
