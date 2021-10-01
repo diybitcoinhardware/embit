@@ -9,7 +9,7 @@ from .. import compact, hashes
 from ..psbt import *
 from collections import OrderedDict
 from io import BytesIO
-from .transaction import LTransaction, LTransactionOutput, LTransactionInput, TxOutWitness, Proof, LSIGHASH, unblind
+from .transaction import LTransaction, LTransactionOutput, LTransactionInput, TxOutWitness, Proof, RangeProof, LSIGHASH, unblind
 from . import slip77
 import hashlib, gc
 
@@ -40,10 +40,13 @@ class LInputScope(InputScope):
             return
 
         pk = slip77.blinding_key(blinding_key, self.utxo.script_pubkey)
-
-        value, asset, vbf, in_abf, extra, min_value, max_value = unblind(
-            self.utxo.ecdh_pubkey, pk.secret, self.range_proof, self.utxo.value, self.utxo.asset, self.utxo.script_pubkey
-        )
+        try:
+            value, asset, vbf, in_abf, extra, min_value, max_value = unblind(
+                self.utxo.ecdh_pubkey, pk.secret, self.range_proof, self.utxo.value, self.utxo.asset, self.utxo.script_pubkey
+            )
+        # failed to unblind
+        except:
+            return
         # verify
         gen = secp256k1.generator_generate_blinded(asset, in_abf)
         assert gen == secp256k1.generator_parse(self.utxo.asset)
@@ -169,7 +172,7 @@ class LOutputScope(OutputScope):
     def vout(self):
         return LTransactionOutput(
                     self.asset or self.asset_commitment,
-                    self.value or self.value_commitment,
+                    self.value if self.value is not None else self.value_commitment,
                     self.script_pubkey,
                     None if self.asset else self.ecdh_pubkey)
 
@@ -180,7 +183,7 @@ class LOutputScope(OutputScope):
                     self.value_commitment or self.value,
                     self.script_pubkey,
                     self.ecdh_pubkey,
-                    None if not self.surjection_proof else TxOutWitness(Proof(self.surjection_proof), Proof(self.range_proof))
+                    None if not self.surjection_proof else TxOutWitness(Proof(self.surjection_proof), RangeProof(self.range_proof))
         )
 
     def reblind(self, nonce, blinding_pubkey=None, extra_message=b""):
@@ -345,7 +348,7 @@ class PSET(PSBT):
         abfs = []
         vbfs = []
         for sc in self.inputs + blinding_outs:
-            value = sc.value or sc.utxo.value
+            value = sc.value if sc.value is not None else sc.utxo.value
             asset = sc.asset or sc.utxo.asset
             if not (isinstance(value, int) and len(asset) == 32):
                 continue

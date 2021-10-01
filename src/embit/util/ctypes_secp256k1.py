@@ -856,6 +856,8 @@ def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, 
 
 @locked
 def rangeproof_sign(nonce, value, value_commitment, vbf, message, extra, gen, min_value=1, exp=0, min_bits=52, context=_secp.ctx):
+    if value == 0:
+        min_value = 0
     if len(gen)!=64:
         raise ValueError("Generator should be 64 bytes long")
     if len(nonce)!=32:

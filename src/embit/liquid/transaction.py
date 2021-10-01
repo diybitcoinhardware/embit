@@ -98,6 +98,14 @@ class Proof(EmbitBase):
         return cls(data)
 
 
+class RangeProof(Proof):
+
+    def unblind(self, ecdh_pubkey, blinding_key, value, asset, script_pubkey, message_length=64):
+        if not self.data:
+            raise TransactionError("Rangeproof is empty")
+        return unblind(ecdh_pubkey, blinding_key, self.data, value, asset, script_pubkey, message_length)
+
+
 class TxInWitness(EmbitBase):
     def __init__(self, amount_proof=None, token_proof=None, script_witness=None, pegin_witness=None):
         self.amount_proof = amount_proof if amount_proof is not None else Proof()
@@ -123,7 +131,7 @@ class TxInWitness(EmbitBase):
 class TxOutWitness(EmbitBase):
     def __init__(self, surjection_proof=None, range_proof=None):
         self.surjection_proof = surjection_proof if surjection_proof is not None else Proof()
-        self.range_proof = range_proof if range_proof is not None else Proof()
+        self.range_proof = range_proof if range_proof is not None else RangeProof()
 
     def write_to(self, stream):
         res = self.surjection_proof.write_to(stream)
@@ -136,7 +144,7 @@ class TxOutWitness(EmbitBase):
 
     @classmethod
     def read_from(cls, stream):
-        return cls(Proof.read_from(stream), Proof.read_from(stream))
+        return cls(Proof.read_from(stream), RangeProof.read_from(stream))
 
 
 class LTransaction(Transaction):
