@@ -297,12 +297,36 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
         secp256k1.secp256k1_pedersen_verify_tally.restype = c_int
 
         # rangeproof
-        secp256k1.secp256k1_rangeproof_rewind.argtypes = [c_void_p, c_char_p, POINTER(c_uint64), c_char_p, POINTER(c_uint64),
-                                                          c_char_p, POINTER(c_uint64), POINTER(c_uint64),
-                                                          c_char_p, c_char_p, c_uint64,
-                                                          c_char_p, c_uint64,
-                                                          c_char_p]
+        secp256k1.secp256k1_rangeproof_rewind.argtypes = [
+            c_void_p, # ctx
+            c_char_p, # vbf out
+            POINTER(c_uint64), # value out
+            c_char_p, # message out
+            POINTER(c_uint64), # msg out len
+            c_char_p, # nonce
+            POINTER(c_uint64), # min value
+            POINTER(c_uint64), # max value
+            c_char_p, # pedersen commitment
+            c_char_p, # range proof
+            c_uint64, # proof len
+            c_char_p, # extra commitment (scriptpubkey)
+            c_uint64, # extra len
+            c_char_p, # generator
+        ]
         secp256k1.secp256k1_rangeproof_rewind.restype = c_int
+
+        secp256k1.secp256k1_rangeproof_verify.argtypes = [
+            c_void_p, # ctx
+            POINTER(c_uint64), # min value
+            POINTER(c_uint64), # max value
+            c_char_p, # pedersen commitment
+            c_char_p, # proof
+            c_uint64, # proof len
+            c_char_p, # extra
+            c_uint64, # extra len
+            c_char_p, # generator
+        ]
+        secp256k1.secp256k1_rangeproof_verify.restype = c_int
 
         secp256k1.secp256k1_rangeproof_sign.argtypes = [
           c_void_p, # ctx
@@ -836,8 +860,9 @@ def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, 
     if len(value_commitment)!=64:
         raise ValueError("Value commitment should be 64 bytes long")
 
-    msg = b"\x00"*message_length
     pointer = POINTER(c_uint64)
+
+    msg = b"\x00"*message_length
     msglen = pointer(c_uint64(len(msg)))
 
     vbf_out = b"\x00"*32
@@ -853,6 +878,31 @@ def rangeproof_rewind(proof, nonce, value_commitment, script_pubkey, generator, 
     if res != 1:
         raise RuntimeError("Failed to rewind the proof")
     return value_out.contents.value, vbf_out, msg[:msglen.contents.value], min_value.contents.value, max_value.contents.value
+
+# rangeproof
+
+@locked
+def rangeproof_verify(proof, value_commitment, script_pubkey, generator, context=_secp.ctx):
+    if len(generator)!=64:
+        raise ValueError("Generator should be 64 bytes long")
+    if len(value_commitment)!=64:
+        raise ValueError("Value commitment should be 64 bytes long")
+
+    pointer = POINTER(c_uint64)
+    min_value = pointer(c_uint64(0))
+    max_value = pointer(c_uint64(0))
+    res = _secp.secp256k1_rangeproof_verify(
+        context,
+        min_value,
+        max_value,
+        value_commitment,
+        proof, len(proof),
+        script_pubkey, len(script_pubkey),
+        generator,
+    )
+    if res != 1:
+        raise RuntimeError("Failed to verify the proof")
+    return min_value.contents.value, max_value.contents.value
 
 @locked
 def rangeproof_sign(nonce, value, value_commitment, vbf, message, extra, gen, min_value=1, exp=0, min_bits=52, context=_secp.ctx):
