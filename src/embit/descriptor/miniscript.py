@@ -575,8 +575,7 @@ class Thresh(Miniscript):
     def inner_compile(self):
         return (
             self.args[1].compile()
-            + b"\x93".join([arg.compile() for arg in self.args[2:]])
-            + b"\x93"
+            + b"".join([arg.compile()+b"\x93" for arg in self.args[2:]])
             + self.args[0].compile()
             + b"\x87"
         )
