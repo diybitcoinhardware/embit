@@ -249,23 +249,28 @@ class PSBTView:
             n -= 1
         return off
 
-    def input(self, i):
+    def input(self, i, compress=None):
         """Reads, parses and returns PSBT InputScope #i"""
+        if compress is None:
+            compress = self.compress
         if i < 0 or i >= self.num_inputs:
             raise PSBTError("Invalid input index")
         vin = self.tx.vin(i) if self.tx else None
         self.seek_to_scope(i)
-        return self.PSBTIN_CLS.read_from(self.stream, vin=vin, compress=self.compress)
+        return self.PSBTIN_CLS.read_from(self.stream, vin=vin, compress=compress)
 
-    def output(self, i):
+    def output(self, i, compress=None):
         """Reads, parses and returns PSBT OutputScope #i"""
+        if compress is None:
+            compress = self.compress
         if i < 0 or i >= self.num_outputs:
             raise PSBTError("Invalid output index")
         vout = self.tx.vout(i) if self.tx else None
         self.seek_to_scope(self.num_inputs + i)
-        return self.PSBTOUT_CLS.read_from(self.stream, vout=vout, compress=self.compress)
+        return self.PSBTOUT_CLS.read_from(self.stream, vout=vout, compress=compress)
 
-    def vin(self, i):
+    # compress is not used here, but may be used by subclasses (liquid)
+    def vin(self, i, compress=None):
         if i < 0 or i >= self.num_inputs:
             raise PSBTError("Invalid input index")
         if self.tx:
@@ -285,7 +290,8 @@ class PSBTView:
 
         return TransactionInput(txid, vout, sequence=sequence)
 
-    def vout(self, i):
+    # compress is not used here, but may be used by subclasses (liquid)
+    def vout(self, i, compress=None):
         if i < 0 or i >= self.num_outputs:
             raise PSBTError("Invalid output index")
         if self.tx:

@@ -114,36 +114,28 @@ class PSETView(PSBTView):
         self._hash_rangeproofs = None
         self._hash_issuances = None
 
-    def vin(self, i):
-        if i < 0 or i >= self.num_inputs:
-            raise PSBTError("Invalid input index")
-        if self.tx:
-            return self.tx.vin(i)
+    def vin(self, i, compress=None):
+        return self.input(i, True).vin
 
-        self.seek_to_scope(i)
-        v = self.get_value(b"\x0e", from_current=True)
-        txid = bytes(reversed(v))
+    def blinded_vin(self, i, compress=None):
+        return self.input(i, compress).blinded_vin
 
-        self.seek_to_scope(i)
-        v = self.get_value(b"\x0f", from_current=True)
-        vout = int.from_bytes(v, 'little')
+    def vout(self, i, compress=None):
+        return self.output(i, compress=compress).vout
 
-        self.seek_to_scope(i)
-        v = self.get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
-        sequence = int.from_bytes(v, 'little')
-
-        return LTransactionInput(txid, vout, sequence=sequence)
-
-    def vout(self, i):
-        return self.output(i).vout
-
-    def blinded_vout(self, i):
-        return self.output(i).blinded_vout
+    def blinded_vout(self, i, compress=None):
+        return self.output(i, compress=compress).blinded_vout
 
     def hash_issuances(self):
         if self._hash_issuances is None:
-        # hash issuance ( b"\x00" per input without issuance )
-            self._hash_issuances = hashlib.sha256(b"\x00"*self.num_inputs).digest()
+            h = hashlib.sha256()
+            for i in range(self.num_inputs):
+                inp = self.input(i, compress=True)
+                if inp.has_issuance:
+                    inp.asset_issuance.hash_to(h)
+                else:
+                    h.update(b"\x00")
+            self._hash_issuances = h.digest()
         return self._hash_issuances
 
     def _hash_to(self, h, l):
@@ -195,7 +187,7 @@ class PSETView(PSBTView):
         if input_index < 0 or input_index >= self.num_inputs:
             raise PSBTError("Invalid input index")
         sh, anyonecanpay, hash_rangeproofs = LSIGHASH.check(sighash)
-        inp = self.vin(input_index)
+        inp = self.blinded_vin(input_index, compress=True)
         zero = b"\x00"*32 # for sighashes
         h = hashlib.sha256()
         h.update(self.tx_version.to_bytes(4, "little"))
@@ -216,6 +208,8 @@ class PSETView(PSBTView):
         else:
             h.update(value)
         h.update(inp.sequence.to_bytes(4, "little"))
+        if inp.has_issuance:
+            inp.asset_issuance.hash_to(h)
         if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
             h.update(hashlib.sha256(self.hash_outputs()).digest())
             if hash_rangeproofs:
