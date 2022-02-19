@@ -36,6 +36,9 @@ class LInputScope(InputScope):
         self.token_commitment = None
         self.token_rangeproof = None
         self.token_proof = None
+        # reissuance stuff
+        self.issue_nonce = None
+        self.issue_entropy = None
         super().__init__(unknown, **kwargs)
 
     def clear_metadata(self):
@@ -77,7 +80,6 @@ class LInputScope(InputScope):
     @property
     def asset_issuance(self):
         if self.has_issuance:
-            # TODO: check what happens when there is no token commitment (no reissuance)
             return AssetIssuance(self.issue_nonce, self.issue_entropy, self.issue_commitment or self.issue_value, self.token_commitment or self.token_value)
 
     @property
@@ -131,6 +133,10 @@ class LInputScope(InputScope):
                 self.token_value = int.from_bytes(v, 'little')
             elif k == b'\xfc\x04pset\x0b':
                 self.token_commitment = v
+            elif k == b'\xfc\x04pset\x0c':
+                self.issue_nonce = v
+            elif k == b'\xfc\x04pset\x0d':
+                self.issue_entropy = v
             elif k == b'\xfc\x04pset\x10':
                 self.token_proof = v
             else:
@@ -172,6 +178,12 @@ class LInputScope(InputScope):
         if self.token_commitment:
             r += ser_string(stream, b'\xfc\x04pset\x0b')
             r += ser_string(stream, self.token_commitment)
+        if self.issue_nonce:
+            r += ser_string(stream, b'\xfc\x04pset\x0c')
+            r += ser_string(stream, self.issue_nonce)
+        if self.issue_entropy:
+            r += ser_string(stream, b'\xfc\x04pset\x0d')
+            r += ser_string(stream, self.issue_entropy)
         if self.token_proof:
             r += ser_string(stream, b'\xfc\x04pset\x10')
             r += ser_string(stream, self.token_proof)
