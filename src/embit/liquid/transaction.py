@@ -255,8 +255,13 @@ class LTransaction(Transaction):
         return cls(version=ver, vin=vin, vout=vout, locktime=locktime)
 
     def hash_issuances(self):
-        # hash issuance ( b"\x00" per input without issuance )
-        return hashlib.sha256(b"\x00"*len(self.vin)).digest()
+        h = hashlib.sha256()
+        for vin in self.vin:
+            if vin.has_issuance:
+                vin.asset_issuance.hash_to(h)
+            else:
+                h.update(b"\x00")
+        return h.digest()
 
     def hash_rangeproofs(self):
         if self._hash_rangeproofs is None:
@@ -300,6 +305,8 @@ class LTransaction(Transaction):
         else:
             h.update(value)
         h.update(inp.sequence.to_bytes(4, "little"))
+        if inp.has_issuance:
+            inp.asset_issuance.hash_to(h)
         if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
             h.update(hashlib.sha256(self.hash_outputs()).digest())
             if hash_rangeproofs:
@@ -316,8 +323,8 @@ class LTransaction(Transaction):
 
 class AssetIssuance(EmbitBase):
     def __init__(self, nonce, entropy, amount_commitment, token_commitment=None):
-        self.nonce = nonce
-        self.entropy = entropy
+        self.nonce = nonce or b"\x00"*32
+        self.entropy = entropy or b"\x00"*32
         self.amount_commitment = amount_commitment
         self.token_commitment = token_commitment
 
@@ -330,6 +337,12 @@ class AssetIssuance(EmbitBase):
         amount_commitment = read_commitment(stream)
         token_commitment = read_commitment(stream)
         return cls(nonce, entropy, amount_commitment, token_commitment)
+
+    def hash_to(self, h):
+        h.update(self.nonce)
+        h.update(self.entropy)
+        h.update(write_commitment(self.amount_commitment))
+        h.update(write_commitment(self.token_commitment))
 
     def write_to(self, stream):
         res = stream.write(self.nonce)

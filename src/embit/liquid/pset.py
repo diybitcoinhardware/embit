@@ -9,7 +9,7 @@ from .. import compact, hashes
 from ..psbt import *
 from collections import OrderedDict
 from io import BytesIO
-from .transaction import LTransaction, LTransactionOutput, LTransactionInput, TxOutWitness, Proof, RangeProof, LSIGHASH, unblind
+from .transaction import LTransaction, LTransactionOutput, LTransactionInput, TxOutWitness, TxInWitness, AssetIssuance, Proof, RangeProof, LSIGHASH, unblind
 from . import slip77
 import hashlib, gc
 
@@ -24,6 +24,18 @@ class LInputScope(InputScope):
         self.asset = None
         self.asset_blinding_factor = None
         self.range_proof = None
+        # issuance stuff
+        self.issue_value = None
+        self.issue_commitment = None
+        self.issue_rangeproof = None
+        self.issue_proof = None # Explicit value proof
+        self.issue_nonce = None
+        self.issue_entropy = None
+        # reissuance token stuff
+        self.token_value = None
+        self.token_commitment = None
+        self.token_rangeproof = None
+        self.token_proof = None
         super().__init__(unknown, **kwargs)
 
     def clear_metadata(self):
@@ -59,8 +71,23 @@ class LInputScope(InputScope):
         self.value_blinding_factor = vbf
 
     @property
+    def has_issuance(self):
+        return bool(self.issue_value or self.issue_commitment)
+
+    @property
+    def asset_issuance(self):
+        if self.has_issuance:
+            # TODO: check what happens when there is no token commitment (no reissuance)
+            return AssetIssuance(self.issue_nonce, self.issue_entropy, self.issue_commitment or self.issue_value, self.token_commitment or self.token_value)
+
+    @property
     def vin(self):
-        return LTransactionInput(self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF))
+        return LTransactionInput(self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF), asset_issuance=self.asset_issuance)
+
+    @property
+    def blinded_vin(self):
+        return LTransactionInput(self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF),
+                            asset_issuance=self.asset_issuance, witness=TxInWitness(self.issue_rangeproof, self.token_rangeproof))
 
     def read_value(self, stream, k):
         # standard bitcoin stuff
@@ -73,6 +100,16 @@ class LInputScope(InputScope):
                 skip_string(stream)
             else:
                 self.range_proof = read_string(stream)
+        elif k == b'\xfc\x04pset\x02':
+            if self.compress:
+                skip_string(stream)
+            else:
+                self.issue_rangeproof = read_string(stream)
+        elif k == b'\xfc\x04pset\x03':
+            if self.compress:
+                skip_string(stream)
+            else:
+                self.token_rangeproof = read_string(stream)
         else:
             v = read_string(stream)
             # liquid-specific fields
@@ -84,6 +121,18 @@ class LInputScope(InputScope):
                 self.asset = v
             elif k == b'\xfc\x08elements\x03':
                 self.asset_blinding_factor = v
+            elif k == b'\xfc\x04pset\x00':
+                self.issue_value = int.from_bytes(v, 'little')
+            elif k == b'\xfc\x04pset\x01':
+                self.issue_commitment = v
+            elif k == b'\xfc\x04pset\x0f':
+                self.issue_proof = v
+            elif k == b'\xfc\x04pset\x0a':
+                self.token_value = int.from_bytes(v, 'little')
+            elif k == b'\xfc\x04pset\x0b':
+                self.token_commitment = v
+            elif k == b'\xfc\x04pset\x10':
+                self.token_proof = v
             else:
                 self.unknown[k] = v
 
@@ -105,6 +154,30 @@ class LInputScope(InputScope):
         if self.range_proof is not None:
             r += ser_string(stream, b'\xfc\x04pset\x0e')
             r += ser_string(stream, self.range_proof)
+        if self.issue_value:
+            r += ser_string(stream, b'\xfc\x04pset\x00')
+            r += ser_string(stream, self.issue_value.to_bytes(8, 'little'))
+        if self.token_value:
+            r += ser_string(stream, b'\xfc\x04pset\x0a')
+            r += ser_string(stream, self.token_value.to_bytes(8, 'little'))
+        if self.issue_commitment:
+            r += ser_string(stream, b'\xfc\x04pset\x01')
+            r += ser_string(stream, self.issue_commitment)
+        if self.issue_proof:
+            r += ser_string(stream, b'\xfc\x04pset\x0f')
+            r += ser_string(stream, self.issue_proof)
+        if self.issue_rangeproof:
+            r += ser_string(stream, b'\xfc\x04pset\x02')
+            r += ser_string(stream, self.issue_rangeproof)
+        if self.token_commitment:
+            r += ser_string(stream, b'\xfc\x04pset\x0b')
+            r += ser_string(stream, self.token_commitment)
+        if self.token_proof:
+            r += ser_string(stream, b'\xfc\x04pset\x10')
+            r += ser_string(stream, self.token_proof)
+        if self.token_rangeproof:
+            r += ser_string(stream, b'\xfc\x04pset\x03')
+            r += ser_string(stream, self.token_rangeproof)
         # separator
         if not skip_separator:
             r += stream.write(b"\x00")
@@ -454,7 +527,7 @@ class PSET(PSBT):
     def blinded_tx(self):
         return self.TX_CLS(version=self.tx_version or 2,
                            locktime=self.locktime or 0,
-                           vin=[inp.vin for inp in self.inputs],
+                           vin=[inp.blinded_vin for inp in self.inputs],
                            vout=[out.blinded_vout for out in self.outputs])
 
     def sighash_segwit(self, input_index, script_pubkey, value, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)):
