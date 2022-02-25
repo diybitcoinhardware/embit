@@ -49,6 +49,21 @@ class LInputScope(InputScope):
         self.asset_blinding_factor = None
         self.value = None
         self.asset = None
+        # issuance stuff
+        self.issue_value = None
+        self.issue_commitment = None
+        self.issue_rangeproof = None
+        self.issue_proof = None # Explicit value proof
+        self.issue_nonce = None
+        self.issue_entropy = None
+        # reissuance token stuff
+        self.token_value = None
+        self.token_commitment = None
+        self.token_rangeproof = None
+        self.token_proof = None
+        # reissuance stuff
+        self.issue_nonce = None
+        self.issue_entropy = None
 
     def unblind(self, blinding_key):
         if self.range_proof is None:
