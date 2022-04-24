@@ -42,6 +42,9 @@ class Script(EmbitBase):
         # we should never get here
         raise ValueError("Unsupported script type")
 
+    def push(self, data):
+        self.data += compact.to_bytes(len(data)) + data
+
     def script_type(self):
         data = self.data
         # OP_DUP OP_HASH160 <20:hash160(pubkey)> OP_EQUALVERIFY OP_CHECKSIG
@@ -74,6 +77,13 @@ class Script(EmbitBase):
         if len(data) != l:
             raise ValueError("Cant read %d bytes" % l)
         return cls(data)
+
+    @classmethod
+    def from_address(cls, addr:str):
+        """
+        Decodes a bitcoin address and returns corresponding scriptpubkey.
+        """
+        return address_to_scriptpubkey(addr)
 
     def __eq__(self, other):
         return self.data == other.data

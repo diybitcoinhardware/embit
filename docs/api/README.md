@@ -18,6 +18,12 @@ pub = PublicKey.parse(b"\x02\x01\x8a\x76\x85\x41\xc9\x46...\x85")
 from embit.transaction import Transaction
 with open("raw.tx", "rb") as f:
 	tx = Transaction.read_from(f)
+
+# serialize to bytes
+sec = pub.serialize()
+# write to binary file
+with open("raw2.tx", "wb") as f:
+	tx.write_to(f)
 ```
 
 Some classes also have string representations. If they don't - we assume hex representation. You can use `.from_string()` and `.to_string()` methods for that, or just call `str(something)`:
