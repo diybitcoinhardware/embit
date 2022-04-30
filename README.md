@@ -6,7 +6,9 @@ Should remain minimal to fit in a microcontroller. Also easy to audit.
 
 Examples can be found in [`examples/`](./examples) folder.
 
-Micropython-specific tutorial [here](https://github.com/diybitcoinhardware/f469-disco/tree/master/docs/tutorial).
+Documentation: https://embit.rocks/
+
+Support the project: `bc1qd4flfrxjctls9ya244u39hd67pcprhvka723gv`
 
 # Requirements
 
