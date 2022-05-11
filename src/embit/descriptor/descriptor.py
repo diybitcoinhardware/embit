@@ -153,6 +153,22 @@ class Descriptor(DescriptorBase):
                 None, self.sh, self.wsh, self.key.derive(idx, branch_index), self.wpkh, self.taproot
             )
 
+    def to_public(self):
+        if self.miniscript:
+            return type(self)(
+                self.miniscript.to_public(),
+                self.sh,
+                self.wsh,
+                None,
+                self.wpkh,
+                self.taproot,
+            )
+        else:
+            return type(self)(
+                None, self.sh, self.wsh, self.key.to_public(), self.wpkh, self.taproot
+            )
+
+
     def owns(self, psbt_scope):
         """Checks if psbt input or output belongs to this descriptor"""
         # we can't check if we don't know script_pubkey

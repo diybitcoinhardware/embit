@@ -162,7 +162,7 @@ class Key(DescriptorBase):
         self.origin = origin
         self.key = key
         self.taproot = taproot
-        if not hasattr(key, "derive") and derivation is not None:
+        if not hasattr(key, "derive") and derivation:
             raise ArgumentError("Key %s doesn't support derivation" % key)
         self.allowed_derivation = derivation
 
@@ -334,6 +334,14 @@ class Key(DescriptorBase):
         return isinstance(self.key, ec.PrivateKey) or (
             self.is_extended and self.key.is_private
         )
+
+    def to_public(self):
+        if not self.is_private:
+            return self
+        if isinstance(self.key, ec.PrivateKey):
+            return type(self)(self.key.get_public_key(), self.origin, self.allowed_derivation, self.taproot)
+        else:
+            return type(self)(self.key.to_public(), self.origin, self.allowed_derivation, self.taproot)
 
     @property
     def private_key(self):

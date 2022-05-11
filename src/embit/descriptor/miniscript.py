@@ -33,6 +33,13 @@ class Miniscript(DescriptorBase):
         ]
         return type(self)(*args)
 
+    def to_public(self):
+        args = [
+            arg.to_public() if hasattr(arg, "to_public") else arg
+            for arg in self.args
+        ]
+        return type(self)(*args)
+
     def branch(self, branch_index):
         args = [
             arg.branch(branch_index) if hasattr(arg, "branch") else arg
