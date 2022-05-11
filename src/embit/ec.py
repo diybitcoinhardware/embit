@@ -227,10 +227,10 @@ class PrivateKey(EmbitKey):
         return SchnorrSig(secp256k1.schnorrsig_sign(msg_hash, self._secret))
 
     def verify(self, sig, msg_hash):
-        self.get_public_key().verify(sig, msg_hash)
+        return self.get_public_key().verify(sig, msg_hash)
 
     def schnorr_verify(self, sig, msg_hash) -> bool:
-        self.get_public_key().schnorr_verify(sig, msg_hash)
+        return self.get_public_key().schnorr_verify(sig, msg_hash)
 
     def write_to(self, stream) -> int:
         # return a copy of the secret

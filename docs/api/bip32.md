@@ -281,7 +281,7 @@ From `PrivateKey` class (available only if internal key is private):
 - [`sign(msg)`](./ec/private_key.md#sign) - signs a 32-byte message hash and returns ECDSA `Signature`.
 - [`schnorr_sign(msg)`](./ec/private_key.md#schnorr_sign) - signs a 32-byte message hash and returns `SchnorrSig`.
 
-From `PublicKey` class:
+From `PublicKey` class (available with both public and private internal keys):
 
 - [`sec()`](./ec/public_key.md#sec) - SEC serialization of the public key.
 - [`xonly()`](./ec/public_key.md#xonly) - x-only serialization of the public key (for taproot).

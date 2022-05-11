@@ -11,6 +11,8 @@ from .test_liquid import *
 from .test_psbtview import *
 from .test_psetview import *
 from .test_taproot import *
+from .test_script import *
+from .test_ripemd160 import *
 
 if sys.implementation.name != "micropython":
     from .test_bindings import *
