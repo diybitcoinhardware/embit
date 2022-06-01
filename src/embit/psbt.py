@@ -679,8 +679,27 @@ class PSBT(EmbitBase):
         so if PSBT is asking to sign with a different sighash this function won't sign.
         If you want to sign with sighashes provided in the PSBT - set sighash=None.
         """
+        # check if it's a descriptor
+        if hasattr(root, "keys"):
+            counter = 0
+            for k in root.keys:
+                if hasattr(k, "is_private") and k.is_private:
+                    counter += self.sign_with(k, sighash)
+            return counter
+
         # if WIF - fingerprint is None
-        fingerprint = None if not hasattr(root, "child") else root.child(0).fingerprint
+        fingerprint = None
+        # if descriptor key
+        if hasattr(root, "origin"):
+            if not root.is_private: # pubkey can't sign
+                return 0
+            if root.is_extended: # use fingerprint only for HDKey
+                fingerprint = root.fingerprint
+            else:
+                root = root.key # WIF key
+        # if HDKey
+        if not fingerprint and hasattr(root, "my_fingerprint"):
+            fingerprint = root.my_fingerprint
         if not fingerprint:
             pub = root.get_public_key()
             sec = pub.sec()
@@ -726,7 +745,16 @@ class PSBT(EmbitBase):
                     for pub in inp.bip32_derivations:
                         # check if it is root key
                         if inp.bip32_derivations[pub].fingerprint == fingerprint:
-                            hdkey = root.derive(inp.bip32_derivations[pub].derivation)
+                            der = inp.bip32_derivations[pub].derivation
+                            if hasattr(root, "origin"):
+                                # for descriptor key remove origin part
+                                if root.origin:
+                                    if root.origin.derivation != der[:len(root.origin.derivation)]:
+                                        continue
+                                    der = der[len(root.origin.derivation):]
+                                hdkey = root.key.derive(der)
+                            else:
+                                hdkey = root.derive(der)
                             mypub = hdkey.key.get_public_key()
                             if mypub != pub:
                                 raise PSBTError("Derivation path doesn't look right")
@@ -755,7 +783,16 @@ class PSBT(EmbitBase):
             for pub in inp.bip32_derivations:
                 # check if it is root key
                 if inp.bip32_derivations[pub].fingerprint == fingerprint:
-                    hdkey = root.derive(inp.bip32_derivations[pub].derivation)
+                    der = inp.bip32_derivations[pub].derivation
+                    if hasattr(root, "origin"):
+                        # for descriptor key remove origin part
+                        if root.origin:
+                            if root.origin.derivation != der[:len(root.origin.derivation)]:
+                                continue
+                            der = der[len(root.origin.derivation):]
+                        hdkey = root.key.derive(der)
+                    else:
+                        hdkey = root.derive(der)
                     mypub = hdkey.key.get_public_key()
                     if mypub != pub:
                         raise PSBTError("Derivation path doesn't look right")

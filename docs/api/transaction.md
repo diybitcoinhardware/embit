@@ -305,7 +305,7 @@ TransactionInput(txid, vout, script_sig=None, sequence=0xFFFFFFFF, witness=None)
 - `txid: bytes` - `32` bytes, txid of the transaction this input is spending.
 - `vout: int` - index of the output this input is spending.
 - `script_sig: script.Script` - input script sig, if `None` (default) - it will create an empty script sig.
-- `sequence = 0xFFFFFFFF` - sequence number. For Replace-by-fee set it to lower value for example `0xfffffffe`. Also used by timelocked transaction, see [BIP-68](https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki).
+- `sequence = 0xFFFFFFFF` - sequence number. For Replace-by-fee set it to lower value for example `0xfffffffd`. Also used by timelocked transaction, see [BIP-68](https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki).
 - `witness: script.Witness` - input witness, if `None` (default) - set to empty witness.
 
 Serialization and parsing is done as usual - `from_string(hex)`, `to_string()`, `parse(bytes)`, `serialize()`, `read_from(stream)`, `write_to(stream)`.
