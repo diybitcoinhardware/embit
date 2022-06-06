@@ -1,23 +1,33 @@
-# Building secp256k1 for embit
+# Building secp256k1 for `embit`
+If you don't want to use a prebuilt binary packaged with `embit`, you can build it yourself.
 
-If you don't want to use prebuilt binary packaged with `embit` you can build it yourself.
 
-We are using **libsecp256k1** fork -
-[**secp256k1-zkp**](https://github.com/ElementsProject/secp256k1-zkp).
+## Clone `embit` recursively
+We are using the **libsecp256k1** fork - [**secp256k1-zkp**](https://github.com/ElementsProject/secp256k1-zkp).
 
-# Building the library under target platform
+Start by cloning `embit` with the `--recursive` flag:
+```sh
+git clone --recursive https://github.com/diybitcoinhardware/embit.git
+```
 
-To build the library run:
+This will automatically pull in the `libsecp256k1-zkp` repo and checkout the correct commit within that repo.
 
+
+## Building the library
+This directory (`secp256k1/` in the `embit` root) already has a fully-configured Makefile to run the compilation for you.
+
+On your target platform run:
 ```sh
 make
 ```
 
-To clean build directory use:
+Copy the resulting binary from the `build/` subdir to `embit`'s `src/embit/util/prebuilt` directory.
 
+To clean build directory use:
 ```shell
 make clean
 ```
+
 
 # Cross-compiling Windows DLL
 
