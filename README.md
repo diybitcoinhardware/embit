@@ -26,17 +26,8 @@ To install in development mode (editable) clone and run `pip3 install -e .` from
 
 PyPi installation includes prebuilt libraries for common platforms (win, macos, linux, raspi) - see [`src/embit/util/prebuilt/`](./src/embit/util/prebuilt/) folder. Library is built from [libsecp-zkp](https://github.com/ElementsProject/secp256k1-zkp) fork for Liquid support, but will work with pure [libsecp256k1](https://github.com/bitcoin-core/secp256k1) as well - just Liquid functionality doesn't work. If it fails to use the prebuilt or system library it will fallback to pure python implementation.
 
-If you want to build the lib yourself, [clone it](https://github.com/ElementsProject/secp256k1-zkp) and build:
+If you want to build the lib yourself, see: [Building secp256k1 for `embit`](/secp256k1/README.md).
 
-```sh
-git clone https://github.com/ElementsProject/secp256k1-zkp.git
-cd secp256k1-zkp
-git checkout f3708a1ecb445b1b05a0f8fcd1da6a88f83d89c4
-./autogen.sh
-./configure --enable-module-ecdh --enable-module-musig --enable-module-recovery --enable-module-generator --enable-module-rangeproof --enable-module-schnorrsig --enable-module-surjectionproof --enable-experimental
-make
-sudo make install
-```
 
 ## Using non-English BIP39 wordlists
 [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md) defines wordlists for:
@@ -73,4 +64,13 @@ mnemonic_is_valid(mnemonic, wordlist=spanish_wordlist)
 mnemonic_to_seed(mnemonic, wordlist=spanish_wordlist)
 mnemonic_to_bytes(mnemonic, wordlist=spanish_wordlist)
 mnemonic_from_bytes(bytes_data, wordlist=spanish_wordlist)
+```
+
+
+# Run the tests
+Clone the repo and complete the development mode `pip3` installation step above.
+
+```
+cd tests
+python3 run_tests.py
 ```
