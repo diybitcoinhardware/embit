@@ -13,6 +13,10 @@ from io import BytesIO
 class PSBTError(EmbitError):
     pass
 
+class CompressMode:
+    KEEP_ALL = 0
+    CLEAR_ALL = 1
+    PARTIAL = 2
 
 def ser_string(stream, s: bytes) -> int:
     return stream.write(compact.to_bytes(len(s))) + stream.write(s)
@@ -109,7 +113,7 @@ class InputScope(PSBTScope):
     TX_CLS = Transaction
     TXOUT_CLS = TransactionOutput
 
-    def __init__(self, unknown: dict = {}, vin=None, compress=False):
+    def __init__(self, unknown: dict = {}, vin=None, compress=CompressMode.KEEP_ALL):
         self.compress = compress
         self.txid = None
         self.vout = None
@@ -133,14 +137,20 @@ class InputScope(PSBTScope):
         self.final_scriptwitness = None
         self.parse_unknowns()
 
-    def clear_metadata(self):
+    def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
+        if compress == CompressMode.KEEP_ALL:
+            return
         self.unknown = {}
-        self.non_witness_utxo = None
-        self.witness_utxo = None
-        self.sighash_type = None
-        self.redeem_script = None
-        self.witness_script = None
+        if compress == CompressMode.CLEAR_ALL:
+            self.non_witness_utxo = None
+            self.witness_utxo = None
+            self.sighash_type = None
+            self.redeem_script = None
+            self.witness_script = None
+        else:
+            if self.witness_utxo is not None:
+                self.non_witness_utxo = None
         self.bip32_derivations = OrderedDict()
 
     def update(self, other):
@@ -354,7 +364,7 @@ class InputScope(PSBTScope):
 
 
 class OutputScope(PSBTScope):
-    def __init__(self, unknown: dict = {}, vout=None, compress=False):
+    def __init__(self, unknown: dict = {}, vout=None, compress=CompressMode.KEEP_ALL):
         self.compress = compress
         self.value = None
         self.script_pubkey = None
@@ -367,8 +377,10 @@ class OutputScope(PSBTScope):
         self.bip32_derivations = OrderedDict()
         self.parse_unknowns()
 
-    def clear_metadata(self):
+    def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
+        if compress == CompressMode.KEEP_ALL:
+            return
         self.unknown = {}
         self.redeem_script = None
         self.witness_script = None
@@ -557,7 +569,7 @@ class PSBT(EmbitBase):
         return r
 
     @classmethod
-    def from_base64(cls, b64, compress=False):
+    def from_base64(cls, b64, compress=CompressMode.KEEP_ALL):
         raw = a2b_base64(b64)
         return cls.parse(raw, compress=compress)
 
@@ -571,14 +583,14 @@ class PSBT(EmbitBase):
             return hexlify(self.serialize()).decode()
 
     @classmethod
-    def from_string(cls, s, compress=False):
+    def from_string(cls, s, compress=CompressMode.KEEP_ALL):
         if s.startswith(hexlify(cls.MAGIC).decode()):
             return cls.parse(unhexlify(s), compress=compress)
         else:
             return cls.from_base64(s, compress=compress)
 
     @classmethod
-    def read_from(cls, stream, compress=False):
+    def read_from(cls, stream, compress=CompressMode.KEEP_ALL):
         """
         Compress flag allows to load and verify non_witness_utxo
         without storing them in memory and save the utxo internally for signing.

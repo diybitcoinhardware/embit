@@ -662,7 +662,7 @@ class PSBTView:
             sig_stream.write(b"\x00")
         return counter
 
-    def write_to(self, writable_stream, compress=False,
+    def write_to(self, writable_stream, compress=CompressMode.CLEAR_ALL,
             extra_input_streams=[],
             extra_output_streams=[],
     ):
@@ -688,7 +688,7 @@ class PSBTView:
                 extra = InputScope.read_from(s)
                 inp.update(extra)
             if compress:
-                inp.clear_metadata()
+                inp.clear_metadata(compress=compress)
             res += inp.write_to(writable_stream, version=self.version)
 
         # write all outputs
@@ -699,7 +699,7 @@ class PSBTView:
                 extra = OutputScope.read_from(s)
                 out.update(extra)
             if compress:
-                out.clear_metadata()
+                out.clear_metadata(compress=compress)
             res += out.write_to(writable_stream, version=self.version)
 
         return res
