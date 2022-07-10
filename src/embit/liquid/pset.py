@@ -41,9 +41,9 @@ class LInputScope(InputScope):
         self.issue_entropy = None
         super().__init__(unknown, **kwargs)
 
-    def clear_metadata(self):
+    def clear_metadata(self, *args, **kwargs):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
-        super().clear_metadata()
+        super().clear_metadata(*args, **kwargs)
         self.range_proof = None
         self.value_blinding_factor = None
         self.asset_blinding_factor = None
@@ -278,9 +278,9 @@ class LOutputScope(OutputScope):
         self._verified = True
         return self._verified
 
-    def clear_metadata(self):
+    def clear_metadata(self, *args, **kwargs):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
-        super().clear_metadata()
+        super().clear_metadata(*args, **kwargs)
         self.range_proof = None
         self.surjection_proof = None
         self.value_blinding_factor = None
