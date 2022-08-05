@@ -1,5 +1,8 @@
-from embit import base58, bip32, bip39
-from embit.bip32 import HDKey
+from . import base58, bip32, bip39
+from .bip32 import HDKey
+from .networks import NETWORKS
+from .wordlists.bip39 import WORDLIST
+
 from io import BytesIO
 
 """
@@ -21,6 +24,16 @@ def get_payment_code(root: HDKey):
     buf.write(b'\00' * 13)  # bytes reserved for future expansion
 
     return base58.encode_check(b"\x47" + buf.getvalue())
+
+
+
+def get_payment_code_from_mnemonic(mnemonic: str, password: str = "", wordlist=WORDLIST, version=NETWORKS["main"]["xprv"]):
+    """
+        Convenience method
+    """
+    seed_bytes = bip39.mnemonic_to_seed(mnemonic, password=password, wordlist=wordlist)
+    root = bip32.HDKey.from_seed(seed_bytes, version=version)
+    return get_payment_code(root)
 
 
 
