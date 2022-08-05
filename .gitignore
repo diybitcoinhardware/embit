@@ -129,7 +129,7 @@ dmypy.json
 .idea/
 
 #VSCode
-settings.json
+.vscode/
 
 ## Hardening: never commit local native secp256k1 artifacts
 src/embit/util/prebuilt/*.so
