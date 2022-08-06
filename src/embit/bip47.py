@@ -23,7 +23,7 @@ def get_payment_code(root: HDKey):
     buf.write(bip47_child.chain_code)
     buf.write(b'\00' * 13)  # bytes reserved for future expansion
 
-    return base58.encode_check(b"\x47" + buf.getvalue())
+    return base58.encode_check(b'\x47' + buf.getvalue())
 
 
 
