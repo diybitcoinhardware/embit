@@ -7,6 +7,7 @@ from . import hashes
 from .script import Script, Witness
 from . import script
 from .base import EmbitBase, EmbitError
+
 from binascii import b2a_base64, a2b_base64, hexlify, unhexlify
 from io import BytesIO
 
@@ -309,14 +310,14 @@ class InputScope(PSBTScope):
                 raise PSBTError("Duplicated final scriptwitness")
 
         # PSBT_IN_TAP_BIP32_DERIVATION
-        elif k[0] == 0x16: 
-            from embit.util.key import compute_xonly_pubkey
+        elif k[0] == 0x16:
             pub = ec.PublicKey.from_xonly(k[1:])
             if pub in self.bip32_derivations:
                 raise PSBTError("Duplicated derivation path")
             else:
                 # Field begins with the number of leaf hashes; for now only support the
                 # internal key where there are no leaf hashes.
+                # TODO: Support keysigns from leaves within the taptree.
                 if v[0] != 0:
                     raise PSBTError("Signing for public keys in leaves not yet implemented")
                 self.bip32_derivations[pub] = DerivationPath.parse(v[1:])
@@ -785,7 +786,11 @@ class PSBT(EmbitBase):
                                 hdkey = root.key.derive(der)
                             else:
                                 hdkey = root.derive(der)
-                            mypub = hdkey.key.get_public_key()
+                            
+                            # Taproot BIP32 derivations use X-only pubkeys
+                            xonly_pub = hdkey.key.xonly()
+                            mypub = ec.PublicKey.from_xonly(xonly_pub)
+
                             if mypub != pub:
                                 raise PSBTError("Derivation path doesn't look right")
                             pk = hdkey.taproot_tweak(b"")
