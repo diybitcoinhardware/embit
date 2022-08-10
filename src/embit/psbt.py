@@ -229,7 +229,9 @@ class InputScope(PSBTScope):
                     tx = self.TX_CLS.read_from(stream)
                     self.non_witness_utxo = tx
             return
+
         v = read_string(stream)
+
         # witness utxo
         if k[0] == 0x01:
             if len(k) != 1:
@@ -274,13 +276,15 @@ class InputScope(PSBTScope):
                 self.witness_script = Script(v)
             else:
                 raise PSBTError("Duplicated witness script")
-        # bip32 derivation
+
+        # PSBT_IN_BIP32_DERIVATION
         elif k[0] == 0x06:
             pub = ec.PublicKey.parse(k[1:])
             if pub in self.bip32_derivations:
                 raise PSBTError("Duplicated derivation path")
             else:
                 self.bip32_derivations[pub] = DerivationPath.parse(v)
+
         # final scriptsig
         elif k[0] == 0x07:
             # we don't need this key for signing
@@ -303,6 +307,20 @@ class InputScope(PSBTScope):
                 self.final_scriptwitness = Witness.parse(v)
             else:
                 raise PSBTError("Duplicated final scriptwitness")
+
+        # PSBT_IN_TAP_BIP32_DERIVATION
+        elif k[0] == 0x16: 
+            from embit.util.key import compute_xonly_pubkey
+            pub = ec.PublicKey.from_xonly(k[1:])
+            if pub in self.bip32_derivations:
+                raise PSBTError("Duplicated derivation path")
+            else:
+                # Field begins with the number of leaf hashes; for now only support the
+                # internal key where there are no leaf hashes.
+                if v[0] != 0:
+                    raise PSBTError("Signing for public keys in leaves not yet implemented")
+                self.bip32_derivations[pub] = DerivationPath.parse(v[1:])
+        
         elif k == b"\x0e":
             self.txid = bytes(reversed(v))
         elif k == b"\x0f":
