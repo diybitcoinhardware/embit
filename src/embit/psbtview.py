@@ -603,7 +603,11 @@ class PSBTView:
                     # check if it is root key
                     if inp.bip32_derivations[pub].fingerprint == fingerprint:
                         hdkey = root.derive(inp.bip32_derivations[pub].derivation)
-                        mypub = hdkey.key.get_public_key()
+
+                        # Taproot BIP32 derivations use X-only pubkeys
+                        xonly_pub = hdkey.key.xonly()
+                        mypub = ec.PublicKey.from_xonly(xonly_pub)
+
                         if mypub != pub:
                             raise PSBTError("Derivation path doesn't look right")
                         pk = hdkey.taproot_tweak(b"")
