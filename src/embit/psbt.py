@@ -379,14 +379,14 @@ class InputScope(PSBTScope):
             r += ser_string(stream, self.final_scriptwitness.serialize())
         for pub in self.taproot_bip32_derivations:
             # PSBT_IN_TAP_BIP32_DERIVATION
-            r += ser_string(stream, b"\x16" + pub.serialize()[1:])  # omit the leading 0x02 from the serializer; TODO: Why?
+            r += ser_string(stream, b"\x16" + pub.xonly())
             num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
             r += ser_string(stream, num_leaf_hashes.to_bytes(1, 'little') + derivation.serialize())
 
         if self.taproot_internal_key is not None:
             # PSBT_IN_TAP_INTERNAL_KEY
             r += ser_string(stream, b"\x17")
-            r += ser_string(stream, self.taproot_internal_key.serialize()[1:])  # omit the leading 0x02 from the serializer; TODO: Why?
+            r += ser_string(stream, self.taproot_internal_key.xonly())
 
         if version == 2:
             if self.txid is not None:
@@ -524,11 +524,11 @@ class OutputScope(PSBTScope):
         # PSBT_OUT_TAP_INTERNAL_KEY
         if self.taproot_internal_key is not None:
             r += ser_string(stream, b"\x05")
-            r += ser_string(stream, self.taproot_internal_key.serialize()[1:])  # omit the leading 0x02 from the serializer; TODO: Why?
+            r += ser_string(stream, self.taproot_internal_key.xonly())
 
         # PSBT_OUT_TAP_BIP32_DERIVATION
         for pub in self.taproot_bip32_derivations:
-            r += ser_string(stream, b"\x07" + pub.serialize()[1:])  # omit the leading 0x02 from the serializer; TODO: Why?
+            r += ser_string(stream, b"\x07" + pub.xonly())
             num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
             r += ser_string(stream, num_leaf_hashes.to_bytes(1, 'little') + derivation.serialize())
 
@@ -845,7 +845,8 @@ class PSBT(EmbitBase):
                         if derivation.fingerprint == fingerprint:
                             bip32_derivations.append((pub, derivation))
                     
-                    # "Legacy" support for workaround when BIP-371 Taproot psbt fields aren't available
+                    # "Legacy" support for workaround when BIP-371 Taproot psbt fields aren't available.
+                    # TODO: Remove this (and refactor above) when workaround has been phased out.
                     for pub in inp.bip32_derivations:
                         derivation = inp.bip32_derivations[pub]
                         if derivation.fingerprint == fingerprint:
