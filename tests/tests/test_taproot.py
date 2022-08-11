@@ -137,15 +137,17 @@ class TaprootTest(TestCase):
 
 
     def test_taproot_internal_keyspend(self):
-        """Should parse Taproot `PSBT_IN_TAP_BIP32_DERIVATION` field"""
+        """Should parse Taproot `PSBT_IN_TAP_BIP32_DERIVATION` field and populate 
+            `taproot_bip32_derivations` in each input. """
         psbt_bytes = unhexlify(TAPROOT_01)
         psbt_act = PSBT.parse(psbt_bytes)
         inp = psbt_act.inputs[0]
         self.assertTrue(inp.is_taproot)
 
-        # Should have extracted X-only pubkey, fingerprint, and derivation
+        # Should have extracted: X-only pubkey, (num_leaf_hashes, leaf_hashes, DerivationPath)
         # from `PSBT_IN_TAP_BIP32_DERIVATION`
-        self.assertTrue(len(inp.bip32_derivations) > 0)
-        for pub in inp.bip32_derivations:
-            self.assertTrue(inp.bip32_derivations[pub].fingerprint is not None)
-            self.assertTrue(inp.bip32_derivations[pub].derivation is not None)
+        self.assertTrue(len(inp.taproot_bip32_derivations) > 0)
+        for pub in inp.taproot_bip32_derivations:
+            num_leaf_hashes, leaf_hashes, der = inp.taproot_bip32_derivations[pub]
+            self.assertTrue(der.fingerprint is not None)
+            self.assertTrue(der.derivation is not None)

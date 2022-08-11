@@ -134,6 +134,10 @@ class InputScope(PSBTScope):
         self.redeem_script = None
         self.witness_script = None
         self.bip32_derivations = OrderedDict()
+
+        # tuples of (num_leaf_hashes, [leaf_hashes], DerivationPath)
+        self.taproot_bip32_derivations = OrderedDict()
+
         self.final_scriptsig = None
         self.final_scriptwitness = None
         self.parse_unknowns()
@@ -167,6 +171,7 @@ class InputScope(PSBTScope):
         self.redeem_script = other.redeem_script or self.redeem_script
         self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
+        self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
         self.final_scriptsig = other.final_scriptsig or self.final_scriptsig
         self.final_scriptwitness = other.final_scriptwitness or self.final_scriptwitness
 
@@ -312,7 +317,7 @@ class InputScope(PSBTScope):
         # PSBT_IN_TAP_BIP32_DERIVATION
         elif k[0] == 0x16:
             pub = ec.PublicKey.from_xonly(k[1:])
-            if pub in self.bip32_derivations:
+            if pub in self.taproot_bip32_derivations:
                 raise PSBTError("Duplicated derivation path")
             else:
                 # Field begins with the number of leaf hashes; for now only support the
@@ -320,7 +325,9 @@ class InputScope(PSBTScope):
                 # TODO: Support keysigns from leaves within the taptree.
                 if v[0] != 0:
                     raise PSBTError("Signing for public keys in leaves not yet implemented")
-                self.bip32_derivations[pub] = DerivationPath.parse(v[1:])
+                num_leaf_hashes = 0
+                leaf_hashes = None
+                self.taproot_bip32_derivations[pub] = (num_leaf_hashes, leaf_hashes, DerivationPath.parse(v[1:]))
         
         elif k == b"\x0e":
             self.txid = bytes(reversed(v))
@@ -362,6 +369,11 @@ class InputScope(PSBTScope):
         if self.final_scriptwitness is not None:
             r += stream.write(b"\x01\x08")
             r += ser_string(stream, self.final_scriptwitness.serialize())
+        for pub in self.taproot_bip32_derivations:
+            # PSBT_IN_TAP_BIP32_DERIVATION
+            r += ser_string(stream, b"\x16" + pub.serialize())
+            num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
+            r += ser_string(stream, num_leaf_hashes + leaf_hashes + derivation.serialize())
         if version == 2:
             if self.txid is not None:
                 r += ser_string(stream, b"\x0e")
@@ -772,36 +784,47 @@ class PSBT(EmbitBase):
                         counter += 1
                 # if we use HDKey
                 else:
-                    # TODO: add taproot derivation paths and scripts
+                    bip32_derivations = []
+                    for pub in inp.taproot_bip32_derivations:
+                        num_leaf_hashes, leaf_hashes, derivation = inp.taproot_bip32_derivations[pub]
+                        if derivation.fingerprint == fingerprint:
+                            bip32_derivations.append((pub, derivation))
+                    
+                    # "Legacy" support for workaround when BIP-371 Taproot psbt fields aren't available
                     for pub in inp.bip32_derivations:
-                        # check if it is root key
-                        if inp.bip32_derivations[pub].fingerprint == fingerprint:
-                            der = inp.bip32_derivations[pub].derivation
-                            if hasattr(root, "origin"):
-                                # for descriptor key remove origin part
-                                if root.origin:
-                                    if root.origin.derivation != der[:len(root.origin.derivation)]:
-                                        continue
-                                    der = der[len(root.origin.derivation):]
-                                hdkey = root.key.derive(der)
-                            else:
-                                hdkey = root.derive(der)
-                            
-                            # Taproot BIP32 derivations use X-only pubkeys
-                            xonly_pub = hdkey.key.xonly()
-                            mypub = ec.PublicKey.from_xonly(xonly_pub)
+                        derivation = inp.bip32_derivations[pub]
+                        if derivation.fingerprint == fingerprint:
+                            bip32_derivations.append((pub, derivation))
 
-                            if mypub != pub:
-                                raise PSBTError("Derivation path doesn't look right")
-                            pk = hdkey.taproot_tweak(b"")
-                            if pk.xonly() in sc.data:
-                                sig = pk.schnorr_sign(h)
-                                # sig plus sighash flag
-                                wit = sig.serialize()
-                                if inp_sighash != SIGHASH.DEFAULT:
-                                    wit += bytes([inp_sighash])
-                                inp.final_scriptwitness = Witness([wit])
-                                counter += 1
+                    for pub, derivation in bip32_derivations:
+                        der = derivation.derivation
+                        if hasattr(root, "origin"):
+                            # for descriptor key remove origin part
+                            if root.origin:
+                                if root.origin.derivation != der[:len(root.origin.derivation)]:
+                                    continue
+                                der = der[len(root.origin.derivation):]
+                            hdkey = root.key.derive(der)
+                        else:
+                            hdkey = root.derive(der)
+                        
+                        # Taproot BIP32 derivations use X-only pubkeys
+                        xonly_pub = hdkey.key.xonly()
+                        mypub = ec.PublicKey.from_xonly(xonly_pub)
+
+                        if mypub != pub:
+                            raise PSBTError("Derivation path doesn't look right")
+                        
+                        # TODO: Support signing for keys within leaves
+                        pk = hdkey.taproot_tweak(b"")
+                        if pk.xonly() in sc.data:
+                            sig = pk.schnorr_sign(h)
+                            # sig plus sighash flag
+                            wit = sig.serialize()
+                            if inp_sighash != SIGHASH.DEFAULT:
+                                wit += bytes([inp_sighash])
+                            inp.final_scriptwitness = Witness([wit])
+                            counter += 1
                 continue
 
             # if we have individual private key
