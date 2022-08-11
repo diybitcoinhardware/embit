@@ -482,22 +482,11 @@ class OutputScope(PSBTScope):
 
         # PSBT_OUT_TAP_INTERNAL_KEY
         elif k[0] == 0x05:
-            if len(v) == 32:
-                # Have to add the 0x02 byte
-                pubkey_bytes = b"\x02" + v
-            else:
-                pubkey_bytes = v
-            pub = ec.PublicKey.parse(pubkey_bytes)
-            self.taproot_internal_key = ec.PublicKey.parse(pubkey_bytes)
+            self.taproot_internal_key = ec.PublicKey.from_xonly(v)
 
         # PSBT_OUT_TAP_BIP32_DERIVATION
         elif k[0] == 0x07:
-            if len(k[1:]) == 32:
-                # Have to add the 0x02 byte
-                pubkey_bytes = b"\x02" + k[1:]
-            else:
-                pubkey_bytes = k[1:]
-            pub = ec.PublicKey.parse(pubkey_bytes)
+            pub = ec.PublicKey.from_xonly(k[1:])
             if pub in self.taproot_bip32_derivations:
                 raise PSBTError("Duplicated derivation path")
             else:
