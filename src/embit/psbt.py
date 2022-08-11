@@ -137,6 +137,7 @@ class InputScope(PSBTScope):
 
         # tuples of (num_leaf_hashes, [leaf_hashes], DerivationPath)
         self.taproot_bip32_derivations = OrderedDict()
+        self.taproot_internal_key = None
 
         self.final_scriptsig = None
         self.final_scriptwitness = None
@@ -157,6 +158,8 @@ class InputScope(PSBTScope):
             if self.witness_utxo is not None:
                 self.non_witness_utxo = None
         self.bip32_derivations = OrderedDict()
+        self.taproot_bip32_derivations = OrderedDict()
+        self.taproot_internal_key = None
 
     def update(self, other):
         self.txid = other.txid or self.txid
@@ -172,6 +175,7 @@ class InputScope(PSBTScope):
         self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
         self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
+        self.taproot_internal_key = other.taproot_internal_key
         self.final_scriptsig = other.final_scriptsig or self.final_scriptsig
         self.final_scriptwitness = other.final_scriptwitness or self.final_scriptwitness
 
@@ -329,6 +333,10 @@ class InputScope(PSBTScope):
                 leaf_hashes = None
                 self.taproot_bip32_derivations[pub] = (num_leaf_hashes, leaf_hashes, DerivationPath.parse(v[1:]))
         
+        # PSBT_IN_TAP_INTERNAL_KEY
+        elif k[0] == 0x17:
+            self.taproot_internal_key = ec.PublicKey.from_xonly(v)
+        
         elif k == b"\x0e":
             self.txid = bytes(reversed(v))
         elif k == b"\x0f":
@@ -371,9 +379,15 @@ class InputScope(PSBTScope):
             r += ser_string(stream, self.final_scriptwitness.serialize())
         for pub in self.taproot_bip32_derivations:
             # PSBT_IN_TAP_BIP32_DERIVATION
-            r += ser_string(stream, b"\x16" + pub.serialize())
+            r += ser_string(stream, b"\x16" + pub.serialize()[1:])  # omit the leading 0x02 from the serializer; TODO: Why?
             num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
-            r += ser_string(stream, derivation.serialize())
+            r += ser_string(stream, num_leaf_hashes.to_bytes(1, 'little') + derivation.serialize())
+
+        if self.taproot_internal_key is not None:
+            # PSBT_IN_TAP_INTERNAL_KEY
+            r += ser_string(stream, b"\x17")
+            r += ser_string(stream, self.taproot_internal_key.serialize()[1:])  # omit the leading 0x02 from the serializer; TODO: Why?
+
         if version == 2:
             if self.txid is not None:
                 r += ser_string(stream, b"\x0e")
@@ -406,6 +420,8 @@ class OutputScope(PSBTScope):
         self.redeem_script = None
         self.witness_script = None
         self.bip32_derivations = OrderedDict()
+        self.taproot_bip32_derivations = OrderedDict()
+        self.taproot_internal_key = None
         self.parse_unknowns()
 
     def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
@@ -416,6 +432,8 @@ class OutputScope(PSBTScope):
         self.redeem_script = None
         self.witness_script = None
         self.bip32_derivations = OrderedDict()
+        self.taproot_bip32_derivations = OrderedDict()
+        self.taproot_internal_key = None
 
     def update(self, other):
         self.value = other.value if other.value is not None else self.value
@@ -424,6 +442,8 @@ class OutputScope(PSBTScope):
         self.redeem_script = other.redeem_script or self.redeem_script
         self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
+        self.taproot_bip32_derivations.update(other.bip32_derivations)
+        self.taproot_internal_key = other.taproot_internal_key
 
     @property
     def vout(self):
@@ -433,7 +453,9 @@ class OutputScope(PSBTScope):
         # separator
         if len(k) == 0:
             return
+
         v = read_string(stream)
+
         # redeem script
         if k[0] == 0x00:
             if len(k) != 1:
@@ -457,6 +479,37 @@ class OutputScope(PSBTScope):
                 raise PSBTError("Duplicated derivation path")
             else:
                 self.bip32_derivations[pub] = DerivationPath.parse(v)
+
+        # PSBT_OUT_TAP_INTERNAL_KEY
+        elif k[0] == 0x05:
+            if len(v) == 32:
+                # Have to add the 0x02 byte
+                pubkey_bytes = b"\x02" + v
+            else:
+                pubkey_bytes = v
+            pub = ec.PublicKey.parse(pubkey_bytes)
+            self.taproot_internal_key = ec.PublicKey.parse(pubkey_bytes)
+
+        # PSBT_OUT_TAP_BIP32_DERIVATION
+        elif k[0] == 0x07:
+            if len(k[1:]) == 32:
+                # Have to add the 0x02 byte
+                pubkey_bytes = b"\x02" + k[1:]
+            else:
+                pubkey_bytes = k[1:]
+            pub = ec.PublicKey.parse(pubkey_bytes)
+            if pub in self.taproot_bip32_derivations:
+                raise PSBTError("Duplicated derivation path")
+            else:
+                # Field begins with the number of leaf hashes; for now only support the
+                # internal key where there are no leaf hashes.
+                # TODO: Support outputs to leaves within a taptree.
+                if v[0] != 0:
+                    raise PSBTError("Outputs for public keys in leaves not yet implemented")
+                num_leaf_hashes = 0
+                leaf_hashes = None
+                self.taproot_bip32_derivations[pub] = (num_leaf_hashes, leaf_hashes, DerivationPath.parse(v[1:]))
+
         elif k == b"\x03":
             self.value = int.from_bytes(v, 'little')
         elif k == b"\x04":
@@ -465,6 +518,7 @@ class OutputScope(PSBTScope):
             if k in self.unknown:
                 raise PSBTError("Duplicated key")
             self.unknown[k] = v
+
 
     def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
         r = 0
@@ -477,6 +531,18 @@ class OutputScope(PSBTScope):
         for pub in self.bip32_derivations:
             r += ser_string(stream, b"\x02" + pub.serialize())
             r += ser_string(stream, self.bip32_derivations[pub].serialize())
+
+        # PSBT_OUT_TAP_INTERNAL_KEY
+        if self.taproot_internal_key is not None:
+            r += ser_string(stream, b"\x05")
+            r += ser_string(stream, self.taproot_internal_key.serialize()[1:])  # omit the leading 0x02 from the serializer; TODO: Why?
+
+        # PSBT_OUT_TAP_BIP32_DERIVATION
+        for pub in self.taproot_bip32_derivations:
+            r += ser_string(stream, b"\x07" + pub.serialize()[1:])  # omit the leading 0x02 from the serializer; TODO: Why?
+            num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
+            r += ser_string(stream, num_leaf_hashes.to_bytes(1, 'little') + derivation.serialize())
+
         if version == 2:
             if self.value is not None:
                 r += ser_string(stream, b"\x03")
