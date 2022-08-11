@@ -373,7 +373,7 @@ class InputScope(PSBTScope):
             # PSBT_IN_TAP_BIP32_DERIVATION
             r += ser_string(stream, b"\x16" + pub.serialize())
             num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
-            r += ser_string(stream, num_leaf_hashes)
+            r += stream.write(num_leaf_hashes.to_bytes(1, 'little'))
             # r += ser_string(stream, leaf_hashes)
             r += ser_string(stream, derivation.serialize())
         if version == 2:
