@@ -317,6 +317,13 @@ class InputScope(PSBTScope):
                 self.final_scriptwitness = Witness.parse(v)
             else:
                 raise PSBTError("Duplicated final scriptwitness")
+        
+        elif k == b"\x0e":
+            self.txid = bytes(reversed(v))
+        elif k == b"\x0f":
+            self.vout = int.from_bytes(v, 'little')
+        elif k == b"\x10":
+            self.sequence = int.from_bytes(v, 'little')
 
         # PSBT_IN_TAP_BIP32_DERIVATION
         elif k[0] == 0x16:
@@ -336,13 +343,7 @@ class InputScope(PSBTScope):
         # PSBT_IN_TAP_INTERNAL_KEY
         elif k[0] == 0x17:
             self.taproot_internal_key = ec.PublicKey.from_xonly(v)
-        
-        elif k == b"\x0e":
-            self.txid = bytes(reversed(v))
-        elif k == b"\x0f":
-            self.vout = int.from_bytes(v, 'little')
-        elif k == b"\x10":
-            self.sequence = int.from_bytes(v, 'little')
+
         else:
             if k in self.unknown:
                 raise PSBTError("Duplicated key")
@@ -377,16 +378,6 @@ class InputScope(PSBTScope):
         if self.final_scriptwitness is not None:
             r += stream.write(b"\x01\x08")
             r += ser_string(stream, self.final_scriptwitness.serialize())
-        for pub in self.taproot_bip32_derivations:
-            # PSBT_IN_TAP_BIP32_DERIVATION
-            r += ser_string(stream, b"\x16" + pub.xonly())
-            num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
-            r += ser_string(stream, num_leaf_hashes.to_bytes(1, 'little') + derivation.serialize())
-
-        if self.taproot_internal_key is not None:
-            # PSBT_IN_TAP_INTERNAL_KEY
-            r += ser_string(stream, b"\x17")
-            r += ser_string(stream, self.taproot_internal_key.xonly())
 
         if version == 2:
             if self.txid is not None:
@@ -398,6 +389,18 @@ class InputScope(PSBTScope):
             if self.sequence is not None:
                 r += ser_string(stream, b"\x10")
                 r += ser_string(stream, self.sequence.to_bytes(4, 'little'))
+
+        # PSBT_IN_TAP_BIP32_DERIVATION
+        for pub in self.taproot_bip32_derivations:
+            r += ser_string(stream, b"\x16" + pub.xonly())
+            num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
+            r += ser_string(stream, num_leaf_hashes.to_bytes(1, 'little') + derivation.serialize())
+
+        # PSBT_IN_TAP_INTERNAL_KEY
+        if self.taproot_internal_key is not None:
+            r += ser_string(stream, b"\x17")
+            r += ser_string(stream, self.taproot_internal_key.xonly())
+
         # unknown
         for key in self.unknown:
             r += ser_string(stream, key)
@@ -480,6 +483,11 @@ class OutputScope(PSBTScope):
             else:
                 self.bip32_derivations[pub] = DerivationPath.parse(v)
 
+        elif k == b"\x03":
+            self.value = int.from_bytes(v, 'little')
+        elif k == b"\x04":
+            self.script_pubkey = Script(v)
+
         # PSBT_OUT_TAP_INTERNAL_KEY
         elif k[0] == 0x05:
             self.taproot_internal_key = ec.PublicKey.from_xonly(v)
@@ -495,14 +503,10 @@ class OutputScope(PSBTScope):
                 # TODO: Support outputs to leaves within a taptree.
                 if v[0] != 0:
                     raise PSBTError("Outputs for public keys in leaves not yet implemented")
-                num_leaf_hashes = 0
+                num_leaf_hashes = v[0]
                 leaf_hashes = None
                 self.taproot_bip32_derivations[pub] = (num_leaf_hashes, leaf_hashes, DerivationPath.parse(v[1:]))
 
-        elif k == b"\x03":
-            self.value = int.from_bytes(v, 'little')
-        elif k == b"\x04":
-            self.script_pubkey = Script(v)
         else:
             if k in self.unknown:
                 raise PSBTError("Duplicated key")
@@ -521,6 +525,14 @@ class OutputScope(PSBTScope):
             r += ser_string(stream, b"\x02" + pub.serialize())
             r += ser_string(stream, self.bip32_derivations[pub].serialize())
 
+        if version == 2:
+            if self.value is not None:
+                r += ser_string(stream, b"\x03")
+                r += ser_string(stream, self.value.to_bytes(8, 'little'))
+            if self.script_pubkey is not None:
+                r += ser_string(stream, b"\x04")
+                r += self.script_pubkey.write_to(stream)
+
         # PSBT_OUT_TAP_INTERNAL_KEY
         if self.taproot_internal_key is not None:
             r += ser_string(stream, b"\x05")
@@ -531,14 +543,6 @@ class OutputScope(PSBTScope):
             r += ser_string(stream, b"\x07" + pub.xonly())
             num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
             r += ser_string(stream, num_leaf_hashes.to_bytes(1, 'little') + derivation.serialize())
-
-        if version == 2:
-            if self.value is not None:
-                r += ser_string(stream, b"\x03")
-                r += ser_string(stream, self.value.to_bytes(8, 'little'))
-            if self.script_pubkey is not None:
-                r += ser_string(stream, b"\x04")
-                r += self.script_pubkey.write_to(stream)
 
         # unknown
         for key in self.unknown:
