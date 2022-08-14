@@ -235,5 +235,5 @@ def musig_combine_pubs(pubs, sort=True):
         secp256k1.ec_pubkey_tweak_mul(pubs[i], coefs[i])
     pub = secp256k1.ec_pubkey_combine(*pubs)
     if secp256k1.ec_pubkey_serialize(pub)[0] == 0x03:
-        secp256k1.ec_pubkey_negate(pub)
+        pub = secp256k1.ec_pubkey_negate(pub)
     return pub
