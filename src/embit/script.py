@@ -7,6 +7,10 @@ from .base import EmbitBase, EmbitError
 
 SIGHASH_ALL = 1
 
+class OPCODES:
+    OP_RETURN = 106
+    OP_PUSHDATA1 = 76
+
 
 class Script(EmbitBase):
     def __init__(self, data=b""):
