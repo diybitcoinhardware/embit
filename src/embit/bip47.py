@@ -146,6 +146,42 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     return (payment_address, spending_key)
 
 
+def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str):
+    """Called by the payer, returns the blinded payload for the payer's notification tx
+        that is sent to the recipient while spending the input_utxo. The blinded payload
+        should be inserted as OP_RETURN data."""
+    # TODO: method signature was made to easily match the BIP-47 test vector data, but
+    # isn't necessarily what might be ideal for real-world usage.
+
+    # Alice selects the private key ("a") corresponding to the designated pubkey
+    a = input_utxo_private_key.secret
+
+    # Alice selects the public key associated with Bob's notification address (B, where B = bG)
+    B = get_derived_payment_code_node(recipient_payment_code, 0).get_public_key()
+
+    # Alice calculates a secret point (S = aB)
+    S = B._xonly()
+    secp256k1.ec_pubkey_tweak_mul(S, a)
+
+    # Alice calculates a 64 byte blinding factor (s = HMAC-SHA512(x, o))
+    #   "x" is the x value of the secret point
+    #   "o" is the outpoint being spent by the designated input
+    x = secp256k1.ec_pubkey_serialize(S)[1:33]
+    o = input_utxo_outpoint
+    s = unhexlify(hmac.new(unhexlify(o), x, hashlib.sha512).hexdigest())
+
+    # Alice serializes her payment code in binary form
+    raw_payment_code = base58.decode_check(payer_payment_code)[1:]  # omit the 0x47 leading byte
+
+    # Alice renders her payment code (P) unreadable to anyone except Bob
+    #   Replace the x (pubkey) value with x' (x' = x XOR (first 32 bytes of s))
+    #   Replace the chain code with c' (c' = c XOR (last 32 bytes of s))
+    # payment code: 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
+    x_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(raw_payment_code[3:35], s[:32])])
+    c_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(raw_payment_code[35:67], s[-32:])])
+    return hexlify(raw_payment_code[0:3] + x_prime + c_prime + raw_payment_code[-13:]).decode()
+
+
 def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey, coin: int = 0, account: int = 0) -> str:
     """If the tx is a BIP-47 notification tx for the recipient,
         return the new payer's embedded payment_code, else None"""
@@ -207,9 +243,7 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     #   "x" is the x value of the secret point
     #   "o" is the outpoint being spent by the designated input
     x = secp256k1.ec_pubkey_serialize(S)[1:33]
-
-    # TODO: Is there a better way to get the outpoint?
-    o = vin.to_string()[:72]
+    o = vin.to_string()[:72]  # TODO: Is there a better way to get the outpoint?
     s = unhexlify(hmac.new(unhexlify(o), x, hashlib.sha512).hexdigest())
 
     # Bob interprets the 80 byte payload as a payment code, except:
