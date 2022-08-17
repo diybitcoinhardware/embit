@@ -1,7 +1,8 @@
 from unittest import TestCase
 
-from embit import bip32, bip39, bip47, script
+from embit import bip32, bip39, bip47, script, ec
 from embit.transaction import Transaction
+from binascii import hexlify, unhexlify
 
 
 """
@@ -10,6 +11,9 @@ from embit.transaction import Transaction
 ALICE_MNEMONIC = "response seminar brave tip suit recall often sound stick owner lottery motion"
 ALICE_PAYMENT_CODE = "PM8TJTLJbPRGxSbc8EJi42Wrr6QbNSaSSVJ5Y3E4pbCYiTHUskHg13935Ubb7q8tx9GVbh2UuRnBc3WSyJHhUrw8KhprKnn9eDznYGieTzFcwQRya4GA"
 ALICE_NOTIFICATION_ADDR = "1JDdmqFLhpzcUwPeinhJbUPw4Co3aWLyzW"
+ALICE_NOTIFICATION_INPUT_PRIVATE_KEY = "Kx983SRhAZpAhj7Aac1wUXMJ6XZeyJKqCxJJ49dxEbYCT4a1ozRD"
+ALICE_NOTIFICATION_INPUT_OUTPOINT = "86f411ab1c8e70ae8a0795ab7a6757aea6e4d5ae1826fc7b8f00c597d500609c01000000"
+ALICE_NOTIFICATION_BLINDED_PAYLOAD = "010002063e4eb95e62791b06c50e1a3a942e1ecaaa9afbbeb324d16ae6821e091611fa96c0cf048f607fe51a0327f5e2528979311c78cb2de0d682c61e1180fc3d543b00000000000000000000000000"
 ALICE_PAYS_BOB_ADDRS = [
     "141fi7TY3h936vRUKh1qfUZr8rSBuYbVBK",
     "12u3Uued2fuko2nY4SoSFGCoGLCBUGPkk6",
@@ -80,6 +84,18 @@ class Bip47Test(TestCase):
             self.assertEqual(addr, script.p2pkh(spending_key.get_public_key()).address())
 
         # TODO: Verify that the spending_keys can successfully sign a tx for their associated payment_addr.
+
+
+    def test_get_blinded_payment_code(self):
+        input_utxo_private_key = ec.PrivateKey.from_string(ALICE_NOTIFICATION_INPUT_PRIVATE_KEY)
+        blinded_payload = bip47.get_blinded_payment_code(
+            payer_payment_code=ALICE_PAYMENT_CODE,
+            input_utxo_private_key=input_utxo_private_key,
+            input_utxo_outpoint=ALICE_NOTIFICATION_INPUT_OUTPOINT,
+            recipient_payment_code=BOB_PAYMENT_CODE
+        )
+
+        self.assertEqual(blinded_payload, ALICE_NOTIFICATION_BLINDED_PAYLOAD)
 
 
     def test_get_payment_code_from_notification_tx(self):
