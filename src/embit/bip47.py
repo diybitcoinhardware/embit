@@ -9,6 +9,7 @@ from typing import Tuple
 from . import base58, ec, script
 from .base import EmbitError
 from .bip32 import HDKey
+from .networks import NETWORKS
 from .script import OPCODES
 from .transaction import Transaction
 if sys.implementation.name == "micropython":
@@ -42,27 +43,28 @@ def get_payment_code(root: HDKey, coin: int = 0, account: int = 0) -> str:
     return base58.encode_check(b'\x47' + buf.getvalue())
 
 
-def get_derived_payment_code_node(payment_code: str, derivation_index: int) -> HDKey:
+def get_derived_payment_code_node(payment_code: str, derivation_index: int, version: str = NETWORKS["main"]["xpub"]) -> HDKey:
     """Returns the nth derived child for the payment_code"""
     raw_payment_code = base58.decode_check(payment_code)
-    # 0x47 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
-    pubkey = ec.PublicKey.from_xonly(raw_payment_code[4:36])
+
+    # 81-byte payment code format:
+    #   0x47 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
+    pubkey = ec.PublicKey.from_string(hexlify(raw_payment_code[3:36]))
     chain_code = raw_payment_code[36:68]
-    root = HDKey(key=pubkey, chain_code=chain_code)
-    payment_code_node = root.derive([derivation_index])
-    return payment_code_node
+    root = HDKey(key=pubkey, chain_code=chain_code, version=version)
+    return root.derive([derivation_index])
 
 
-def get_notification_address(payment_code: str, script_type: str = "p2pkh") -> str:
+def get_notification_address(payment_code: str, script_type: str = "p2pkh", network: str = NETWORKS["main"]) -> str:
     """Returns the BIP-47 notification address associated with the given payment_code"""
     # Get the 0th public key derived from the payment_code
-    pubkey = get_derived_payment_code_node(payment_code, derivation_index=0).get_public_key()
+    pubkey = get_derived_payment_code_node(payment_code, derivation_index=0, version=network["xpub"]).get_public_key()
 
     # TODO: Should we limit to just p2pkh?
     if script_type == "p2pkh":
-        return script.p2pkh(pubkey).address()
+        return script.p2pkh(pubkey).address(network)
     elif script_type == "p2wpkh":
-        return script.p2wpkh(pubkey).address()
+        return script.p2wpkh(pubkey).address(network)
     else:
         raise EmbitError(f"Unsupported script_type: {script_type}")
 
@@ -146,6 +148,27 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     return (payment_address, spending_key)
 
 
+def blinding_function(private_key: str, secret_point: HDKey, utxo_outpoint: str, payload: str):
+    """Reversible blind/unblind function: blinds plaintext payloads and unblinds blinded payloads"""
+    S = secret_point._xonly()
+    secp256k1.ec_pubkey_tweak_mul(S, private_key)
+
+    # Calculate a 64 byte blinding factor (s = HMAC-SHA512(x, o))
+    #   "x" is the x value of the secret point
+    #   "o" is the outpoint being spent by the designated input
+    x = secp256k1.ec_pubkey_serialize(S)[1:33]
+    o = utxo_outpoint
+    s = unhexlify(hmac.new(unhexlify(o), x, hashlib.sha512).hexdigest())
+
+    # Replace the x (pubkey) value with x' (x' = x XOR (first 32 bytes of s))
+    # Replace the chain code with c' (c' = c XOR (last 32 bytes of s))
+    # payment code: 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
+    x_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(payload[3:35], s[:32])])
+    c_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(payload[35:67], s[-32:])])
+    return payload[0:3] + x_prime + c_prime + payload[-13:]
+
+
+
 def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str):
     """Called by the payer, returns the blinded payload for the payer's notification tx
         that is sent to the recipient while spending the input_utxo. The blinded payload
@@ -159,27 +182,13 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
     # Alice selects the public key associated with Bob's notification address (B, where B = bG)
     B = get_derived_payment_code_node(recipient_payment_code, 0).get_public_key()
 
-    # Alice calculates a secret point (S = aB)
-    S = B._xonly()
-    secp256k1.ec_pubkey_tweak_mul(S, a)
-
-    # Alice calculates a 64 byte blinding factor (s = HMAC-SHA512(x, o))
-    #   "x" is the x value of the secret point
-    #   "o" is the outpoint being spent by the designated input
-    x = secp256k1.ec_pubkey_serialize(S)[1:33]
-    o = input_utxo_outpoint
-    s = unhexlify(hmac.new(unhexlify(o), x, hashlib.sha512).hexdigest())
-
     # Alice serializes her payment code in binary form
-    raw_payment_code = base58.decode_check(payer_payment_code)[1:]  # omit the 0x47 leading byte
+    payment_code = base58.decode_check(payer_payment_code)[1:]  # omit the 0x47 leading byte
 
-    # Alice renders her payment code (P) unreadable to anyone except Bob
-    #   Replace the x (pubkey) value with x' (x' = x XOR (first 32 bytes of s))
-    #   Replace the chain code with c' (c' = c XOR (last 32 bytes of s))
-    # payment code: 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
-    x_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(raw_payment_code[3:35], s[:32])])
-    c_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(raw_payment_code[35:67], s[-32:])])
-    return hexlify(raw_payment_code[0:3] + x_prime + c_prime + raw_payment_code[-13:]).decode()
+    # Blind the payment code
+    raw_blinded_payload = blinding_function(a, B, utxo_outpoint=input_utxo_outpoint, payload=payment_code)
+    return hexlify(raw_blinded_payload).decode()
+
 
 
 def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey, coin: int = 0, account: int = 0) -> str:
@@ -235,26 +244,12 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     recipient_notification_node = recipient_root.derive(f"m/47'/{coin}'/{account}'/0")
     b = recipient_notification_node.secret
 
-    # Bob calculates a secret point (S = bA)
-    S = A._xonly()
-    secp256k1.ec_pubkey_tweak_mul(S, b)
+    utxo_outpoint = vin.to_string()[:72]  # TODO: Is there a better way to get the outpoint?
 
-    # Bob calculates the blinding factor (s = HMAC-SHA512(x, o))
-    #   "x" is the x value of the secret point
-    #   "o" is the outpoint being spent by the designated input
-    x = secp256k1.ec_pubkey_serialize(S)[1:33]
-    o = vin.to_string()[:72]  # TODO: Is there a better way to get the outpoint?
-    s = unhexlify(hmac.new(unhexlify(o), x, hashlib.sha512).hexdigest())
+    # Unblind the payload using the reversible `blinding_function`.
+    raw_unblinded_payload = blinding_function(b, A, utxo_outpoint=utxo_outpoint, payload=payload)
+    return base58.encode_check(b'\x47' + raw_unblinded_payload)
 
-    # Bob interprets the 80 byte payload as a payment code, except:
-    #   Replace the x (pubkey) value with x' (x' = x XOR (first 32 bytes of s))
-    #   Replace the chain code with c' (c' = c XOR (last 32 bytes of s))
-    # payment code: 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
-    x_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(payload[3:35], s[:32])])
-    c_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(payload[35:67], s[-32:])])
-    raw_payment_code = payload[0:3] + x_prime + c_prime + payload[-13:]
-    return base58.encode_check(b'\x47' + raw_payment_code)
-    
 
 """
     TODO: Method to create notification transaction, etc.
