@@ -69,14 +69,14 @@ def get_notification_address(payment_code: str, script_type: str = "p2pkh", netw
         raise EmbitError(f"Unsupported script_type: {script_type}")
 
 
-def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: int, coin: int = 0, account: int = 0, script_type: str = "p2pkh") -> str:
+def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: int, coin: int = 0, account: int = 0, network=NETWORKS["main"], script_type: str = "p2wpkh") -> str:
     """Called by the payer, generates the nth payment address between the payer and recipient"""
     # Alice selects the 0th private key derived from her payment code ("a")
     payer_key = payer_root.derive(f"m/47'/{coin}'/{account}'/0")
     a = payer_key.secret
 
     # Alice selects the next unused public key derived from Bob's payment code, starting from zero ("B", where B = bG)
-    recipient_payment_code_node = get_derived_payment_code_node(recipient_payment_code, index)
+    recipient_payment_code_node = get_derived_payment_code_node(recipient_payment_code, derivation_index=index, version=network["xpub"])
     B = recipient_payment_code_node.get_public_key()
 
     # Alice calculates a secret point (S = aB)
@@ -97,20 +97,22 @@ def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: i
     shared_node = HDKey(key=ec.PublicKey.parse(secp256k1.ec_pubkey_serialize(pub)), chain_code=recipient_payment_code_node.chain_code)
 
     if script_type == "p2pkh":
-        return script.p2pkh(shared_node).address()
+        return script.p2pkh(shared_node).address(network=network)
     elif script_type == "p2wpkh":
-        return script.p2wpkh(shared_node).address()
+        return script.p2wpkh(shared_node).address(network=network)
+    elif script_type == "p2sh-p2wpkh":
+        return script.p2sh(script.p2wpkh(shared_node)).address(network=network)
     else:
         raise EmbitError(f"Unsupported script_type: {script_type}")
 
 
-def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: int, coin: int = 0, account: int = 0, script_type: str = "p2pkh") -> Tuple[str, ec.PrivateKey]:
+def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: int, coin: int = 0, account: int = 0, network=NETWORKS["main"], script_type: str = "p2wpkh") -> Tuple[str, ec.PrivateKey]:
     """Called by the recipient, generates the nth receive address between the payer and recipient.
     
         Returns the payment address and its associated private key."""
 
     # Using the 0th public key derived from Alice's payment code...
-    payer_payment_code_node = get_derived_payment_code_node(payer_payment_code, 0)
+    payer_payment_code_node = get_derived_payment_code_node(payer_payment_code, derivation_index=0, version=network["xpub"])
     B = payer_payment_code_node.get_public_key()
 
     # ...Bob calculates the nth shared secret with Alice
@@ -135,9 +137,11 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     shared_node = HDKey(key=ec.PublicKey.parse(secp256k1.ec_pubkey_serialize(pub)), chain_code=payer_payment_code_node.chain_code)
 
     if script_type == "p2pkh":
-        payment_address = script.p2pkh(shared_node).address()
+        receive_address = script.p2pkh(shared_node).address(network=network)
     elif script_type == "p2wpkh":
-        payment_address = script.p2wpkh(shared_node).address()
+        receive_address = script.p2wpkh(shared_node).address(network=network)
+    elif script_type == "p2sh-p2wpkh":
+        receive_address = script.p2sh(script.p2wpkh(shared_node)).address(network=network)
     else:
         raise EmbitError(f"Unsupported script_type: {script_type}")
     
@@ -145,7 +149,7 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     prv_key = secp256k1.ec_privkey_add(recipient_key.secret, shared_secret)
     spending_key = ec.PrivateKey(secret=prv_key)
 
-    return (payment_address, spending_key)
+    return (receive_address, spending_key)
 
 
 def blinding_function(private_key: str, secret_point: HDKey, utxo_outpoint: str, payload: str):
@@ -168,8 +172,7 @@ def blinding_function(private_key: str, secret_point: HDKey, utxo_outpoint: str,
     return payload[0:3] + x_prime + c_prime + payload[-13:]
 
 
-
-def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str):
+def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str, network=NETWORKS["main"]):
     """Called by the payer, returns the blinded payload for the payer's notification tx
         that is sent to the recipient while spending the input_utxo. The blinded payload
         should be inserted as OP_RETURN data."""
@@ -180,7 +183,7 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
     a = input_utxo_private_key.secret
 
     # Alice selects the public key associated with Bob's notification address (B, where B = bG)
-    B = get_derived_payment_code_node(recipient_payment_code, 0).get_public_key()
+    B = get_derived_payment_code_node(recipient_payment_code, derivation_index=0, version=network["xpub"]).get_public_key()
 
     # Alice serializes her payment code in binary form
     payment_code = base58.decode_check(payer_payment_code)[1:]  # omit the 0x47 leading byte
@@ -190,8 +193,7 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
     return hexlify(raw_blinded_payload).decode()
 
 
-
-def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey, coin: int = 0, account: int = 0) -> str:
+def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey, coin: int = 0, account: int = 0, network=NETWORKS["main"]) -> str:
     """If the tx is a BIP-47 notification tx for the recipient,
         return the new payer's embedded payment_code, else None"""
     # Notification txs have one output sent to the recipient's notification addr
@@ -205,7 +207,7 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     payload = None
     for vout in tx.vout:
         # Notification txs include a dust payment to the recipient's notification address
-        if vout.script_pubkey.script_type() is not None and vout.script_pubkey.address() == get_notification_address(recipient_payment_code):
+        if vout.script_pubkey.script_type() is not None and vout.script_pubkey.address() == get_notification_address(recipient_payment_code, network=network):
             matches_notification_addr = True
             continue
 
