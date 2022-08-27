@@ -134,7 +134,7 @@ class PSBTView:
             num_inputs, num_outputs,
             offset, first_scope,
             version=None, tx_offset=None,
-            compress=False,
+            compress=CompressMode.KEEP_ALL,
         ):
         if version != 2 and tx_offset is None:
             raise PSBTError("Global tx is not found, but PSBT version is %d" % version)
@@ -162,7 +162,7 @@ class PSBTView:
         self._hash_script_pubkeys = None
 
     @classmethod
-    def view(cls, stream, offset=None, compress=False):
+    def view(cls, stream, offset=None, compress=CompressMode.KEEP_ALL):
         if offset is None and hasattr(stream, 'tell'):
             offset = stream.tell()
         offset = offset or 0
@@ -662,7 +662,7 @@ class PSBTView:
             sig_stream.write(b"\x00")
         return counter
 
-    def write_to(self, writable_stream, compress=CompressMode.CLEAR_ALL,
+    def write_to(self, writable_stream, compress=None,
             extra_input_streams=[],
             extra_output_streams=[],
     ):
@@ -676,6 +676,9 @@ class PSBTView:
         For psbtv0 it will have global tx and partial sigs for all inputs
         For psbtv2 it will have version, tx_version, locktime, per-vin data, per-vout data and partial sigs
         """
+        if compress is None:
+            compress = self.compress
+
         # first we write global scope
         self.stream.seek(self.offset)
         res = read_write(self.stream, writable_stream, self.first_scope-self.offset)
