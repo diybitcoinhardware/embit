@@ -65,7 +65,7 @@ class PSBTViewTest(TestCase):
         """Test if we can sign psbtview and get the same as from signing psbt"""
         for compress in [CompressMode.KEEP_ALL, CompressMode.CLEAR_ALL, CompressMode.PARTIAL]:
             for b64 in PSBTS:
-                psbt = PSBT.from_string(b64)
+                psbt = PSBT.from_string(b64, compress=compress)
                 stream = BytesIO(a2b_base64(b64))
                 psbtv = PSBTView.view(stream, compress=compress)
 

@@ -144,10 +144,10 @@ class TaprootTest(TestCase):
         inp = psbt_act.inputs[0]
         self.assertTrue(inp.is_taproot)
 
-        # Should have extracted: X-only pubkey, (num_leaf_hashes, leaf_hashes, DerivationPath)
+        # Should have extracted: X-only pubkey, ([leaf_hashes], DerivationPath)
         # from `PSBT_IN_TAP_BIP32_DERIVATION`
         self.assertTrue(len(inp.taproot_bip32_derivations) > 0)
         for pub in inp.taproot_bip32_derivations:
-            num_leaf_hashes, leaf_hashes, der = inp.taproot_bip32_derivations[pub]
+            leaf_hashes, der = inp.taproot_bip32_derivations[pub]
             self.assertTrue(der.fingerprint is not None)
             self.assertTrue(der.derivation is not None)

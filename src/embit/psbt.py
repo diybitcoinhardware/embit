@@ -135,7 +135,7 @@ class InputScope(PSBTScope):
         self.witness_script = None
         self.bip32_derivations = OrderedDict()
 
-        # tuples of (num_leaf_hashes, [leaf_hashes], DerivationPath)
+        # tuples of ([leaf_hashes], DerivationPath)
         self.taproot_bip32_derivations = OrderedDict()
         self.taproot_internal_key = None
 
@@ -328,17 +328,14 @@ class InputScope(PSBTScope):
         # PSBT_IN_TAP_BIP32_DERIVATION
         elif k[0] == 0x16:
             pub = ec.PublicKey.from_xonly(k[1:])
-            if pub in self.taproot_bip32_derivations:
-                raise PSBTError("Duplicated derivation path")
-            else:
+            if pub not in self.taproot_bip32_derivations:
                 # Field begins with the number of leaf hashes; for now only support the
                 # internal key where there are no leaf hashes.
                 # TODO: Support keysigns from leaves within the taptree.
-                if v[0] != 0:
-                    raise PSBTError("Signing for public keys in leaves not yet implemented")
-                num_leaf_hashes = 0
-                leaf_hashes = None
-                self.taproot_bip32_derivations[pub] = (num_leaf_hashes, leaf_hashes, DerivationPath.parse(v[1:]))
+                if v[0] > 0:
+                    return
+                leaf_hashes = []  # TODO: Actually parse leaf hashes, if present
+                self.taproot_bip32_derivations[pub] = (leaf_hashes, DerivationPath.parse(v[1:]))
         
         # PSBT_IN_TAP_INTERNAL_KEY
         elif k[0] == 0x17:
@@ -393,8 +390,8 @@ class InputScope(PSBTScope):
         # PSBT_IN_TAP_BIP32_DERIVATION
         for pub in self.taproot_bip32_derivations:
             r += ser_string(stream, b"\x16" + pub.xonly())
-            num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
-            r += ser_string(stream, num_leaf_hashes.to_bytes(1, 'little') + derivation.serialize())
+            leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
+            r += ser_string(stream, len(leaf_hashes).to_bytes(1, 'little') + derivation.serialize())
 
         # PSBT_IN_TAP_INTERNAL_KEY
         if self.taproot_internal_key is not None:
@@ -495,17 +492,14 @@ class OutputScope(PSBTScope):
         # PSBT_OUT_TAP_BIP32_DERIVATION
         elif k[0] == 0x07:
             pub = ec.PublicKey.from_xonly(k[1:])
-            if pub in self.taproot_bip32_derivations:
-                raise PSBTError("Duplicated derivation path")
-            else:
+            if pub not in self.taproot_bip32_derivations:
                 # Field begins with the number of leaf hashes; for now only support the
                 # internal key where there are no leaf hashes.
-                # TODO: Support outputs to leaves within a taptree.
-                if v[0] != 0:
-                    raise PSBTError("Outputs for public keys in leaves not yet implemented")
-                num_leaf_hashes = v[0]
-                leaf_hashes = None
-                self.taproot_bip32_derivations[pub] = (num_leaf_hashes, leaf_hashes, DerivationPath.parse(v[1:]))
+                # TODO: Support keysigns from leaves within the taptree.
+                if v[0] > 0:
+                    return
+                leaf_hashes = []  # TODO: Actually parse leaf hashes, if present
+                self.taproot_bip32_derivations[pub] = (leaf_hashes, DerivationPath.parse(v[1:]))
 
         else:
             if k in self.unknown:
@@ -541,8 +535,8 @@ class OutputScope(PSBTScope):
         # PSBT_OUT_TAP_BIP32_DERIVATION
         for pub in self.taproot_bip32_derivations:
             r += ser_string(stream, b"\x07" + pub.xonly())
-            num_leaf_hashes, leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
-            r += ser_string(stream, num_leaf_hashes.to_bytes(1, 'little') + derivation.serialize())
+            leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
+            r += ser_string(stream, len(leaf_hashes).to_bytes(1, 'little') + derivation.serialize())
 
         # unknown
         for key in self.unknown:
@@ -845,7 +839,7 @@ class PSBT(EmbitBase):
                 else:
                     bip32_derivations = []
                     for pub in inp.taproot_bip32_derivations:
-                        num_leaf_hashes, leaf_hashes, derivation = inp.taproot_bip32_derivations[pub]
+                        leaf_hashes, derivation = inp.taproot_bip32_derivations[pub]
                         if derivation.fingerprint == fingerprint:
                             bip32_derivations.append((pub, derivation))
                     
