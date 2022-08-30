@@ -31,7 +31,7 @@ def get_payment_code(root: HDKey, coin: int = 0, account: int = 0) -> str:
         Generates the recipient's BIP-47 shareable payment code (version 1)
         for the input root private key.
     """
-    bip47_child = root.derive(f"m/47'/{coin}'/{account}'")
+    bip47_child = root.derive("m/47'/{}'/{}'".format(coin, account))
 
     buf = BytesIO()
     buf.write(b'\x01')      # bip47 version
@@ -43,7 +43,7 @@ def get_payment_code(root: HDKey, coin: int = 0, account: int = 0) -> str:
     return base58.encode_check(b'\x47' + buf.getvalue())
 
 
-def get_derived_payment_code_node(payment_code: str, derivation_index: int, version: str = NETWORKS["main"]["xpub"]) -> HDKey:
+def get_derived_payment_code_node(payment_code: str, derivation_index: int, version: bytes = NETWORKS["main"]["xpub"]) -> HDKey:
     """Returns the nth derived child for the payment_code"""
     raw_payment_code = base58.decode_check(payment_code)
 
@@ -66,13 +66,13 @@ def get_notification_address(payment_code: str, script_type: str = "p2pkh", netw
     elif script_type == "p2wpkh":
         return script.p2wpkh(pubkey).address(network)
     else:
-        raise EmbitError(f"Unsupported script_type: {script_type}")
+        raise EmbitError("Unsupported script_type: " + script_type)
 
 
-def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: int, coin: int = 0, account: int = 0, network=NETWORKS["main"], script_type: str = "p2wpkh") -> str:
+def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: int, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"], script_type: str = "p2wpkh") -> str:
     """Called by the payer, generates the nth payment address between the payer and recipient"""
     # Alice selects the 0th private key derived from her payment code ("a")
-    payer_key = payer_root.derive(f"m/47'/{coin}'/{account}'/0")
+    payer_key = payer_root.derive("m/47'/{}'/{}'/0".format(coin, account))
     a = payer_key.secret
 
     # Alice selects the next unused public key derived from Bob's payment code, starting from zero ("B", where B = bG)
@@ -89,7 +89,7 @@ def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: i
     # If the value of s is not in the secp256k1 group, Alice MUST increment the index used to derive Bob's public key and try again.
     if not secp256k1.ec_seckey_verify(shared_secret):
         # TODO: Is this a sufficient test???
-        raise BIP47Exception(f"Shared secret was not valid for index {index}. Try again with the next index value.")
+        raise BIP47Exception("Shared secret was not valid for index {}. Try again with the next index value.".format(index))
 
     # Alice uses the scalar shared secret to calculate the ephemeral public key used to generate the P2PKH address for this transaction (B' = B + sG)
     shared_pubkey = secp256k1.ec_pubkey_create(shared_secret)
@@ -103,10 +103,10 @@ def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: i
     elif script_type == "p2sh-p2wpkh":
         return script.p2sh(script.p2wpkh(shared_node)).address(network=network)
     else:
-        raise EmbitError(f"Unsupported script_type: {script_type}")
+        raise EmbitError("Unsupported script_type: " + script_type)
 
 
-def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: int, coin: int = 0, account: int = 0, network=NETWORKS["main"], script_type: str = "p2wpkh") -> Tuple[str, ec.PrivateKey]:
+def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: int, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"], script_type: str = "p2wpkh") -> Tuple[str, ec.PrivateKey]:
     """Called by the recipient, generates the nth receive address between the payer and recipient.
     
         Returns the payment address and its associated private key."""
@@ -116,7 +116,7 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     B = payer_payment_code_node.get_public_key()
 
     # ...Bob calculates the nth shared secret with Alice
-    recipient_key = recipient_root.derive(f"m/47'/{coin}'/{account}'/{index}")
+    recipient_key = recipient_root.derive("m/47'/{}'/{}'/{}".format(coin, account, index))
     a = recipient_key.secret
 
     # Bob calculates a secret point (S = aB)
@@ -129,7 +129,7 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     # If the value of s is not in the secp256k1 group, increment the index and try again.
     if not secp256k1.ec_seckey_verify(shared_secret):
         # TODO: Is this a sufficient test???
-        raise BIP47Exception(f"Shared secret was not valid for index {index}. Try again with the next index value.")
+        raise BIP47Exception("Shared secret was not valid for index {}. Try again with the next index value.".format(index))
 
     # Bob uses the scalar shared secret to calculate the ephemeral public key used to generate the P2PKH address for this transaction (B' = B + sG)
     shared_pubkey = secp256k1.ec_pubkey_create(shared_secret)
@@ -143,7 +143,7 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     elif script_type == "p2sh-p2wpkh":
         receive_address = script.p2sh(script.p2wpkh(shared_node)).address(network=network)
     else:
-        raise EmbitError(f"Unsupported script_type: {script_type}")
+        raise EmbitError("Unsupported script_type: " + script_type)
     
     # Bob calculates the private key for each ephemeral address as: b' = b + s
     prv_key = secp256k1.ec_privkey_add(recipient_key.secret, shared_secret)
@@ -172,7 +172,7 @@ def blinding_function(private_key: str, secret_point: HDKey, utxo_outpoint: str,
     return payload[0:3] + x_prime + c_prime + payload[-13:]
 
 
-def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str, network=NETWORKS["main"]):
+def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str, network: dict = NETWORKS["main"]):
     """Called by the payer, returns the blinded payload for the payer's notification tx
         that is sent to the recipient while spending the input_utxo. The blinded payload
         should be inserted as OP_RETURN data."""
@@ -193,7 +193,7 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
     return hexlify(raw_blinded_payload).decode()
 
 
-def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey, coin: int = 0, account: int = 0, network=NETWORKS["main"]) -> str:
+def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"]) -> str:
     """If the tx is a BIP-47 notification tx for the recipient,
         return the new payer's embedded payment_code, else None"""
     # Notification txs have one output sent to the recipient's notification addr
@@ -243,7 +243,7 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
         return None
     
     # Bob selects the private key associated with his notification address (0th child)
-    recipient_notification_node = recipient_root.derive(f"m/47'/{coin}'/{account}'/0")
+    recipient_notification_node = recipient_root.derive("m/47'/{}'/{}'/0".format(coin, account))
     b = recipient_notification_node.secret
 
     utxo_outpoint = vin.to_string()[:72]  # TODO: Is there a better way to get the outpoint?
