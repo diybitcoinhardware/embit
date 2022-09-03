@@ -207,7 +207,7 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     payload = None
     for vout in tx.vout:
         # Notification txs include a dust payment to the recipient's notification address
-        if vout.script_pubkey.script_type() is not None and vout.script_pubkey.address() == get_notification_address(recipient_payment_code, network=network):
+        if vout.script_pubkey.script_type() is not None and vout.script_pubkey.address(network=network) == get_notification_address(recipient_payment_code, network=network):
             matches_notification_addr = True
             continue
 
