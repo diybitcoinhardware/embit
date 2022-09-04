@@ -43,7 +43,7 @@ def get_payment_code(root: HDKey, coin: int = 0, account: int = 0) -> str:
     return base58.encode_check(b'\x47' + buf.getvalue())
 
 
-def get_derived_payment_code_node(payment_code: str, derivation_index: int, version: bytes = NETWORKS["main"]["xpub"]) -> HDKey:
+def get_derived_payment_code_node(payment_code: str, derivation_index: int) -> HDKey:
     """Returns the nth derived child for the payment_code"""
     raw_payment_code = base58.decode_check(payment_code)
 
@@ -51,14 +51,14 @@ def get_derived_payment_code_node(payment_code: str, derivation_index: int, vers
     #   0x47 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
     pubkey = ec.PublicKey.from_string(hexlify(raw_payment_code[3:36]))
     chain_code = raw_payment_code[36:68]
-    root = HDKey(key=pubkey, chain_code=chain_code, version=version)
+    root = HDKey(key=pubkey, chain_code=chain_code)
     return root.derive([derivation_index])
 
 
 def get_notification_address(payment_code: str, script_type: str = "p2pkh", network: str = NETWORKS["main"]) -> str:
     """Returns the BIP-47 notification address associated with the given payment_code"""
     # Get the 0th public key derived from the payment_code
-    pubkey = get_derived_payment_code_node(payment_code, derivation_index=0, version=network["xpub"]).get_public_key()
+    pubkey = get_derived_payment_code_node(payment_code, derivation_index=0).get_public_key()
 
     # TODO: Should we limit to just p2pkh?
     if script_type == "p2pkh":
@@ -76,7 +76,7 @@ def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: i
     a = payer_key.secret
 
     # Alice selects the next unused public key derived from Bob's payment code, starting from zero ("B", where B = bG)
-    recipient_payment_code_node = get_derived_payment_code_node(recipient_payment_code, derivation_index=index, version=network["xpub"])
+    recipient_payment_code_node = get_derived_payment_code_node(recipient_payment_code, derivation_index=index)
     B = recipient_payment_code_node.get_public_key()
 
     # Alice calculates a secret point (S = aB)
@@ -112,7 +112,7 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
         Returns the payment address and its associated private key."""
 
     # Using the 0th public key derived from Alice's payment code...
-    payer_payment_code_node = get_derived_payment_code_node(payer_payment_code, derivation_index=0, version=network["xpub"])
+    payer_payment_code_node = get_derived_payment_code_node(payer_payment_code, derivation_index=0)
     B = payer_payment_code_node.get_public_key()
 
     # ...Bob calculates the nth shared secret with Alice
@@ -172,7 +172,7 @@ def blinding_function(private_key: str, secret_point: HDKey, utxo_outpoint: str,
     return payload[0:3] + x_prime + c_prime + payload[-13:]
 
 
-def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str, network: dict = NETWORKS["main"]):
+def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str):
     """Called by the payer, returns the blinded payload for the payer's notification tx
         that is sent to the recipient while spending the input_utxo. The blinded payload
         should be inserted as OP_RETURN data."""
@@ -183,13 +183,13 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
     a = input_utxo_private_key.secret
 
     # Alice selects the public key associated with Bob's notification address (B, where B = bG)
-    B = get_derived_payment_code_node(recipient_payment_code, derivation_index=0, version=network["xpub"]).get_public_key()
+    B = get_derived_payment_code_node(recipient_payment_code, derivation_index=0).get_public_key()
 
     # Alice serializes her payment code in binary form
     payment_code = base58.decode_check(payer_payment_code)[1:]  # omit the 0x47 leading byte
 
     # Blind the payment code
-    raw_blinded_payload = blinding_function(a, B, utxo_outpoint=input_utxo_outpoint, payload=payment_code)
+    raw_blinded_payload = blinding_function(a, B, utxo_outpoint=input_utxo_outpoint[:72], payload=payment_code)
     return hexlify(raw_blinded_payload).decode()
 
 
