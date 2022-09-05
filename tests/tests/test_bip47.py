@@ -1,9 +1,11 @@
 from unittest import TestCase
 
-from embit import bip32, bip39, bip47, script, ec
+from embit import bip32, bip39, bip47, ec, compact, finalizer
 from embit.networks import NETWORKS
+from embit.psbt import PSBT, OutputScope
+from embit.script import OPCODES, Script, p2wpkh
 from embit.transaction import Transaction
-from binascii import hexlify, unhexlify
+from binascii import unhexlify
 
 
 """
@@ -236,7 +238,7 @@ class Bip47Test(TestCase):
 
 
     def test_get_payment_code_from_notification_tx(self):
-        """Bob (the recipient) should be able to decode Alice's payment code from her notification tx"""
+        """Bob should be able to decode Alice's payment code from her notification tx"""
         tx = Transaction.from_string(ALICE_NOTIFICATION_TX_FOR_BOB)
         seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
         recipient_root = bip32.HDKey.from_seed(seed_bytes)
@@ -248,3 +250,56 @@ class Bip47Test(TestCase):
         seed_bytes = bip39.mnemonic_to_seed("abandon " * 11 + "about")
         other_root = bip32.HDKey.from_seed(seed_bytes)
         self.assertTrue(bip47.get_payment_code_from_notification_tx(tx, other_root) is None)
+
+
+    def test_end_to_end_notification_tx(self):
+        """Alice should be able to construct a psbt that uses the utxo being spent to
+            blind her payment code and include it as an OP_RETURN output that Bob can
+            successfully unblind.
+
+            Note: the above test used the already-constructed tx from the BIP-47 test
+            vectors; this test demonstrates Alice's full psbt-to-tx construction
+            process.
+        """
+        # Regtest initial psbt that spends one of Alice's utxos to Bob's notification
+        #   address.
+        ALICE_NOTIFICATION_BASE_PSBT = "cHNidP8BAHQCAAAAAbSCxQCModbVqGCXS5f5q5BbyrIPipQGLzRkUWlvMk41AAAAAAD9////AiICAAAAAAAAGXapFHhlOS7V9B6XfLmRNMuc4ixew5VliKyQFKgEAAAAABYAFMCPedocVwqxQv7WE3dtTEHFcgdeFwQAAAABAGkCAAAAAXVRckaobGUWT22l1cJgRaArprnVqrpKuIxmjoTenYzgAAAAABcWABQAOKoxxLYTkMskJhqVMhXE2L3mW/3///8BQxeoBAAAAAAWABR/yGzYyF9cb44byWc2v+DhQgtggBYEAAABAR9DF6gEAAAAABYAFH/IbNjIX1xvjhvJZza/4OFCC2CAIgYDdwO70Vy+5ob7m/irfdzOCIzKa2NpA+qZc8M4vUb/X/8YREM4d1QAAIABAACAAAAAgAAAAAAAAAAAAAAiAgPOQHgFgYW4Q0pSBPYgwA2DwbTSJsnO+ylBnsDILKIRpxhEQzh3VAAAgAEAAIAAAACAAQAAAAAAAAAA"
+        psbt = PSBT.from_base64(ALICE_NOTIFICATION_BASE_PSBT)
+
+        # Verify that this psbt is spending to Bob's notification addr
+        self.assertEqual(psbt.outputs[0].script_pubkey.address(NETWORKS["regtest"]), BOB_NOTIFICATION_ADDR_REGTEST)
+
+        # Extract the utxo that Alice will be spending
+        outpoint = psbt.inputs[0].vin.to_string()
+
+        # Derive Alice's private key for this utxo
+        seed_bytes = bip39.mnemonic_to_seed(ALICE_MNEMONIC)
+        alice_root = bip32.HDKey.from_seed(seed_bytes)
+        prvkey = alice_root.derive("m/84'/1'/0'/0/0")  #  This utxo is Alice's first receive addr on regtest
+
+        # Sanity check the prvkey
+        self.assertEqual(p2wpkh(prvkey.get_public_key()).address(NETWORKS["regtest"]), psbt.inputs[0].script_pubkey.address(NETWORKS["regtest"]))
+
+        # Use the utxo to blind Alice's payment code
+        blinded_payload = bip47.get_blinded_payment_code(ALICE_PAYMENT_CODE_REGTEST, prvkey, outpoint, BOB_PAYMENT_CODE_REGTEST)
+
+        # Build the additional psbt output with the blinded payload in an OP_RETURN
+        # data = OP_RETURN OP_PUSHDATA1 (len of payload) <payload>
+        raw_payload_data = unhexlify(blinded_payload)
+        data = compact.to_bytes(OPCODES.OP_RETURN) + compact.to_bytes(OPCODES.OP_PUSHDATA1) + compact.to_bytes(len(raw_payload_data)) + raw_payload_data
+        script = Script(data)
+        output = OutputScope()
+        output.script_pubkey = script
+        output.value = 0
+        psbt.outputs.append(output)
+
+        # Alice signs and finalizes her psbt into a tx
+        psbt.sign_with(alice_root)
+        tx = finalizer.finalize_psbt(psbt)
+
+        # Can Bob decode the payload in the tx?
+        seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
+        bob_root = bip32.HDKey.from_seed(seed_bytes)
+        unblinded_payment_code = bip47.get_payment_code_from_notification_tx(tx, bob_root, coin=1, network=NETWORKS["regtest"])
+
+        self.assertEqual(unblinded_payment_code, ALICE_PAYMENT_CODE_REGTEST)

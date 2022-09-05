@@ -152,7 +152,7 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     return (receive_address, spending_key)
 
 
-def blinding_function(private_key: str, secret_point: HDKey, utxo_outpoint: str, payload: str):
+def blinding_function(private_key: bytes, secret_point: HDKey, utxo_outpoint: str, payload: bytes) -> bytes:
     """Reversible blind/unblind function: blinds plaintext payloads and unblinds blinded payloads"""
     S = secret_point._xonly()
     secp256k1.ec_pubkey_tweak_mul(S, private_key)
@@ -172,7 +172,7 @@ def blinding_function(private_key: str, secret_point: HDKey, utxo_outpoint: str,
     return payload[0:3] + x_prime + c_prime + payload[-13:]
 
 
-def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str):
+def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str) -> str:
     """Called by the payer, returns the blinded payload for the payer's notification tx
         that is sent to the recipient while spending the input_utxo. The blinded payload
         should be inserted as OP_RETURN data."""
@@ -194,8 +194,8 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
 
 
 def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"]) -> str:
-    """If the tx is a BIP-47 notification tx for the recipient,
-        return the new payer's embedded payment_code, else None"""
+    """If the tx is a BIP-47 notification tx for the recipient, return the new payer's
+        embedded payment_code, else None."""
     # Notification txs have one output sent to the recipient's notification addr
     # and another containing the payer's payment code in an OP_RETURN payload.
     if len(tx.vout) < 2:
@@ -211,10 +211,10 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
             matches_notification_addr = True
             continue
 
-        # Payer's payment code will be in an OP_RETURN w/exactly 80 bytes of data
+        # Payer's blinded payment code will be in an OP_RETURN w/exactly 80 bytes of data
+        #   data = OP_RETURN OP_PUSHDATA1 (len of payload) <payload>
         data = vout.script_pubkey.data
         if data is not None and len(data) == 83 and data[0] == OPCODES.OP_RETURN and data[1] == OPCODES.OP_PUSHDATA1 and data[2] == 80:
-            # data = OP_RETURN OP_PUSHDATA1 (len of data) <data>
             payload = data[3:]
 
             if payload[0] != 1:
@@ -251,8 +251,3 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     # Unblind the payload using the reversible `blinding_function`.
     raw_unblinded_payload = blinding_function(b, A, utxo_outpoint=utxo_outpoint, payload=payload)
     return base58.encode_check(b'\x47' + raw_unblinded_payload)
-
-
-"""
-    TODO: Method to create notification transaction, etc.
-"""
