@@ -329,13 +329,13 @@ class InputScope(PSBTScope):
         elif k[0] == 0x16:
             pub = ec.PublicKey.from_xonly(k[1:])
             if pub not in self.taproot_bip32_derivations:
-                # Field begins with the number of leaf hashes; for now only support the
-                # internal key where there are no leaf hashes.
-                # TODO: Support keysigns from leaves within the taptree.
-                if v[0] > 0:
-                    return
-                leaf_hashes = []  # TODO: Actually parse leaf hashes, if present
-                self.taproot_bip32_derivations[pub] = (leaf_hashes, DerivationPath.parse(v[1:]))
+                b = BytesIO(v)
+                num_leaf_hashes = compact.read_from(b)
+                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
+                if not all([len(leaf)==32 for leaf in leaf_hashes]):
+                    raise PSBTError("Invalid length of taproot leaf hashes")
+                der = DerivationPath.read_from(b)
+                self.taproot_bip32_derivations[pub] = (leaf_hashes, der)
         
         # PSBT_IN_TAP_INTERNAL_KEY
         elif k[0] == 0x17:
@@ -391,7 +391,7 @@ class InputScope(PSBTScope):
         for pub in self.taproot_bip32_derivations:
             r += ser_string(stream, b"\x16" + pub.xonly())
             leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
-            r += ser_string(stream, len(leaf_hashes).to_bytes(1, 'little') + derivation.serialize())
+            r += ser_string(stream, compact.to_bytes(len(leaf_hashes)) + b"".join(leaf_hashes) + derivation.serialize())
 
         # PSBT_IN_TAP_INTERNAL_KEY
         if self.taproot_internal_key is not None:
@@ -493,13 +493,13 @@ class OutputScope(PSBTScope):
         elif k[0] == 0x07:
             pub = ec.PublicKey.from_xonly(k[1:])
             if pub not in self.taproot_bip32_derivations:
-                # Field begins with the number of leaf hashes; for now only support the
-                # internal key where there are no leaf hashes.
-                # TODO: Support keysigns from leaves within the taptree.
-                if v[0] > 0:
-                    return
-                leaf_hashes = []  # TODO: Actually parse leaf hashes, if present
-                self.taproot_bip32_derivations[pub] = (leaf_hashes, DerivationPath.parse(v[1:]))
+                b = BytesIO(v)
+                num_leaf_hashes = compact.read_from(b)
+                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
+                if not all([len(leaf)==32 for leaf in leaf_hashes]):
+                    raise PSBTError("Invalid length of taproot leaf hashes")
+                der = DerivationPath.read_from(b)
+                self.taproot_bip32_derivations[pub] = (leaf_hashes, der)
 
         else:
             if k in self.unknown:
@@ -536,7 +536,7 @@ class OutputScope(PSBTScope):
         for pub in self.taproot_bip32_derivations:
             r += ser_string(stream, b"\x07" + pub.xonly())
             leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
-            r += ser_string(stream, len(leaf_hashes).to_bytes(1, 'little') + derivation.serialize())
+            r += ser_string(stream, compact.to_bytes(len(leaf_hashes)) + b"".join(leaf_hashes) + derivation.serialize())
 
         # unknown
         for key in self.unknown:
@@ -840,7 +840,8 @@ class PSBT(EmbitBase):
                     bip32_derivations = []
                     for pub in inp.taproot_bip32_derivations:
                         leaf_hashes, derivation = inp.taproot_bip32_derivations[pub]
-                        if derivation.fingerprint == fingerprint:
+                        # TODO: also sign with leaf_hashes
+                        if derivation.fingerprint == fingerprint and len(leaf_hashes) == 0:
                             bip32_derivations.append((pub, derivation))
                     
                     # "Legacy" support for workaround when BIP-371 Taproot psbt fields aren't available.
