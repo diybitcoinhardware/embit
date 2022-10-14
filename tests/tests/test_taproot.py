@@ -1,4 +1,5 @@
 from unittest import TestCase
+from embit import bip32
 from embit.bip32 import HDKey
 from embit.networks import NETWORKS
 from embit.script import p2tr, address_to_scriptpubkey
@@ -8,13 +9,15 @@ from embit.ec import SchnorrSig, PublicKey
 from embit.transaction import SIGHASH
 from embit.psbtview import PSBTView
 from io import BytesIO
-from binascii import a2b_base64
+from binascii import unhexlify, hexlify
 
 KEY = "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
 ROOT = HDKey.from_string(KEY)
 NET = NETWORKS["regtest"]
 
 # tx without derivations. inp0 should be signed with addr0, inp1 with addr1
+# TODO: Update to a test vector that includes `PSBT_IN_TAP_BIP32_DERIVATION`
+# and test with full signing flow.
 B64PSBT = "cHNidP8BAKYCAAAAAsBlMEaxkJwNZ6V+BZ06bKIb5q2CpF9sHDDj0/eJfzA1AAAAAAD+////kqnvuD+I8rLf8eELSAqvqBiEy5+IpOKpn/acu+gs0E8BAAAAAP7///8CAA4nBwAAAAAWABStYQVCeoRPwINTcqOPmDkTReYZVbjCyQEAAAAAIlEgDTyyEUjN1Oyxc6Z5xifyM3Kamy+Hrt0UdV86CeDMvf8AAAAAAAEAfQIAAAABRL1RocN1LnP4aONGuWFAJm0+Hej0SWAqlSlJ9caTP/gBAAAAAP7///8CAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmc4uGh4BAAAAFgAU1ZjhFjq1hmtoVb2+6O7jHrtqYsDLAAAAAQErAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmQABAH0CAAAAAcBlMEaxkJwNZ6V+BZ06bKIb5q2CpF9sHDDj0/eJfzA1AQAAAAD+////ArU9HxsBAAAAFgAUOGUymdaBcR3nQVoZ804qGf9H9iKA8PoCAAAAACJRIDrGIL80dDh9Y5xIBek776O9xpVrAtiuyiy8HXZSuTUZzAAAAAEBK4Dw+gIAAAAAIlEgOsYgvzR0OH1jnEgF6Tvvo73GlWsC2K7KLLwddlK5NRkAAAA="
 B64SIGNED = "cHNidP8BAKYCAAAAAsBlMEaxkJwNZ6V+BZ06bKIb5q2CpF9sHDDj0/eJfzA1AAAAAAD+////kqnvuD+I8rLf8eELSAqvqBiEy5+IpOKpn/acu+gs0E8BAAAAAP7///8CAA4nBwAAAAAWABStYQVCeoRPwINTcqOPmDkTReYZVbjCyQEAAAAAIlEgDTyyEUjN1Oyxc6Z5xifyM3Kamy+Hrt0UdV86CeDMvf8AAAAAAAEAfQIAAAABRL1RocN1LnP4aONGuWFAJm0+Hej0SWAqlSlJ9caTP/gBAAAAAP7///8CAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmc4uGh4BAAAAFgAU1ZjhFjq1hmtoVb2+6O7jHrtqYsDLAAAAAQErAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmQEIQwFBApOkiV6PkijNENaddILURidJhTlnK3EnYT1zPnksBel0HHz4TyPDhF3VJA0RG480dr0yAy1l1agcbyZFKduv9QEAAQB9AgAAAAHAZTBGsZCcDWelfgWdOmyiG+atgqRfbBww49P3iX8wNQEAAAAA/v///wK1PR8bAQAAABYAFDhlMpnWgXEd50FaGfNOKhn/R/YigPD6AgAAAAAiUSA6xiC/NHQ4fWOcSAXpO++jvcaVawLYrsosvB12Urk1GcwAAAABASuA8PoCAAAAACJRIDrGIL80dDh9Y5xIBek776O9xpVrAtiuyiy8HXZSuTUZAQhDAUGRfNtYnHLUoAOM57UwVvcuqe0bUAiaO5PAnxp0AcyqdrV3d4Q8303FOCNp8SUDlbTs2idGiNqa+TCaUVQC6AmdAQAAAA=="
 
@@ -31,6 +34,11 @@ DERIVED_ADDRESSES = [
   "bcrt1pcwdyaf529a9qh38c2yttxxu2lgkwa2jpqt9rc259avqlxpf9d8hqmhxq26",
   "bcrt1p5s4g6v365uu54hsz6cvkn4l45fds2p6nw55ucnskhaz3kars0x2qnpef89",
 ]
+
+# Test vector(s) from BIP-371:
+# Case: PSBT with one P2TR key only input with internal key and its derivation path (includes `PSBT_IN_TAP_BIP32_DERIVATION` and `PSBT_IN_TAP_INTERNAL_KEY`)
+TAPROOT_01 = "70736274ff010052020000000127744ababf3027fe0d6cf23a96eee2efb188ef52301954585883e69b6624b2420000000000ffffffff0148e6052a01000000160014768e1eeb4cf420866033f80aceff0f9720744969000000000001012b00f2052a010000002251205a2c2cf5b52cf31f83ad2e8da63ff03183ecd8f609c7510ae8a48e03910a07572116fe349064c98d6e2a853fa3c9b12bd8b304a19c195c60efa7ee2393046d3fa2321900772b2da75600008001000080000000800100000000000000011720fe349064c98d6e2a853fa3c9b12bd8b304a19c195c60efa7ee2393046d3fa232002202036b772a6db74d8753c98a827958de6c78ab3312109f37d3e0304484242ece73d818772b2da7540000800100008000000080000000000000000000"
+
 
 class TaprootTest(TestCase):
     def test_script(self):
@@ -98,18 +106,22 @@ class TaprootTest(TestCase):
             self.assertEqual(sigcount, 1)
             self.assertEqual(unsigned.inputs[i].final_scriptwitness, signed.inputs[i].final_scriptwitness)
 
+        # TODO: Won't need to populate derivation when a psbt with Taproot fields is
+        # used for this test.
         for i, inp in enumerate(unsigned.inputs):
             prv = ROOT.derive([0, i])
             # remove final scriptwitness to test signing with root
             inp.final_scriptwitness = None
-            # populate derivation
-            inp.bip32_derivations[prv.key.get_public_key()] = DerivationPath(ROOT.my_fingerprint, [0, i])
+            # populate derivation; Taproot signing expects X-only pubkeys
+            inp.bip32_derivations[PublicKey.from_xonly(prv.key.xonly())] = DerivationPath(ROOT.my_fingerprint, [0, i])
 
         # test signing with root key
         counter = unsigned.sign_with(ROOT, SIGHASH.ALL)
         self.assertEqual(counter, 2)
         for inp1, inp2 in zip(unsigned.inputs, signed.inputs):
             self.assertEqual(inp1.final_scriptwitness, inp2.final_scriptwitness)
+
+            # Reset input for final part of test
             inp1.final_scriptwitness = None
 
         # test signing with psbtview, unsigned already has derivations
@@ -122,3 +134,20 @@ class TaprootTest(TestCase):
         # check sigs are in the stream
         for inp in signed.inputs:
             self.assertTrue(inp.final_scriptwitness.items[0] in v)
+
+
+    def test_taproot_internal_keyspend(self):
+        """Should parse Taproot `PSBT_IN_TAP_BIP32_DERIVATION` field and populate 
+            `taproot_bip32_derivations` in each input. """
+        psbt_bytes = unhexlify(TAPROOT_01)
+        psbt_act = PSBT.parse(psbt_bytes)
+        inp = psbt_act.inputs[0]
+        self.assertTrue(inp.is_taproot)
+
+        # Should have extracted: X-only pubkey, ([leaf_hashes], DerivationPath)
+        # from `PSBT_IN_TAP_BIP32_DERIVATION`
+        self.assertTrue(len(inp.taproot_bip32_derivations) > 0)
+        for pub in inp.taproot_bip32_derivations:
+            leaf_hashes, der = inp.taproot_bip32_derivations[pub]
+            self.assertTrue(der.fingerprint is not None)
+            self.assertTrue(der.derivation is not None)

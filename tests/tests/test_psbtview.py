@@ -23,7 +23,7 @@ PSBTS = [
     "cHNidP8BAgQCAAAAAQMEaAAAAAEEAQIBBQECAfsEAgAAAAABAIkCAAAAAZtxoIrIK2VWr0F9+yJWW+u4lrJ7Jt8a7vcqyTehjnHhAQAAAAD+////AkBLTAAAAAAAIgAgEmbKGKSfdnRULLw/X2F3vsCX8kCU1Q5MHsyqnemip2IaWG0pAQAAACJRIO/5p6DvLGW4bS1rGXEN90/F4WYvXsAZ6lcDOu7r3vMsAAAAAAEBK0BLTAAAAAAAIgAgEmbKGKSfdnRULLw/X2F3vsCX8kCU1Q5MHsyqnemip2IBBUdRIQI0d9dRmoMchemObZucs3XuW+t9B5czDD26ejPpXp6deyEDaJVy4osP7anWmBwCN9nl3tv+wW3nFD9oCgLtXRWfdYdSriIGAjR311GagxyF6Y5tm5yzde5b630HlzMMPbp6M+lenp17HCYUvcQwAACAAQAAgAAAAIACAACAAAAAAAEAAAAiBgNolXLiiw/tqdaYHAI32eXe2/7BbecUP2gKAu1dFZ91hxxzxdoKMAAAgAEAAIAAAACAAgAAgAAAAAABAAAAAQ4grCdq+90cjg1s4G1WH2DAMxoSKEQQMdkZC+0i4NDCxf8BDwQAAAAAARAE/f///wABAIkCAAAAAZa1AcGuoTE/hvyx2z6J8nCQXx/w95NYLDJz/86ofJ8nAQAAAAD+////Ak1Chu0AAAAAIlEg2+nu/5cRFoR+h6D1Hr+2KDi4AXhSqzDAOcP+U73sm3yAlpgAAAAAACIAIFFGwzWLmusy+RnSQwoKbc3sAGDkWif+iApu0bBCGNTuAAAAAAEBK4CWmAAAAAAAIgAgUUbDNYua6zL5GdJDCgptzewAYORaJ/6ICm7RsEIY1O4BBUdRIQMLkO0uhrrX8qT+l2m7QX17qcqhEkgH2/s2Lfvutl5+ASED+7FQTEpqQ7FapyTEsb8sa40VIED+lpRG1BU0dIRy8glSriIGAwuQ7S6GutfypP6XabtBfXupyqESSAfb+zYt++62Xn4BHHPF2gowAACAAQAAgAAAAIACAACAAAAAAAAAAAAiBgP7sVBMSmpDsVqnJMSxvyxrjRUgQP6WlEbUFTR0hHLyCRwmFL3EMAAAgAEAAIAAAACAAgAAgAAAAAAAAAAAAQ4gYfVl48Yz2drXieVIad5Y7Wi0tSRJtFHrQlEnngrZ3QkBDwQBAAAAARAE/f///wABAUdRIQOgfTvgutY8gDXSHJe0EIkNPToZ0uQDr7P8/GgmqiY8diED41V+tIWahSqtEAq6IPVKeX7RITmu5WdtwNFRHa8RujRSriICA6B9O+C61jyANdIcl7QQiQ09OhnS5AOvs/z8aCaqJjx2HHPF2gowAACAAQAAgAAAAIACAACAAQAAAAAAAAAiAgPjVX60hZqFKq0QCrog9Up5ftEhOa7lZ23A0VEdrxG6NBwmFL3EMAAAgAEAAIAAAACAAgAAgAEAAAAAAAAAAQMIrMUtAAAAAAABBCIAIN+3uFj/eYJpVvPHmKjOj9adl8+SNgs7Tk9+G2HXP2gUAAEDCAAbtwAAAAAAAQQWABTQxKPvCemXtumeOX5Rj+PkGhGMoQA=",
 ]
 
-class PSBTTest(TestCase):
+class PSBTViewTest(TestCase):
     def test_scopes(self):
         """Tests that PSBT and PSBTView result in the same scopes and other constants"""
         for compress in [CompressMode.KEEP_ALL, CompressMode.CLEAR_ALL, CompressMode.PARTIAL]:
@@ -65,7 +65,7 @@ class PSBTTest(TestCase):
         """Test if we can sign psbtview and get the same as from signing psbt"""
         for compress in [CompressMode.KEEP_ALL, CompressMode.CLEAR_ALL, CompressMode.PARTIAL]:
             for b64 in PSBTS:
-                psbt = PSBT.from_string(b64)
+                psbt = PSBT.from_string(b64, compress=compress)
                 stream = BytesIO(a2b_base64(b64))
                 psbtv = PSBTView.view(stream, compress=compress)
 

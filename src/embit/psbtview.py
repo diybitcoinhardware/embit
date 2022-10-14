@@ -598,23 +598,36 @@ class PSBTView:
                     counter = 1
             # if we use HDKey
             else:
-                # TODO: add taproot derivation paths and scripts
+                bip32_derivations = []
+                for pub in inp.taproot_bip32_derivations:
+                    num_leaf_hashes, leaf_hashes, derivation = inp.taproot_bip32_derivations[pub]
+                    if derivation.fingerprint == fingerprint:
+                        bip32_derivations.append((pub, derivation))
+                
+                # "Legacy" support for workaround when BIP-371 Taproot psbt fields aren't available
                 for pub in inp.bip32_derivations:
-                    # check if it is root key
-                    if inp.bip32_derivations[pub].fingerprint == fingerprint:
-                        hdkey = root.derive(inp.bip32_derivations[pub].derivation)
-                        mypub = hdkey.key.get_public_key()
-                        if mypub != pub:
-                            raise PSBTError("Derivation path doesn't look right")
-                        pk = hdkey.taproot_tweak(b"")
-                        if pk.xonly() in sc.data:
-                            sig = pk.schnorr_sign(h)
-                            # sig plus sighash flag
-                            wit = sig.serialize()
-                            if inp_sighash != SIGHASH.DEFAULT:
-                                wit += bytes([inp_sighash])
-                            inp.final_scriptwitness = Witness([wit])
-                            counter = 1
+                    derivation = inp.bip32_derivations[pub]
+                    if derivation.fingerprint == fingerprint:
+                        bip32_derivations.append((pub, derivation))
+
+                for pub, derivation in bip32_derivations:
+                    hdkey = root.derive(derivation.derivation)
+
+                    # Taproot BIP32 derivations use X-only pubkeys
+                    xonly_pub = hdkey.key.xonly()
+                    mypub = ec.PublicKey.from_xonly(xonly_pub)
+
+                    if mypub != pub:
+                        raise PSBTError("Derivation path doesn't look right")
+                    pk = hdkey.taproot_tweak(b"")
+                    if pk.xonly() in sc.data:
+                        sig = pk.schnorr_sign(h)
+                        # sig plus sighash flag
+                        wit = sig.serialize()
+                        if inp_sighash != SIGHASH.DEFAULT:
+                            wit += bytes([inp_sighash])
+                        inp.final_scriptwitness = Witness([wit])
+                        counter = 1
             if counter:
                 ser_string(sig_stream, b"\x08")
                 ser_string(sig_stream, inp.final_scriptwitness.serialize())
