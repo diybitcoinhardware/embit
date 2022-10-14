@@ -5,6 +5,7 @@ from embit.networks import NETWORKS
 from embit.script import p2tr, address_to_scriptpubkey
 from embit.descriptor import Descriptor
 from embit.psbt import DerivationPath, PSBT
+from embit.psbtview import PSBTView
 from embit.ec import SchnorrSig, PublicKey
 from embit.transaction import SIGHASH
 from embit.psbtview import PSBTView
@@ -39,12 +40,18 @@ DERIVED_ADDRESSES = [
 # Case: PSBT with one P2TR key only input with internal key and its derivation path (includes `PSBT_IN_TAP_BIP32_DERIVATION` and `PSBT_IN_TAP_INTERNAL_KEY`)
 TAPROOT_01 = "70736274ff010052020000000127744ababf3027fe0d6cf23a96eee2efb188ef52301954585883e69b6624b2420000000000ffffffff0148e6052a01000000160014768e1eeb4cf420866033f80aceff0f9720744969000000000001012b00f2052a010000002251205a2c2cf5b52cf31f83ad2e8da63ff03183ecd8f609c7510ae8a48e03910a07572116fe349064c98d6e2a853fa3c9b12bd8b304a19c195c60efa7ee2393046d3fa2321900772b2da75600008001000080000000800100000000000000011720fe349064c98d6e2a853fa3c9b12bd8b304a19c195c60efa7ee2393046d3fa232002202036b772a6db74d8753c98a827958de6c78ab3312109f37d3e0304484242ece73d818772b2da7540000800100008000000080000000000000000000"
 
+# Test vectors generated from master branch of Bitcoin Core
+KEY_A = HDKey.from_string("xprv9s21ZrQH143K3GJpoapnV8SFfukcVBSfeCficPSGfubmSFDxo1kuHnLisriDvSnRRuL2Qrg5ggqHKNVpxR86QEC8w35uxmGoggxtQTPvfUu")
 # psbt with taproot derivations
 TAP_PSBTS = [
     # tr(A)
     "cHNidP8BAH0CAAAAAcvX2qbTVRs2ba+B8Jxem6oHsheRltrKWpdsT8EpTnBtAQAAAAD9////AvJJXQUAAAAAIlEgdeZfiD3lhycx2Y6ob18IYvCSOdDpsA9J9ZIGnBhNAqKAlpgAAAAAABYAFHAkanlSWSwxrcCwYWjATxOt1uVpAAAAAAABASsA4fUFAAAAACJRIDuCsrKpGFMV2m+A2l8G0EQNil4UV/qTOHwtkZyG7IeGIRZVNVyoPJc/HZfODjhDyF14kFrxa03FMbxIjlchLSMBFhkAc8XaClYAAIABAACAAAAAgAAAAAAAAAAAARcgVTVcqDyXPx2Xzg44Q8hdeJBa8WtNxTG8SI5XIS0jARYAAQUgIOuQUAaLATvePSBNtZrF2yoceKiqJQc/vy561J0FFcYBBgAhByDrkFAGiwE73j0gTbWaxdsqHHioqiUHP78uetSdBRXGGQBzxdoKVgAAgAEAAIAAAACAAQAAAAEAAAAAAA==",
     # tr(A,{{pk(B),pk(C)},pk(D)})
     "cHNidP8BAH0CAAAAAUAaxszo/duEBuHMtAC7DT2fNdfsnS4wy8vF3hAB/UlJAAAAAAD9////AoCWmAAAAAAAFgAUcCRqeVJZLDGtwLBhaMBPE63W5WnySV0FAAAAACJRIBrRhQ5SjnkT5tE70JEBxp9xkb4uBIHRIzkxac7HP5ZTAAAAAAABASsA4fUFAAAAACJRIFKH/tGO0Q0s2Smklua645o2AiaKUkBJnG3YDvfOcbbVQhXBVTVcqDyXPx2Xzg44Q8hdeJBa8WtNxTG8SI5XIS0jARZUoQdnQp/8bMLMLulMq6QGi4+kememhbEVYTvrM2DmDyMgBB+2r5b0+qaabbiKXfGsCCZ/X5i6EoOa82ErtH5BigCswGIVwVU1XKg8lz8dl84OOEPIXXiQWvFrTcUxvEiOVyEtIwEWFGi48vIp9D+FdjTmg1ubdkSHIVzdfVMACq33siHM79pMxC/7Yq3dbpesX7UJSDHq71fmbAYALaDQdod4fu5JsSMgBgozO1jxe6uPd2hvHYlLTaKei2UIjBpBGIJfyCL/os6swGIVwVU1XKg8lz8dl84OOEPIXXiQWvFrTcUxvEiOVyEtIwEWMbziDCAn/bPsPqCxK0QUbVF34xa8bETwhZ1jFzu+SvNMxC/7Yq3dbpesX7UJSDHq71fmbAYALaDQdod4fu5JsSMgtpzeELVS/INwpBPZEQhNBIUStilyPL6A7W14NH4UZeSswCEWBB+2r5b0+qaabbiKXfGsCCZ/X5i6EoOa82ErtH5BigA5AUzEL/tird1ul6xftQlIMervV+ZsBgAtoNB2h3h+7kmxAgjLd1YAAIABAACAAAAAgAAAAAAAAAAAIRYGCjM7WPF7q493aG8diUtNop6LZQiMGkEYgl/IIv+izjkBMbziDCAn/bPsPqCxK0QUbVF34xa8bETwhZ1jFzu+SvNH/BuhVgAAgAEAAIAAAACAAAAAAAAAAAAhFlU1XKg8lz8dl84OOEPIXXiQWvFrTcUxvEiOVyEtIwEWGQBzxdoKVgAAgAEAAIAAAACAAAAAAAAAAAAhFrac3hC1UvyDcKQT2REITQSFErYpcjy+gO1teDR+FGXkOQEUaLjy8in0P4V2NOaDW5t2RIchXN19UwAKrfeyIczv2vt8HxFWAACAAQAAgAAAAIAAAAAAAAAAAAEXIFU1XKg8lz8dl84OOEPIXXiQWvFrTcUxvEiOVyEtIwEWARggyx1Uf/jQ00tM3UjsFjZveDZgMfHHVAqzX2EeP2HYuVgAAAEFICDrkFAGiwE73j0gTbWaxdsqHHioqiUHP78uetSdBRXGAQZvAcAiIBzPJ1Xc+LktQvZ2DfUHF8ZjLstb2yy8knw6sWGa6npzrALAIiB7XX2FRbhtQQ1OMFHZrKQJgm9Uy11VIkks1y6DlEvafqwCwCIg0OVDwS5pv86EQus8QaNW31/onw7JQJ1aEgD4mu/9Iv2sIQcczydV3Pi5LUL2dg31BxfGYy7LW9ssvJJ8OrFhmup6czkBf88QfvUR3XwjmSYdA3uHV+ve/BhYs0/r70731kheDW8CCMt3VgAAgAEAAIAAAACAAQAAAAEAAAAhByDrkFAGiwE73j0gTbWaxdsqHHioqiUHP78uetSdBRXGGQBzxdoKVgAAgAEAAIAAAACAAQAAAAEAAAAhB3tdfYVFuG1BDU4wUdmspAmCb1TLXVUiSSzXLoOUS9p+OQGzJ3RT0eho23a5cca/2jX8AETEICnTMTP12ajR30czFEf8G6FWAACAAQAAgAAAAIABAAAAAQAAACEH0OVDwS5pv86EQus8QaNW31/onw7JQJ1aEgD4mu/9Iv05ATfGpiWBWMHLfN4FazQuz2SBvTDiVWvd3kqLsLZGpyDW+3wfEVYAAIABAACAAAAAgAEAAAABAAAAAA==",
+]
+TAP_SIGS = [
+    (unhexlify("6f7f1255071fb5a103b5a4d3e5e295d19e9701e58fa1c457e92733c53ed16804f1036c90f30f6c4753a884c2be8b7d4a7c30a2a86dbfb0e8010bdf7064fd70f7"),),
+    (),
 ]
 
 class TaprootTest(TestCase):
@@ -167,3 +174,34 @@ class TaprootTest(TestCase):
             self.assertEqual(len(ser), len(b64))
             psbt2 = PSBT.from_string(ser)
             assert psbt == psbt2
+
+    def test_sign(self):
+        psbt = PSBT.from_string(TAP_PSBTS[0])
+        psbt.sign_with(KEY_A)
+        self.assertEqual(psbt.inputs[0].final_scriptwitness.items[0], TAP_SIGS[0][0])
+
+    def test_owns(self):
+        d = Descriptor.from_string("tr(%s/86h/1h/0h/{0,1}/*)" % KEY_A)
+        psbt = PSBT.from_string(TAP_PSBTS[0])
+        # in this PSBT whenever we have derivations it is owned by the descriptor
+        for sc in psbt.inputs + psbt.outputs:
+            self.assertEqual(d.owns(sc), bool(sc.taproot_bip32_derivations))
+
+    def test_sign_psbtview(self):
+        psbt = PSBT.from_string(TAP_PSBTS[0])
+        b = BytesIO(psbt.serialize())
+        psbtv = PSBTView.view(b)
+        # sign into signature stream
+        sigs_stream = BytesIO()
+        psbt.sign_with(KEY_A)
+        psbtv.sign_with(KEY_A, sigs_stream)
+        sigs_stream.seek(0,0)
+        # serialize psbtview into bytestream and parse back into psbt - for convenient
+        ser = BytesIO()
+        psbtv.write_to(ser, extra_input_streams=[sigs_stream])
+        ser.seek(0,0)
+        psbt2 = PSBT.read_from(ser)
+        # check signatures in every input
+        for inp1, inp2 in zip(psbt.inputs, psbt2.inputs):
+            self.assertTrue(bool(inp1.final_scriptwitness)) # test not empty
+            self.assertEqual(inp1.final_scriptwitness, inp2.final_scriptwitness) # test psbt and psbtview give the same results

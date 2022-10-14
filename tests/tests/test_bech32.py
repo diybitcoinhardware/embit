@@ -100,7 +100,7 @@ INVALID_ADDRESS_ENC = [
 ]
 
 
-class TestSegwitAddress(TestCase):
+class Bech32Test(TestCase):
     """Unit test class for segwit addressess."""
 
     def test_valid_checksum(self):

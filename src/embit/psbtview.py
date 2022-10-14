@@ -600,10 +600,10 @@ class PSBTView:
             else:
                 bip32_derivations = []
                 for pub in inp.taproot_bip32_derivations:
-                    num_leaf_hashes, leaf_hashes, derivation = inp.taproot_bip32_derivations[pub]
+                    leaf_hashes, derivation = inp.taproot_bip32_derivations[pub]
                     if derivation.fingerprint == fingerprint:
                         bip32_derivations.append((pub, derivation))
-                
+
                 # "Legacy" support for workaround when BIP-371 Taproot psbt fields aren't available
                 for pub in inp.bip32_derivations:
                     derivation = inp.bip32_derivations[pub]

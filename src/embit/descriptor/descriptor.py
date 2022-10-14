@@ -188,6 +188,17 @@ class Descriptor(DescriptorBase):
                     sc = self.derive(idx, branch_index=branch_idx).script_pubkey()
                     # if derivation is found but scriptpubkey doesn't match - fail
                     return (sc == psbt_scope.script_pubkey)
+        for pub, (leafs, der) in psbt_scope.taproot_bip32_derivations.items():
+            # check of the fingerprints
+            for k in self.keys:
+                if not k.is_extended:
+                    continue
+                res = k.check_derivation(der)
+                if res:
+                    idx, branch_idx = res
+                    sc = self.derive(idx, branch_index=branch_idx).script_pubkey()
+                    # if derivation is found but scriptpubkey doesn't match - fail
+                    return (sc == psbt_scope.script_pubkey)
         return False
 
     def check_derivation(self, derivation_path):
