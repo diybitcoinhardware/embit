@@ -442,7 +442,7 @@ class OutputScope(PSBTScope):
         self.redeem_script = other.redeem_script or self.redeem_script
         self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
-        self.taproot_bip32_derivations.update(other.bip32_derivations)
+        self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
         self.taproot_internal_key = other.taproot_internal_key
 
     @property
