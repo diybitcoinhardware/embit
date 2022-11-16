@@ -17,9 +17,9 @@ def read_write(sin, sout, l=None, chunk_size=32) -> int:
     res = 0
     barr = bytearray(chunk_size)
     while True:
-        if l == 0: # nothing to read
+        if l == 0: # nothing else to read
             return res
-        elif l < chunk_size: # read less than full chunk
+        elif l and l < chunk_size: # read less than full chunk
             r = sin.read(l)
             sout.write(r)
             return res + len(r)
