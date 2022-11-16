@@ -17,11 +17,13 @@ def read_write(sin, sout, l=None, chunk_size=32) -> int:
     res = 0
     barr = bytearray(chunk_size)
     while True:
-        if l and l < chunk_size:
+        if l == 0: # nothing to read
+            return res
+        elif l < chunk_size: # read less than full chunk
             r = sin.read(l)
             sout.write(r)
             return res + len(r)
-        else:
+        else: # reading full chunk
             r = sin.readinto(barr)
             if r == 0:
                 return res
@@ -220,9 +222,10 @@ class PSBTView:
             # read key and update cursor
             keylen = skip_string(self.stream)
             off += keylen
-            # separator: zero-length key
+            # separator: zero-length key, has actual len of 1
             if keylen == 1:
                 break
+            # not separator - skip value as well
             off += skip_string(self.stream)
         return off
 

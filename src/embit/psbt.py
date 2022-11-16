@@ -31,7 +31,7 @@ def read_string(stream) -> bytes:
     return s
 
 
-def skip_string(stream) -> bytes:
+def skip_string(stream) -> int:
     l = compact.read_from(stream)
     stream.seek(l, 1)
     return len(compact.to_bytes(l)) + l
