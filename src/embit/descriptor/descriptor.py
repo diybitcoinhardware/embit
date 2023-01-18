@@ -304,7 +304,7 @@ class Descriptor(DescriptorBase):
             nbrackets = 1 + int(sh)
         end = s.read(nbrackets)
         if end != b")" * nbrackets:
-            raise ValueError("Invalid descriptor (ends with %s)" % end)
+            raise ValueError("Invalid descriptor (expected ')' but ends with %s)" % end)
         return cls(miniscript, sh=sh, wsh=wsh, key=key, wpkh=wpkh, taproot=taproot)
 
     def to_string(self):
