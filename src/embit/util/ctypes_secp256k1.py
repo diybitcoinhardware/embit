@@ -660,13 +660,13 @@ def ec_pubkey_combine(*args, context=_secp.ctx):
 
 # ecdh
 @locked
-def ecdh(pubkey, scalar, hashfp=None, data=None, context=_secp.ctx):
+def ecdh(pubkey, scalar, hashfn=None, data=None, context=_secp.ctx):
     if not len(pubkey) == 64: 
         raise ValueError("Pubkey should be 64 bytes long")
     if not len(scalar) == 32:
         raise ValueError("Scalar should be 32 bytes long")
     secret = bytes(32)
-    res = _secp.secp256k1_ecdh(context, secret, pubkey, scalar, hashfp, data)
+    res = _secp.secp256k1_ecdh(context, secret, pubkey, scalar, hashfn, data)
     if res != 1:
         raise RuntimeError("Failed to compute the shared secret")
     return secret

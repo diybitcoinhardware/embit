@@ -236,9 +236,9 @@ class PrivateKey(EmbitKey):
         # return a copy of the secret
         return stream.write(self._secret)
 
-    def ecdh(self, public_key: PublicKey, hashfp=None, data=None) -> bytes:
+    def ecdh(self, public_key: PublicKey, hashfn=None, data=None) -> bytes:
         pubkey_point = secp256k1.ec_pubkey_parse(public_key.sec())
-        return secp256k1.ecdh(pubkey_point, self._secret, hashfp, data)
+        return secp256k1.ecdh(pubkey_point, self._secret, hashfn, data)
 
     @classmethod
     def read_from(cls, stream):
