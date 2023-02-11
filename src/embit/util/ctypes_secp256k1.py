@@ -666,7 +666,21 @@ def ecdh(pubkey, scalar, hashfn=None, data=None, context=_secp.ctx):
     if not len(scalar) == 32:
         raise ValueError("Scalar should be 32 bytes long")
     secret = bytes(32)
-    res = _secp.secp256k1_ecdh(context, secret, pubkey, scalar, hashfn, data)
+    if hashfn is None:
+        res = _secp.secp256k1_ecdh(context, secret, pubkey, scalar, None, None)
+    else:
+        def _hashfn(out, x, y):
+            x = ctypes.string_at(x, 32)
+            y = ctypes.string_at(y, 32)
+            try:
+                res = hashfn(x, y, data)
+            except Exception as e:
+                return 0
+            out = cast(out, POINTER(c_char*32))
+            out.contents.value = res
+            return 1
+        HASHFN = CFUNCTYPE(c_int, c_void_p, c_void_p, c_void_p)
+        res = _secp.secp256k1_ecdh(context, secret, pubkey, scalar, HASHFN(_hashfn), data)
     if res != 1:
         raise RuntimeError("Failed to compute the shared secret")
     return secret

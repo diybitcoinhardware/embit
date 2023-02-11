@@ -13,6 +13,7 @@ from .test_script import *
 from .test_bip85 import *
 
 if sys.implementation.name != "micropython":
+    from .test_ecdh import *
     from .test_ripemd160 import *
     from .test_bindings import *
     from .test_threading import *
