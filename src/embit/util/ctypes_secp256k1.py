@@ -176,6 +176,20 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
     ]
     secp256k1.secp256k1_ec_pubkey_combine.restype = c_int
 
+    # ecdh
+    try:
+        secp256k1.secp256k1_ecdh.argtypes = [
+            c_void_p, # ctx
+            c_char_p, # output
+            c_char_p, # point
+            c_char_p, # scalar
+            CFUNCTYPE, # hashfp
+            c_void_p # data
+        ]
+        secp256k1.secp256k1_ecdh.restype = c_int
+    except:
+        pass
+
     # schnorr sig
     try:
         secp256k1.secp256k1_xonly_pubkey_from_pubkey.argtypes = [
@@ -643,6 +657,33 @@ def ec_pubkey_combine(*args, context=_secp.ctx):
     if r == 0:
         raise ValueError("Failed to combine pubkeys")
     return pub
+
+# ecdh
+@locked
+def ecdh(pubkey, scalar, hashfn=None, data=None, context=_secp.ctx):
+    if not len(pubkey) == 64: 
+        raise ValueError("Pubkey should be 64 bytes long")
+    if not len(scalar) == 32:
+        raise ValueError("Scalar should be 32 bytes long")
+    secret = bytes(32)
+    if hashfn is None:
+        res = _secp.secp256k1_ecdh(context, secret, pubkey, scalar, None, None)
+    else:
+        def _hashfn(out, x, y):
+            x = ctypes.string_at(x, 32)
+            y = ctypes.string_at(y, 32)
+            try:
+                res = hashfn(x, y, data)
+            except Exception as e:
+                return 0
+            out = cast(out, POINTER(c_char*32))
+            out.contents.value = res
+            return 1
+        HASHFN = CFUNCTYPE(c_int, c_void_p, c_void_p, c_void_p)
+        res = _secp.secp256k1_ecdh(context, secret, pubkey, scalar, HASHFN(_hashfn), data)
+    if res != 1:
+        raise RuntimeError("Failed to compute the shared secret")
+    return secret
 
 # schnorrsig
 @locked
