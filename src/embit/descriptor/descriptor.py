@@ -1,6 +1,5 @@
-from binascii import hexlify, unhexlify
 from io import BytesIO
-from .. import hashes, compact, ec, bip32, script
+from .. import script
 from ..networks import NETWORKS
 from .errors import DescriptorError
 from .base import DescriptorBase

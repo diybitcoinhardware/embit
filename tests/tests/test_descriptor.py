@@ -1,6 +1,5 @@
 from unittest import TestCase
 from binascii import hexlify
-from io import BytesIO
 from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
 from embit.descriptor.miniscript import OPERATORS, WRAPPERS
@@ -8,9 +7,9 @@ from embit.descriptor.miniscript import OPERATORS, WRAPPERS
 class DescriptorTest(TestCase):
     def test_descriptors(self):
         keys = [
-            "[abcdef12/84h/22h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/{0,1}/*",
+            "[abcdef12/84h/22h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/<0;1>/*",
             "03e7d285b4817f83f724cd29394da75dfc84fe639ed147a944e7e6064703b14130",
-            "[12345678/44h/12]xpub6BwcvdstHTJtLpp1WxUiQCYERWSB66XY5JrCpw71GAJxcJ6s2AiUoEK4Nzt6UDaTmanUiSe6TY2RoFturKNLXeWBhwBF6WBNghr8cr7qnjk/{0,1}/*",
+            "[12345678/44h/12]xpub6BwcvdstHTJtLpp1WxUiQCYERWSB66XY5JrCpw71GAJxcJ6s2AiUoEK4Nzt6UDaTmanUiSe6TY2RoFturKNLXeWBhwBF6WBNghr8cr7qnjk/<0;1>/*",
             "[12345a78/42h/15]03e7d285b4817f83f724cd29394da75dfc84fe639ed147a944e7e6064703b14130",    
         ]
 
@@ -98,7 +97,6 @@ class DescriptorTest(TestCase):
         ]
 
         for i,(d, a) in enumerate(dd):
-            s = BytesIO(d.encode())
             sc = Descriptor.from_string(d)
             self.assertEqual(str(sc), d)
             # get top level script
@@ -114,11 +112,11 @@ class DescriptorTest(TestCase):
             "[f45912ab/44h/12/32h]02edfc1d6088f9b6470ed4550d8bf2326ebebc0464a7f78581fa7283fc54edecf0",
             "02edfc1d6088f9b6470ed4550d8bf2326ebebc0464a7f78581fa7283fc54edecf0",
             "[f45912ab/44h/12/32h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/0/*",
-            "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/{0,1}/*",
-            "[f45912ab/44h/12/32h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/0/56/*/{1,5}/54",
+            "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/<0;1>/*",
+            "[f45912ab/44h/12/32h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/0/56/*/<1;5>/54",
             "KwF4aJaqLFBUyGpJqWWGBPJkDSXnEVwheaFNz5UEWqFPd43exAMB",
             "[f45912ab/44h/12/32h]KwF4aJaqLFBUyGpJqWWGBPJkDSXnEVwheaFNz5UEWqFPd43exAMB",
-            "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/{0h,1}/34h/*",
+            "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/<0h;1>/34h/*",
             # keyhash
             "a2edfc1d6088f9b6470ed4550d8bf2326ebebc04",
             "[f45912ab/44h/12/32h]a2edfc1d6088f9b6470ed4550d8bf2326ebebc04",
@@ -129,6 +127,33 @@ class DescriptorTest(TestCase):
             if kk.can_derive:
                 kkk = kk.derive(88)
                 self.assertFalse(kkk.can_derive)
+
+    def test_branch_compatibility(self):
+        keys = [
+            "[f45912ab/44h/12/32h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/<0>/*",
+            "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/<0;1>/*",
+            "[f45912ab/44h/12/32h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/0/56/*/<1;5>/54",
+            "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/<0h;1>/34h/*",
+        ]
+        for k in keys:
+            kk = Key.from_string(k.replace("<","{").replace(">","}").replace(";",","))
+            self.assertEqual(str(kk), k)
+            if kk.can_derive:
+                kkk = kk.derive(88)
+                self.assertFalse(kkk.can_derive)
+
+    def test_branch_mixing(self):
+        keys = [
+            "[f45912ab/44h/12/32h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/<0}/*",
+            "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/{0;1}/*",
+            "[f45912ab/44h/12/32h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/0/56/*/<1,5>/54",
+            "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/<*;1>/34h/*",
+        ]
+        for k in keys:
+            self.assertRaises(
+                Exception,
+                Key.from_string, k
+            )
 
     def test_miniscript_compat(self):
         """Test we can parse Miniscript Descriptors created by other implementations"""
@@ -161,7 +186,7 @@ class DescriptorTest(TestCase):
 #   - wif
 #   - xprv
 #   - xpub/fixed
-#   - xpub/{allowed_set}/*
+#   - xpub/<allowed_set>/*
 #   - xpub/123/0/*/4
 #   - xpub/{receive:0,change:1,revault:2,whatever:4}/*
 #   - xpub/0/* should make it recv-only

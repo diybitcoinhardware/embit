@@ -1,8 +1,8 @@
 from . import bip32, bip39, ec
+from .bip32 import HARDENED_INDEX
 import hmac
 
 BIP85_MAGIC = b"bip-entropy-from-k"
-H = 0x80000000
 
 class LANGUAGES:
     """
@@ -14,8 +14,11 @@ def derive_entropy(root, app_index, path):
     """
     Derive app-specific bip85 entropy using path m/83696968'/app_index'/...path'
     """
-    assert max(path) < H
-    derivation = [ H+83696968 ,H+app_index ] + [ p+H for p in path ]
+    assert max(path) < HARDENED_INDEX
+    derivation = [
+        HARDENED_INDEX + 83696968, 
+        HARDENED_INDEX + app_index
+    ] + [ p + HARDENED_INDEX for p in path ]
     derived = root.derive(derivation)
     return hmac.new(BIP85_MAGIC, derived.secret, digestmod='sha512').digest()
 

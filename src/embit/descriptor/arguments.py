@@ -2,6 +2,7 @@ from binascii import hexlify, unhexlify
 from .base import DescriptorBase, read_until
 from .errors import ArgumentError
 from .. import bip32, ec, compact, hashes
+from ..bip32 import HARDENED_INDEX
 
 
 class KeyOrigin:
@@ -24,7 +25,7 @@ class KeyOrigin:
 
 
 class AllowedDerivation(DescriptorBase):
-    # xpub/{0,1}/* - {0,1} is a set of allowed branches, wildcard * is stored as None
+    # xpub/<0;1>/* - <0;1> is a set of allowed branches, wildcard * is stored as None
     def __init__(self, indexes=[[0, 1], None]):
         # check only one wildcard and only one set is in the derivation
         if len([i for i in indexes if i is None]) > 1:
@@ -39,7 +40,7 @@ class AllowedDerivation(DescriptorBase):
 
     def fill(self, idx, branch_index=None):
         # None is ok
-        if idx is not None and (idx < 0 or idx >= 0x80000000):
+        if idx is not None and (idx < 0 or idx >= HARDENED_INDEX):
             raise ArgumentError("Hardened indexes are not allowed in wildcard")
         arr = [i for i in self.indexes]
         for i, el in enumerate(arr):
@@ -96,9 +97,9 @@ class AllowedDerivation(DescriptorBase):
     @property
     def has_hardend(self):
         for idx in self.indexes:
-            if isinstance(idx, int) and idx >= 0x80000000:
+            if isinstance(idx, int) and idx >= HARDENED_INDEX:
                 return True
-            if isinstance(idx, list) and len([i for i in idx if i >= 0x80000000]) > 0:
+            if isinstance(idx, list) and len([i for i in idx if i >= HARDENED_INDEX]) > 0:
                 return True
         return False
 
@@ -116,7 +117,7 @@ class AllowedDerivation(DescriptorBase):
         # wildcard
         if d == "*":
             return None
-        # branch set
+        # branch set - legacy `{m,n}`
         if d[0] == "{" and d[-1] == "}":
             if not allow_set:
                 raise ArgumentError("Set is not allowed in derivation %s" % d)
@@ -124,15 +125,25 @@ class AllowedDerivation(DescriptorBase):
                 cls.parse_element(dd, allow_hardened, allow_set=False)
                 for dd in d[1:-1].split(",")
             ]
+        # branch set - multipart `<m;n>`
+        if d[0] == "<" and d[-1] == ">":
+            if not allow_set:
+                raise ArgumentError("Set is not allowed in derivation %s" % d)
+            return [
+                cls.parse_element(dd, allow_hardened, allow_set=False)
+                for dd in d[1:-1].split(";")
+            ]
         idx = 0
         if d[-1] == "h":
             if not allow_hardened:
                 raise ArgumentError("Hardened derivation is not allowed in %s" % d)
-            idx = 0x80000000
+            idx = HARDENED_INDEX
             d = d[:-1]
         i = int(d)
-        if i < 0 or i >= 0x80000000:
-            raise ArgumentError("Derivation index can be in a range [0, 0x80000000)")
+        if i < 0 or i >= HARDENED_INDEX:
+            raise ArgumentError(
+                "Derivation index can be in a range [0, %d)" % HARDENED_INDEX
+            )
         return idx + i
 
     def __str__(self):
@@ -141,19 +152,19 @@ class AllowedDerivation(DescriptorBase):
             if idx is None:
                 r += "/*"
             if isinstance(idx, int):
-                if idx >= 0x80000000:
-                    r += "/%dh" % (idx - 0x80000000)
+                if idx >= HARDENED_INDEX:
+                    r += "/%dh" % (idx - HARDENED_INDEX)
                 else:
                     r += "/%d" % idx
             if isinstance(idx, list):
-                r += "/{"
-                r += ",".join(
+                r += "/<"
+                r += ";".join(
                     [
-                        str(i) if i < 0x80000000 else str(i - 0x80000000) + "h"
+                        str(i) if i < HARDENED_INDEX else str(i - HARDENED_INDEX) + "h"
                         for i in idx
                     ]
                 )
-                r += "}"
+                r += ">"
         return r
 
 
@@ -208,14 +219,23 @@ class Key(DescriptorBase):
         der = b""
         # there is a following derivation
         if char == b"/":
-            der, char = read_until(s, b"{,)")
-            # we get a set of possible branches: {a,b,c...}
+            der, char = read_until(s, b"<{,)")
+            # legacy branches: {a,b,c...}
             if char == b"{":
                 der += b"{"
                 branch, char = read_until(s, b"}")
                 if char is None:
                     raise ArgumentError("Failed reading the key, missing }")
                 der += branch + b"}"
+                rest, char = read_until(s, b",)")
+                der += rest
+            # multipart descriptor: <a;b;c;...>
+            elif char == b"<":
+                der += b"<"
+                branch, char = read_until(s, b">")
+                if char is None:
+                    raise ArgumentError("Failed reading the key, missing >")
+                der += branch + b">"
                 rest, char = read_until(s, b",)")
                 der += rest
         if char is not None:
