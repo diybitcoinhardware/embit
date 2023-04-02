@@ -293,7 +293,7 @@ class Descriptor(DescriptorBase):
             wsh = False
             s.seek(-4, 1)
         else:
-            raise ValueError("Invalid descriptor (starts with '%s')" % start)
+            raise ValueError("Invalid descriptor (starts with '%s')" % start.decode())
         if is_miniscript:
             miniscript = Miniscript.read_from(s)
             key = None
@@ -304,7 +304,9 @@ class Descriptor(DescriptorBase):
             nbrackets = 1 + int(sh)
         end = s.read(nbrackets)
         if end != b")" * nbrackets:
-            raise ValueError("Invalid descriptor (expected ')' but ends with '%s')" % end)
+            raise ValueError(
+                "Invalid descriptor (expected ')' but ends with '%s')" % end.decode()
+            )
         return cls(miniscript, sh=sh, wsh=wsh, key=key, wpkh=wpkh, taproot=taproot)
 
     def to_string(self):
