@@ -178,7 +178,10 @@ class Key(DescriptorBase):
         self.allowed_derivation = derivation
 
     def __len__(self):
-        return 34 - int(self.taproot) # <33:sec> or <32:xonly>
+        return self.length()
+
+    def length(self, taproot=False):
+        return 34 - int(taproot or self.taproot) # <33:sec> or <32:xonly>
 
     @property
     def my_fingerprint(self):
@@ -293,16 +296,15 @@ class Key(DescriptorBase):
         return self.key.xonly()
 
     def taproot_tweak(self, h=b""):
-        assert self.taproot
         return self.key.taproot_tweak(h)
 
-    def serialize(self):
-        if self.taproot:
+    def serialize(self, taproot=False):
+        if taproot or self.taproot:
             return self.sec()[1:33]
         return self.sec()
 
-    def compile(self):
-        d = self.serialize()
+    def compile(self, taproot=False):
+        d = self.serialize(taproot)
         return compact.to_bytes(len(d)) + d
 
     @property
@@ -403,16 +405,13 @@ class KeyHash(Key):
     def serialize(self, *args, **kwargs):
         if isinstance(self.key, str):
             return unhexlify(self.key)
-        # TODO: should it be xonly?
-        if self.taproot:
-            return hashes.hash160(self.key.sec()[1:33])
-        return hashes.hash160(self.key.sec())
+        return hashes.hash160(super().serialize(*args, **kwargs))
 
-    def __len__(self):
+    def length(self, *args, **kwargs):
         return 21 # <20:pkh>
 
-    def compile(self):
-        d = self.serialize()
+    def compile(self, taproot=False):
+        d = self.serialize(taproot=taproot)
         return compact.to_bytes(len(d)) + d
 
 
@@ -430,7 +429,7 @@ class Number(DescriptorBase):
         s.seek(-1, 1)
         return cls(num)
 
-    def compile(self):
+    def compile(self, *args, **kwargs):
         if self.num == 0:
             return b"\x00"
         if self.num <= 16:
@@ -441,6 +440,9 @@ class Number(DescriptorBase):
         return bytes([len(b)]) + b
 
     def __len__(self):
+        return self.length()
+
+    def length(self, *args, **kwargs):
         return len(self.compile())
 
     def __str__(self):
@@ -460,18 +462,17 @@ class Raw(DescriptorBase):
     def __str__(self):
         return hexlify(self.raw).decode()
 
-    def compile(self):
+    def compile(self, *args, **kwargs):
         return compact.to_bytes(len(self.raw)) + self.raw
 
     def __len__(self):
+        return self.length()
+
+    def length(self, *args, **kwargs):
         return len(compact.to_bytes(self.LEN)) + self.LEN
 
 class Raw32(Raw):
     LEN = 32
-    def __len__(self):
-        return 33
 
 class Raw20(Raw):
     LEN = 20
-    def __len__(self):
-        return 21

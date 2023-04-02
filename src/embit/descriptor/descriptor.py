@@ -8,8 +8,21 @@ from .arguments import Key
 
 
 class Descriptor(DescriptorBase):
-    def __init__(self, miniscript=None, sh=False, wsh=True, key=None, wpkh=True, taproot=False):
+    def __init__(self,
+        miniscript = None,
+        sh = False,
+        wsh = True,
+        key = None,
+        wpkh = True,
+        taproot = False,
+        taptree = None,
+    ):
         # TODO: add support for taproot scripts
+        # Should:
+        # - accept taptree without a key
+        # - accept key without taptree
+        # - raise if miniscript is not None, but taproot=True
+        # - raise if taptree is not None, but taproot=False
         if key is None and miniscript is None:
             raise DescriptorError("Provide either miniscript or a key")
         if miniscript is not None:
@@ -34,6 +47,7 @@ class Descriptor(DescriptorBase):
         self.miniscript = miniscript
         self.wpkh = wpkh
         self.taproot = taproot
+        self.taptree = taptree
         # make sure all keys are either taproot or not
         for k in self.keys:
             k.taproot = taproot
@@ -266,7 +280,6 @@ class Descriptor(DescriptorBase):
         taproot = False
         if start.startswith(b"tr("):
             taproot = True
-            is_miniscript = False
             s.seek(-4, 1)
         elif start.startswith(b"sh(wsh("):
             sh = True
@@ -293,10 +306,23 @@ class Descriptor(DescriptorBase):
             s.seek(-4, 1)
         else:
             raise ValueError("Invalid descriptor (starts with '%s')" % start.decode())
-        if is_miniscript:
+        # taproot always has a key, and may have taptree miniscript
+        if taproot:
+            miniscript = None
+            key = Key.read_from(s, taproot=taproot)
+            nbrackets = 1 + int(sh)
+            c = s.read(1)
+            # do we have taptree after the key?
+            if c != b",":
+                s.seek(-1, 1)
+            else:
+                # miniscript!
+                raise NotImplementedError("Tap tree is not implemented yet")
+        elif is_miniscript:
             miniscript = Miniscript.read_from(s)
             key = None
             nbrackets = int(sh) + int(wsh)
+        # single key for sure
         else:
             miniscript = None
             key = Key.read_from(s, taproot=taproot)

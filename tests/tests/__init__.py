@@ -11,6 +11,7 @@ from .test_psbtview import *
 from .test_taproot import *
 from .test_script import *
 from .test_bip85 import *
+from .test_taptree import *
 
 if sys.implementation.name != "micropython":
     from .test_ecdh import *
