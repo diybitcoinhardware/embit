@@ -30,7 +30,7 @@ class AllowedDerivation(DescriptorBase):
         if len([i for i in indexes if i is None]) > 1:
             raise ArgumentError("Only one wildcard is allowed")
         if len([i for i in indexes if isinstance(i, list)]) > 1:
-            raise ArgumentError("Only one wildcard is allowed")
+            raise ArgumentError("Only one set of branches is allowed")
         self.indexes = indexes
 
     @property
