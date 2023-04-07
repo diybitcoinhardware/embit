@@ -48,7 +48,7 @@ class Descriptor(DescriptorBase):
         self.miniscript = miniscript
         self.wpkh = wpkh
         self.taproot = taproot
-        self.taptree = taptree
+        self.taptree = taptree or TapTree()
         # make sure all keys are either taproot or not
         for k in self.keys:
             k.taproot = taproot
@@ -85,6 +85,7 @@ class Descriptor(DescriptorBase):
                 self.key.branch(branch_index),
                 self.wpkh,
                 self.taproot,
+                self.taptree.branch(branch_index),
             )
 
 
@@ -169,7 +170,13 @@ class Descriptor(DescriptorBase):
             )
         else:
             return type(self)(
-                None, self.sh, self.wsh, self.key.derive(idx, branch_index), self.wpkh, self.taproot
+                None,
+                self.sh,
+                self.wsh,
+                self.key.derive(idx, branch_index),
+                self.wpkh,
+                self.taproot,
+                self.taptree.derive(idx, branch_index),
             )
 
     def to_public(self):
@@ -184,7 +191,13 @@ class Descriptor(DescriptorBase):
             )
         else:
             return type(self)(
-                None, self.sh, self.wsh, self.key.to_public(), self.wpkh, self.taproot
+                None,
+                self.sh,
+                self.wsh,
+                self.key.to_public(),
+                self.wpkh,
+                self.taproot,
+                self.taptree.to_public(),
             )
 
 
@@ -246,7 +259,7 @@ class Descriptor(DescriptorBase):
     def script_pubkey(self):
         # covers sh-wpkh, sh and sh-wsh
         if self.taproot:
-            return script.p2tr(self.key)
+            return script.p2tr(self.key, self.taptree)
         if self.sh:
             return script.p2sh(self.redeem_script())
         if self.wsh:
@@ -284,7 +297,7 @@ class Descriptor(DescriptorBase):
         wpkh = False
         is_miniscript = True
         taproot = False
-        taptree = None
+        taptree = TapTree()
         if start.startswith(b"tr("):
             taproot = True
             s.seek(-4, 1)

@@ -151,8 +151,7 @@ def p2tr(pubkey, script_tree=None):
     if script_tree is None:
         h = b""
     else:
-        raise NotImplementedError("Taproot script trees are not supported yet")
-        _, h = taproot_tree_helper(script_tree)
+        h = script_tree.tweak()
     output_pubkey = pubkey.taproot_tweak(h)
     return Script(b"\x51\x20" + output_pubkey.xonly())
 

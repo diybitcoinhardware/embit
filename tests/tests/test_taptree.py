@@ -65,11 +65,11 @@ ADDRESSES = [
     "tb1pp05sxx74zy3phfpe0e02xg5yal95w35fralsrexwtr2c2k2ae5dqu6shue",
     "tb1pp05sxx74zy3phfpe0e02xg5yal95w35fralsrexwtr2c2k2ae5dqu6shue",
     "tb1pp05sxx74zy3phfpe0e02xg5yal95w35fralsrexwtr2c2k2ae5dqu6shue",
-    None, #"tb1p0k3h2ce3t5r40whug6q8scjlgh2naza2yw2w9gtstr76ct02cffqq2yvst",
-    None, #"tb1pesu98mtyfdjg00fs3hs3gfq5l3vj0fsezm27e5dcgfux7w7hxhssy6xgft",
-    None, #"tb1pjtyykgnzx4yspt06kwqx6vausjf07puezuhryuhypw243484tj3qy2thxw",
-    None, #"tb1pezhhsmppds98a5mjskgwwmucynnq0307lf4l9cwmjxhsnx070nxqc5xnn7",
-    None, #"tb1plueckktz4n872cqk5nskscm2n9f68xtnfuec08ra59knur5dw6kshc3xf9",
+    "tb1p0k3h2ce3t5r40whug6q8scjlgh2naza2yw2w9gtstr76ct02cffqq2yvst",
+    "tb1pesu98mtyfdjg00fs3hs3gfq5l3vj0fsezm27e5dcgfux7w7hxhssy6xgft",
+    "tb1pjtyykgnzx4yspt06kwqx6vausjf07puezuhryuhypw243484tj3qy2thxw",
+    "tb1pezhhsmppds98a5mjskgwwmucynnq0307lf4l9cwmjxhsnx070nxqc5xnn7",
+    "tb1plueckktz4n872cqk5nskscm2n9f68xtnfuec08ra59knur5dw6kshc3xf9",
 ]
 
 # TODO: test that:
@@ -86,6 +86,5 @@ class TapTreeTest(TestCase):
             # check we can convert descriptor back to string the same way
             self.assertEqual(str(desc), d)
             # check address if provided in test case
-            if addr is not None:
-                self.assertEqual(desc.derive(0).address(NETWORK), addr)
+            self.assertEqual(desc.derive(0).address(NETWORK), addr)
 
