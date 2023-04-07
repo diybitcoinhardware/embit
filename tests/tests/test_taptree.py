@@ -40,6 +40,10 @@ P2WSH_MINISCRIPTS = [
 ]
 
 DESCS = ["wsh(%s)" % ms for ms in P2WSH_MINISCRIPTS] + [
+    # one key only
+    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768)",
+    "tr(024d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768)",
+    "tr(034d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768)",
     # one pubkey in taptree
     "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,pk(%s))" % PUBKEYS[0],
     # A Taproot with one of the above scripts as the single script path.
@@ -58,6 +62,9 @@ ADDRESSES = [
     "tb1q7j0nx23h9gpgm2gf9zzkg9dg49jrqq0f9lhnzxtxzf3wwqe9943svq9s03",
     "tb1qr9yt77ej508pj723egt2sprxz32r7pvs5glg0jg32xxl83sfm3sqwlttzn",
     "tb1qrgwwjs3n69znlq9z254fmx28hyamhwqjcuu5vfnyklvje5v4rjdqxzefdr",
+    "tb1pp05sxx74zy3phfpe0e02xg5yal95w35fralsrexwtr2c2k2ae5dqu6shue",
+    "tb1pp05sxx74zy3phfpe0e02xg5yal95w35fralsrexwtr2c2k2ae5dqu6shue",
+    "tb1pp05sxx74zy3phfpe0e02xg5yal95w35fralsrexwtr2c2k2ae5dqu6shue",
     None, #"tb1p0k3h2ce3t5r40whug6q8scjlgh2naza2yw2w9gtstr76ct02cffqq2yvst",
     None, #"tb1pesu98mtyfdjg00fs3hs3gfq5l3vj0fsezm27e5dcgfux7w7hxhssy6xgft",
     None, #"tb1pjtyykgnzx4yspt06kwqx6vausjf07puezuhryuhypw243484tj3qy2thxw",
@@ -75,6 +82,10 @@ ADDRESSES = [
 class TapTreeTest(TestCase):
     def test_addresses(self):
         for d, addr in zip(DESCS, ADDRESSES):
+            desc = Descriptor.from_string(d)
+            # check we can convert descriptor back to string the same way
+            self.assertEqual(str(desc), d)
+            # check address if provided in test case
             if addr is not None:
-                self.assertEqual(Descriptor.from_string(d).derive(0).address(NETWORK), addr)
+                self.assertEqual(desc.derive(0).address(NETWORK), addr)
 

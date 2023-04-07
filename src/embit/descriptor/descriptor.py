@@ -5,6 +5,7 @@ from .errors import DescriptorError
 from .base import DescriptorBase
 from .miniscript import Miniscript
 from .arguments import Key
+from .taptree import TapTree
 
 
 class Descriptor(DescriptorBase):
@@ -23,8 +24,8 @@ class Descriptor(DescriptorBase):
         # - accept key without taptree
         # - raise if miniscript is not None, but taproot=True
         # - raise if taptree is not None, but taproot=False
-        if key is None and miniscript is None:
-            raise DescriptorError("Provide either miniscript or a key")
+        if key is None and miniscript is None and taptree is None:
+            raise DescriptorError("Provide a key, miniscript or taptree")
         if miniscript is not None:
             # will raise if can't verify
             miniscript.verify()
@@ -78,7 +79,12 @@ class Descriptor(DescriptorBase):
             )
         else:
             return type(self)(
-                None, self.sh, self.wsh, self.key.branch(branch_index), self.wpkh, self.taproot
+                None,
+                self.sh,
+                self.wsh,
+                self.key.branch(branch_index),
+                self.wpkh,
+                self.taproot,
             )
 
 
@@ -278,6 +284,7 @@ class Descriptor(DescriptorBase):
         wpkh = False
         is_miniscript = True
         taproot = False
+        taptree = None
         if start.startswith(b"tr("):
             taproot = True
             s.seek(-4, 1)
@@ -312,12 +319,12 @@ class Descriptor(DescriptorBase):
             key = Key.read_from(s, taproot=taproot)
             nbrackets = 1 + int(sh)
             c = s.read(1)
-            # do we have taptree after the key?
+            # TODO: should it be ok to pass just taptree without a key?
+            # check if we have taptree after the key
             if c != b",":
                 s.seek(-1, 1)
             else:
-                # miniscript!
-                raise NotImplementedError("Tap tree is not implemented yet")
+                taptree = TapTree.read_from(s)
         elif is_miniscript:
             miniscript = Miniscript.read_from(s)
             key = None
@@ -332,10 +339,20 @@ class Descriptor(DescriptorBase):
             raise ValueError(
                 "Invalid descriptor (expected ')' but ends with '%s')" % end.decode()
             )
-        return cls(miniscript, sh=sh, wsh=wsh, key=key, wpkh=wpkh, taproot=taproot)
+        return cls(
+            miniscript,
+            sh=sh,
+            wsh=wsh,
+            key=key,
+            wpkh=wpkh,
+            taproot=taproot,
+            taptree=taptree
+        )
 
     def to_string(self):
         if self.taproot:
+            if self.taptree:
+                return "tr(%s,%s)" % (self.key, self.taptree)
             return "tr(%s)" % self.key
         if self.miniscript is not None:
             res = str(self.miniscript)

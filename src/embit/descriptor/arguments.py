@@ -169,19 +169,24 @@ class AllowedDerivation(DescriptorBase):
 
 
 class Key(DescriptorBase):
-    def __init__(self, key, origin=None, derivation=None, taproot=False):
+    def __init__(
+            self,
+            key,
+            origin=None,
+            derivation=None,
+            taproot=False,
+            xonly_repr=False,
+    ):
         self.origin = origin
         self.key = key
         self.taproot = taproot
+        self.xonly_repr = xonly_repr and taproot
         if not hasattr(key, "derive") and derivation:
             raise ArgumentError("Key %s doesn't support derivation" % key)
         self.allowed_derivation = derivation
 
     def __len__(self):
-        return self.length()
-
-    def length(self, taproot=False):
-        return 34 - int(taproot or self.taproot) # <33:sec> or <32:xonly>
+        return 34 - int(self.taproot) # <33:sec> or <32:xonly>
 
     @property
     def my_fingerprint(self):
@@ -244,13 +249,13 @@ class Key(DescriptorBase):
         if char is not None:
             s.seek(-1, 1)
         # parse key
-        k = cls.parse_key(k, taproot)
+        k, xonly_repr = cls.parse_key(k, taproot)
         # parse derivation
         allow_hardened = isinstance(k, bip32.HDKey) and isinstance(k.key, ec.PrivateKey)
         derivation = AllowedDerivation.from_string(
             der.decode(), allow_hardened=allow_hardened
         )
-        return cls(k, origin, derivation, taproot)
+        return cls(k, origin, derivation, taproot, xonly_repr)
 
     @classmethod
     def parse_key(cls, k: bytes, taproot:bool = False):
@@ -258,15 +263,15 @@ class Key(DescriptorBase):
         k = k.decode()
         if len(k) in [66, 130] and k[:2] in ["02", "03", "04"]:
             # bare public key
-            return ec.PublicKey.parse(unhexlify(k))
+            return ec.PublicKey.parse(unhexlify(k)), False
         elif taproot and len(k) == 64:
             # x-only pubkey
-            return ec.PublicKey.parse(b"\x02"+unhexlify(k))
+            return ec.PublicKey.parse(b"\x02"+unhexlify(k)), True
         elif k[1:4] in ["pub", "prv"]:
             # bip32 key
-            return bip32.HDKey.from_base58(k)
+            return bip32.HDKey.from_base58(k), False
         else:
-            return ec.PrivateKey.from_wif(k)
+            return ec.PrivateKey.from_wif(k), False
 
     @property
     def is_extended(self):
@@ -296,15 +301,16 @@ class Key(DescriptorBase):
         return self.key.xonly()
 
     def taproot_tweak(self, h=b""):
+        assert self.taproot
         return self.key.taproot_tweak(h)
 
-    def serialize(self, taproot=False):
-        if taproot or self.taproot:
+    def serialize(self):
+        if self.taproot:
             return self.sec()[1:33]
         return self.sec()
 
-    def compile(self, taproot=False):
-        d = self.serialize(taproot)
+    def compile(self):
+        d = self.serialize()
         return compact.to_bytes(len(d)) + d
 
     @property
@@ -380,7 +386,8 @@ class Key(DescriptorBase):
 
     def to_string(self, version=None):
         if isinstance(self.key, ec.PublicKey):
-            return self.prefix + hexlify(self.key.sec()).decode()
+            k = self.key.sec() if not self.xonly_repr else self.key.xonly()
+            return self.prefix + hexlify(k).decode()
         if isinstance(self.key, bip32.HDKey):
             return self.prefix + self.key.to_base58(version) + self.suffix
         if isinstance(self.key, ec.PrivateKey):
@@ -399,19 +406,22 @@ class KeyHash(Key):
         kd = k.decode()
         # raw 20-byte hash
         if len(kd) == 40:
-            return kd
+            return kd, False
         return super().parse_key(k, *args, **kwargs)
 
     def serialize(self, *args, **kwargs):
         if isinstance(self.key, str):
             return unhexlify(self.key)
-        return hashes.hash160(super().serialize(*args, **kwargs))
+        # TODO: should it be xonly?
+        if self.taproot:
+            return hashes.hash160(self.key.sec()[1:33])
+        return hashes.hash160(self.key.sec())
 
-    def length(self, *args, **kwargs):
+    def __len__(self):
         return 21 # <20:pkh>
 
-    def compile(self, taproot=False):
-        d = self.serialize(taproot=taproot)
+    def compile(self):
+        d = self.serialize()
         return compact.to_bytes(len(d)) + d
 
 
@@ -429,7 +439,7 @@ class Number(DescriptorBase):
         s.seek(-1, 1)
         return cls(num)
 
-    def compile(self, *args, **kwargs):
+    def compile(self):
         if self.num == 0:
             return b"\x00"
         if self.num <= 16:
@@ -440,9 +450,6 @@ class Number(DescriptorBase):
         return bytes([len(b)]) + b
 
     def __len__(self):
-        return self.length()
-
-    def length(self, *args, **kwargs):
         return len(self.compile())
 
     def __str__(self):
@@ -462,17 +469,18 @@ class Raw(DescriptorBase):
     def __str__(self):
         return hexlify(self.raw).decode()
 
-    def compile(self, *args, **kwargs):
+    def compile(self):
         return compact.to_bytes(len(self.raw)) + self.raw
 
     def __len__(self):
-        return self.length()
-
-    def length(self, *args, **kwargs):
         return len(compact.to_bytes(self.LEN)) + self.LEN
 
 class Raw32(Raw):
     LEN = 32
+    def __len__(self):
+        return 33
 
 class Raw20(Raw):
     LEN = 20
+    def __len__(self):
+        return 21

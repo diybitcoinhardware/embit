@@ -4,15 +4,12 @@ from .arguments import Key, KeyHash, Number, Raw32, Raw20
 
 
 class Miniscript(DescriptorBase):
-    tr_only = False # operator can only be used in tap tree
-    non_tr_only = False # operator can't be used in tap tree
-
     def __init__(self, *args, **kwargs):
         self.args = args
         self.taproot = kwargs.get("taproot", False)
 
-    def compile(self, taproot=False):
-        return self.inner_compile(taproot)
+    def compile(self):
+        return self.inner_compile()
 
     def verify(self):
         for arg in self.args:
@@ -66,7 +63,7 @@ class Miniscript(DescriptorBase):
             raise MiniscriptError("Missing operator")
         if op not in OPERATOR_NAMES:
             raise MiniscriptError("Unknown operator '%s'" % op)
-        # number of arguments, classes of arguments, compile function, type, validity checker
+        # number of arguments, classes of args, compile fn, type, validity checker
         MiniscriptCls = OPERATORS[OPERATOR_NAMES.index(op)]
         args = MiniscriptCls.read_arguments(s, taproot=taproot)
         miniscript = MiniscriptCls(*args, taproot=taproot)
@@ -112,14 +109,11 @@ class Miniscript(DescriptorBase):
         return type(self).NAME + "(" + ",".join([str(arg) for arg in self.args]) + ")"
 
     def __len__(self):
-        return self.length()
-
-    def length(self, taproot=False):
         """Length of the compiled script, override this if you know the length"""
-        return len(self.compile(taproot))
+        return len(self.compile())
 
-    def len_args(self, taproot=False):
-        return sum([arg.length(taproot) for arg in self.args])
+    def len_args(self):
+        return sum([len(arg) for arg in self.args])
 
 ########### Known fragments (miniscript operators) ##############
 
@@ -131,9 +125,9 @@ class OneArg(Miniscript):
     def arg(self):
         return self.args[0]
 
-    def carg(self, taproot=False):
-        """Compiled argument"""
-        return self.arg.compile(taproot)
+    @property
+    def carg(self):
+        return self.arg.compile()
 
 
 class PkK(OneArg):
@@ -143,11 +137,11 @@ class PkK(OneArg):
     TYPE = "K"
     PROPS = "ondu"
 
-    def inner_compile(self, taproot=False):
-        return self.carg(taproot)
+    def inner_compile(self):
+        return self.carg
 
-    def length(self, taproot=False):
-        return self.len_args(taproot)
+    def __len__(self):
+        return self.len_args()
 
 
 class PkH(OneArg):
@@ -157,11 +151,11 @@ class PkH(OneArg):
     TYPE = "K"
     PROPS = "ndu"
 
-    def inner_compile(self, taproot):
-        return b"\x76\xa9" + self.carg(taproot) + b"\x88"
+    def inner_compile(self):
+        return b"\x76\xa9" + self.carg + b"\x88"
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 3
+    def __len__(self):
+        return self.len_args() + 3
 
 class Older(OneArg):
     # <n> CHECKSEQUENCEVERIFY
@@ -170,8 +164,8 @@ class Older(OneArg):
     TYPE = "B"
     PROPS = "z"
 
-    def inner_compile(self, taproot=False):
-        return self.carg(taproot) + b"\xb2"
+    def inner_compile(self):
+        return self.carg + b"\xb2"
 
     def verify(self):
         super().verify()
@@ -180,15 +174,15 @@ class Older(OneArg):
                 "%s should have an argument in range [1, 0x80000000)" % self.NAME
             )
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 1
+    def __len__(self):
+        return self.len_args() + 1
 
 class After(Older):
     # <n> CHECKLOCKTIMEVERIFY
     NAME = "after"
 
-    def inner_compile(self, taproot=False):
-        return self.carg(taproot) + b"\xb1"
+    def inner_compile(self):
+        return self.carg + b"\xb1"
 
 
 class Sha256(OneArg):
@@ -198,18 +192,18 @@ class Sha256(OneArg):
     TYPE = "B"
     PROPS = "ondu"
 
-    def inner_compile(self, taproot=False):
-        return b"\x82" + Number(32).compile(taproot) + b"\x88\xa8" + self.carg(taproot) + b"\x87"
+    def inner_compile(self):
+        return b"\x82" + Number(32).compile() + b"\x88\xa8" + self.carg + b"\x87"
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 6
+    def __len__(self):
+        return self.len_args() + 6
 
 class Hash256(Sha256):
     # SIZE <32> EQUALVERIFY HASH256 <h> EQUAL
     NAME = "hash256"
 
-    def inner_compile(self, taproot=False):
-        return b"\x82" + Number(32).compile(taproot) + b"\x88\xaa" + self.carg(taproot) + b"\x87"
+    def inner_compile(self):
+        return b"\x82" + Number(32).compile() + b"\x88\xaa" + self.carg + b"\x87"
 
 
 class Ripemd160(Sha256):
@@ -217,16 +211,16 @@ class Ripemd160(Sha256):
     NAME = "ripemd160"
     ARGCLS = Raw20
 
-    def inner_compile(self, taproot=False):
-        return b"\x82" + Number(32).compile(taproot) + b"\x88\xa6" + self.carg(taproot) + b"\x87"
+    def inner_compile(self):
+        return b"\x82" + Number(32).compile() + b"\x88\xa6" + self.carg + b"\x87"
 
 
 class Hash160(Ripemd160):
     # SIZE <32> EQUALVERIFY HASH160 <h> EQUAL
     NAME = "hash160"
 
-    def inner_compile(self, taproot=False):
-        return b"\x82" + Number(32).compile(taproot) + b"\x88\xa9" + self.carg(taproot) + b"\x87"
+    def inner_compile(self):
+        return b"\x82" + Number(32).compile() + b"\x88\xa9" + self.carg + b"\x87"
 
 
 class AndOr(Miniscript):
@@ -270,18 +264,18 @@ class AndOr(Miniscript):
             props += "d"
         return props
 
-    def inner_compile(self, taproot=False):
+    def inner_compile(self):
         return (
-            self.args[0].compile(taproot)
+            self.args[0].compile()
             + b"\x64"
-            + self.args[2].compile(taproot)
+            + self.args[2].compile()
             + b"\x67"
-            + self.args[1].compile(taproot)
+            + self.args[1].compile()
             + b"\x68"
         )
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 3
+    def __len__(self):
+        return self.len_args() + 3
 
 class AndV(Miniscript):
     # [X] [Y]
@@ -289,11 +283,11 @@ class AndV(Miniscript):
     NARGS = 2
     ARGCLS = Miniscript
 
-    def inner_compile(self, taproot=False):
-        return self.args[0].compile(taproot) + self.args[1].compile(taproot)
+    def inner_compile(self):
+        return self.args[0].compile() + self.args[1].compile()
 
-    def length(self, taproot=False):
-        return self.len_args(taproot)
+    def __len__(self):
+        return self.len_args()
 
     def verify(self):
         # X is V; Y is B, K, or V
@@ -331,11 +325,11 @@ class AndB(Miniscript):
     ARGCLS = Miniscript
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
-        return self.args[0].compile(taproot) + self.args[1].compile(taproot) + b"\x9a"
+    def inner_compile(self):
+        return self.args[0].compile() + self.args[1].compile() + b"\x9a"
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 1
+    def __len__(self):
+        return self.len_args() + 1
 
     def verify(self):
         # X is B; Y is W
@@ -369,18 +363,18 @@ class AndN(Miniscript):
     NARGS = 2
     ARGCLS = Miniscript
 
-    def inner_compile(self, taproot=False):
+    def inner_compile(self):
         return (
-            self.args[0].compile(taproot)
+            self.args[0].compile()
             + b"\x64"
-            + Number(0).compile(taproot)
+            + Number(0).compile()
             + b"\x67"
-            + self.args[1].compile(taproot)
+            + self.args[1].compile()
             + b"\x68"
         )
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 4
+    def __len__(self):
+        return self.len_args() + 4
 
     @property
     def type(self):
@@ -424,11 +418,11 @@ class OrB(Miniscript):
     ARGCLS = Miniscript
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
-        return self.args[0].compile(taproot) + self.args[1].compile(taproot) + b"\x9b"
+    def inner_compile(self):
+        return self.args[0].compile() + self.args[1].compile() + b"\x9b"
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 1
+    def __len__(self):
+        return self.len_args() + 1
 
     def verify(self):
         # X is Bd; Z is Wd
@@ -462,11 +456,11 @@ class OrC(Miniscript):
     ARGCLS = Miniscript
     TYPE = "V"
 
-    def inner_compile(self, taproot=False):
-        return self.args[0].compile(taproot) + b"\x64" + self.args[1].compile(taproot) + b"\x68"
+    def inner_compile(self):
+        return self.args[0].compile() + b"\x64" + self.args[1].compile() + b"\x68"
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 2
+    def __len__(self):
+        return self.len_args() + 2
 
     def verify(self):
         # X is Bdu; Z is V
@@ -498,11 +492,11 @@ class OrD(Miniscript):
     ARGCLS = Miniscript
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
-        return self.args[0].compile(taproot) + b"\x73\x64" + self.args[1].compile(taproot) + b"\x68"
+    def inner_compile(self):
+        return self.args[0].compile() + b"\x73\x64" + self.args[1].compile() + b"\x68"
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 3
+    def __len__(self):
+        return self.len_args() + 3
 
     def verify(self):
         # X is Bdu; Z is B
@@ -537,17 +531,17 @@ class OrI(Miniscript):
     NARGS = 2
     ARGCLS = Miniscript
 
-    def inner_compile(self, taproot=False):
+    def inner_compile(self):
         return (
             b"\x63"
-            + self.args[0].compile(taproot)
+            + self.args[0].compile()
             + b"\x67"
-            + self.args[1].compile(taproot)
+            + self.args[1].compile()
             + b"\x68"
         )
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 3
+    def __len__(self):
+        return self.len_args() + 3
 
     def verify(self):
         # both are B, K, or V
@@ -582,16 +576,16 @@ class Thresh(Miniscript):
     ARGCLS = (Number, Miniscript)
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
+    def inner_compile(self):
         return (
-            self.args[1].compile(taproot)
-            + b"".join([arg.compile(taproot) + b"\x93" for arg in self.args[2:]])
-            + self.args[0].compile(taproot)
+            self.args[1].compile()
+            + b"".join([arg.compile()+b"\x93" for arg in self.args[2:]])
+            + self.args[0].compile()
             + b"\x87"
         )
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + len(self.args) - 1
+    def __len__(self):
+        return self.len_args() + len(self.args) - 1
 
     def verify(self):
         # 1 <= k <= n; X1 is Bdu; others are Wdu
@@ -636,15 +630,15 @@ class Multi(Miniscript):
     TYPE = "B"
     PROPS = "ndu"
 
-    def inner_compile(self, taproot=False):
+    def inner_compile(self):
         return (
-            b"".join([arg.compile(taproot) for arg in self.args])
-            + Number(len(self.args) - 1).compile(taproot)
+            b"".join([arg.compile() for arg in self.args])
+            + Number(len(self.args) - 1).compile()
             + b"\xae"
         )
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 2
+    def __len__(self):
+        return self.len_args() + 2
 
     def verify(self):
         super().verify()
@@ -658,14 +652,39 @@ class Sortedmulti(Multi):
     # <k> <key1> ... <keyn> <n> CHECKMULTISIG
     NAME = "sortedmulti"
 
-    def inner_compile(self, taproot=False):
+    def inner_compile(self):
         return (
-            self.args[0].compile(taproot)
-            + b"".join(sorted([arg.compile(taproot) for arg in self.args[1:]]))
-            + Number(len(self.args) - 1).compile(taproot)
+            self.args[0].compile()
+            + b"".join(sorted([arg.compile() for arg in self.args[1:]]))
+            + Number(len(self.args) - 1).compile()
             + b"\xae"
         )
 
+class MultiA(Multi):
+    # <key1> CHECKSIG <key2> CHECKSIGADD ... <keyN> CHECKSIGNADD <k> NUMEQUAL
+    NAME = "multi_a"
+
+    def inner_compile(self):
+        return (self.args[1].compile()+b"\xac"+
+            b"".join([arg.compile()+b"\xba" for arg in self.args[2:]])
+            + self.args[0].compile()
+            + b"\x9c"
+        )
+
+    def __len__(self):
+        return self.len_args() + len(self.args)
+
+class SortedmultiA(MultiA):
+    # <key1> CHECKSIG <key2> CHECKSIGADD ... <keyN> CHECKSIGNADD <k> NUMEQUAL
+    NAME = "sortedmulti_a"
+
+    def inner_compile(self):
+        keys = list(sorted([k.compile() for k in self.args[1:]]))
+        return (keys[0]+b"\xac"+
+            b"".join([k+b"\xba" for k in keys[1:]])
+            + self.args[0].compile()
+            + b"\x9c"
+        )
 
 class Pk(OneArg):
     # <key> CHECKSIG
@@ -674,11 +693,11 @@ class Pk(OneArg):
     TYPE = "B"
     PROPS = "ondu"
 
-    def inner_compile(self, taproot=False):
-        return self.carg(taproot) + b"\xac"
+    def inner_compile(self):
+        return self.carg + b"\xac"
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 1
+    def __len__(self):
+        return self.len_args() + 1
 
 
 class Pkh(OneArg):
@@ -688,11 +707,11 @@ class Pkh(OneArg):
     TYPE = "B"
     PROPS = "ndu"
 
-    def inner_compile(self, taproot=False):
-        return b"\x76\xa9" + self.carg(taproot) + b"\x88\xac"
+    def inner_compile(self):
+        return b"\x76\xa9" + self.carg + b"\x88\xac"
 
-    def length(self, taproot=False):
-        return self.len_args(taproot) + 4
+    def __len__(self):
+        return self.len_args() + 4
 
     # TODO: 0, 1 - they are without brackets, so it should be different...
 
@@ -717,6 +736,8 @@ OPERATORS = [
     Thresh,
     Multi,
     Sortedmulti,
+    MultiA,
+    SortedmultiA,
     Pk,
     Pkh,
 ]
@@ -742,11 +763,11 @@ class A(Wrapper):
     # TOALTSTACK [X] FROMALTSTACK
     TYPE = "W"
 
-    def inner_compile(self, taproot=False):
-        return b"\x6b" + self.carg(taproot) + b"\x6c"
+    def inner_compile(self):
+        return b"\x6b" + self.carg + b"\x6c"
 
-    def length(self, taproot=False):
-        return self.arg.length(taproot) + 2
+    def __len__(self):
+        return len(self.arg) + 2
 
     def verify(self):
         super().verify()
@@ -768,11 +789,11 @@ class S(Wrapper):
     # SWAP [X]
     TYPE = "W"
 
-    def inner_compile(self, taproot=False):
-        return b"\x7c" + self.carg(taproot)
+    def inner_compile(self):
+        return b"\x7c" + self.carg
 
-    def length(self, taproot=False):
-        return self.arg.length(taproot) + 1
+    def __len__(self):
+        return len(self.arg) + 1
 
     def verify(self):
         super().verify()
@@ -796,11 +817,11 @@ class C(Wrapper):
     # [X] CHECKSIG
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
-        return self.carg(taproot) + b"\xac"
+    def inner_compile(self):
+        return self.carg + b"\xac"
 
-    def length(self, taproot=False):
-        return self.arg.length(taproot) + 1
+    def __len__(self):
+        return len(self.arg) + 1
 
     def verify(self):
         super().verify()
@@ -822,11 +843,11 @@ class T(Wrapper):
     # [X] 1
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
-        return self.carg(taproot) + Number(1).compile(taproot)
+    def inner_compile(self):
+        return self.carg + Number(1).compile()
 
-    def length(self, taproot=False):
-        return self.arg.length(taproot) + 1
+    def __len__(self):
+        return len(self.arg) + 1
 
     @property
     def properties(self):
@@ -849,11 +870,11 @@ class D(Wrapper):
     # DUP IF [X] ENDIF
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
-        return b"\x76\x63" + self.carg(taproot) + b"\x68"
+    def inner_compile(self):
+        return b"\x76\x63" + self.carg + b"\x68"
 
-    def length(self, taproot=False):
-        return self.arg.length(taproot) + 3
+    def __len__(self):
+        return len(self.arg) + 3
 
     def verify(self):
         super().verify()
@@ -879,11 +900,11 @@ class V(Wrapper):
     # [X] VERIFY (or VERIFY version of last opcode in [X])
     TYPE = "V"
 
-    def inner_compile(self, taproot=False):
+    def inner_compile(self):
         """Checks last check code and makes it verify"""
-        if self.carg(taproot)[-1] in [0xAC, 0xAE, 0x9C, 0x87]:
-            return self.carg(taproot)[:-1] + bytes([self.carg(taproot)[-1] + 1])
-        return self.carg(taproot) + b"\x69"
+        if self.carg[-1] in [0xAC, 0xAE, 0x9C, 0x87]:
+            return self.carg[:-1] + bytes([self.carg[-1] + 1])
+        return self.carg + b"\x69"
 
     def verify(self):
         super().verify()
@@ -904,8 +925,8 @@ class J(Wrapper):
     # SIZE 0NOTEQUAL IF [X] ENDIF
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
-        return b"\x82\x92\x63" + self.carg(taproot) + b"\x68"
+    def inner_compile(self):
+        return b"\x82\x92\x63" + self.carg + b"\x68"
 
     def verify(self):
         super().verify()
@@ -928,11 +949,11 @@ class N(Wrapper):
     # [X] 0NOTEQUAL
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
-        return self.carg(taproot) + b"\x92"
+    def inner_compile(self):
+        return self.carg + b"\x92"
 
-    def length(self, taproot=False):
-        return self.arg.length(taproot) + 1
+    def __len__(self):
+        return len(self.arg) + 1
 
     def verify(self):
         super().verify()
@@ -953,11 +974,11 @@ class L(Wrapper):
     # IF 0 ELSE [X] ENDIF
     TYPE = "B"
 
-    def inner_compile(self, taproot=False):
-        return b"\x63" + Number(0).compile(taproot) + b"\x67" + self.carg(taproot) + b"\x68"
+    def inner_compile(self):
+        return b"\x63" + Number(0).compile() + b"\x67" + self.carg + b"\x68"
 
-    def length(self, taproot=False):
-        return self.arg.length(taproot) + 4
+    def __len__(self):
+        return len(self.arg) + 4
 
     def verify(self):
         # both are B, K, or V
@@ -979,11 +1000,11 @@ class L(Wrapper):
 
 class U(L):
     # IF [X] ELSE 0 ENDIF
-    def inner_compile(self, taproot=False):
-        return b"\x63" + self.carg(taproot) + b"\x67" + Number(0).compile(taproot) + b"\x68"
+    def inner_compile(self):
+        return b"\x63" + self.carg + b"\x67" + Number(0).compile() + b"\x68"
 
-    def length(self, taproot=False):
-        return self.arg.length(taproot) + 4
+    def __len__(self):
+        return len(self.arg) + 4
 
 
 WRAPPERS = [A, S, C, T, D, V, J, N, L, U]
