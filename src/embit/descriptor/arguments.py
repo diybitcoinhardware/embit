@@ -328,6 +328,8 @@ class Key(DescriptorBase):
         return 1 if self.branches is None else len(self.branches)
 
     def branch(self, branch_index=None):
+        if self.allowed_derivation is None:
+            return self
         der = self.allowed_derivation.branch(branch_index)
         return type(self)(self.key, self.origin, der, self.taproot)
 
