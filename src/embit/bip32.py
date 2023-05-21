@@ -4,7 +4,6 @@ if sys.implementation.name == "micropython":
     import secp256k1
 else:
     from .util import secp256k1
-import hashlib
 from . import ec
 from .base import EmbitKey, EmbitError, copy
 from .networks import NETWORKS
@@ -12,7 +11,8 @@ from . import base58
 from . import hashes
 import hmac
 from binascii import hexlify
-import io
+
+HARDENED_INDEX = 0x80000000
 
 class HDError(EmbitError):
     pass
@@ -185,9 +185,9 @@ class HDKey(EmbitKey):
         """Derives a child HDKey"""
         if index > 0xFFFFFFFF:
             raise HDError("Index should be less then 2^32")
-        if hardened and index < 0x80000000:
-            index += 0x80000000
-        if index >= 0x80000000:
+        if hardened and index < HARDENED_INDEX:
+            index += HARDENED_INDEX
+        if index >= HARDENED_INDEX:
             hardened = True
         if hardened and not self.is_private:
             raise HDError("Can't do hardened with public key")
@@ -267,17 +267,17 @@ def detect_version(path, default="xprv", network=None) -> bytes:
         path = parse_path(path)
     if len(path) == 0:
         return network[key]
-    if path[0] == 0x80000000 + 84:
+    if path[0] == HARDENED_INDEX + 84:
         key = "z" + default[1:]
-    elif path[0] == 0x80000000 + 49:
+    elif path[0] == HARDENED_INDEX + 49:
         key = "y" + default[1:]
-    elif path[0] == 0x80000000 + 48:
+    elif path[0] == HARDENED_INDEX + 48:
         if len(path) >= 4:
-            if path[3] == 0x80000000 + 1:
+            if path[3] == HARDENED_INDEX + 1:
                 key = "Y" + default[1:]
-            elif path[3] == 0x80000000 + 2:
+            elif path[3] == HARDENED_INDEX + 2:
                 key = "Z" + default[1:]
-    if network is None and len(path) > 1 and path[1] == 0x80000000 + 1:
+    if network is None and len(path) > 1 and path[1] == HARDENED_INDEX + 1:
         net = NETWORKS["test"]
     return net[key]
 
@@ -294,7 +294,7 @@ def parse_path(path: str) -> list:
         arr = arr[:-1]
     for i, e in enumerate(arr):
         if e[-1] == "h" or e[-1] == "'":
-            arr[i] = int(e[:-1]) + 0x80000000
+            arr[i] = int(e[:-1]) + HARDENED_INDEX
         else:
             arr[i] = int(e)
     return arr
@@ -303,8 +303,8 @@ def parse_path(path: str) -> list:
 def path_to_str(path: list, fingerprint=None) -> str:
     s = "m" if fingerprint is None else hexlify(fingerprint).decode()
     for el in path:
-        if el >= 0x80000000:
-            s += "/%dh" % (el - 0x80000000)
+        if el >= HARDENED_INDEX:
+            s += "/%dh" % (el - HARDENED_INDEX)
         else:
             s += "/%d" % el
     return s

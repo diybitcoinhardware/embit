@@ -27,9 +27,9 @@ GAP_LIMIT = 20
 # Here we use combined descriptor (Bitcoin Core doesn't support that though)
 # Here we use vpub, but it's the same as this tpub: tpubDC93uE1NfJMF37r4EL87CHBUEtScESkBNo6Ym3DYCqKdmdtsL8ZqK39aHfaESmSn9ZohH1vzQjDchsuAXRDGXuowXZSXj3fY7PJ9yBAhWst
 # native segwit
-desc = Descriptor.from_string("wpkh([911cf0a8/84h/1h/0h]vpub5Y6tmeqrefJq4jGy7RZmaBf6Zq44MpG7zwToqhNd6uoyv9bhkbPcvUAU1DaGvTBhYP3BAVDzxJgUF8BRhAY13zzSjHJNshNKyyaTS4F5hnr/{0,1}/*)")
-# desc = Descriptor.from_string("sh(wpkh([911cf0a8/49h/1h/0h]upub5EQTr2VnHFmuJc3btwZcETwhDCzvXF8hqK2AS57ZN5fzxa6LGMtoAKuyc12F7rBpKUyocqfc8kCTzHdTmJh1i6672pu3JzobNHu39oW9Btd/{0,1}/*))")
-# desc = Descriptor.from_string("pkh([911cf0a8/44h/1h/0h]tpubDD958ijpckkrCrWzY4jTwuCafkK1gijyJVbc96EViYN29Ac7K9eUyzSTrwQuoGUvwpzQMHh2fT8JGtnYHjTFWRXJAEs48s1nZSpG92hC1yb/{0,1}/*)")
+desc = Descriptor.from_string("wpkh([911cf0a8/84h/1h/0h]vpub5Y6tmeqrefJq4jGy7RZmaBf6Zq44MpG7zwToqhNd6uoyv9bhkbPcvUAU1DaGvTBhYP3BAVDzxJgUF8BRhAY13zzSjHJNshNKyyaTS4F5hnr/<0;1>/*)")
+# desc = Descriptor.from_string("sh(wpkh([911cf0a8/49h/1h/0h]upub5EQTr2VnHFmuJc3btwZcETwhDCzvXF8hqK2AS57ZN5fzxa6LGMtoAKuyc12F7rBpKUyocqfc8kCTzHdTmJh1i6672pu3JzobNHu39oW9Btd/<0;1>/*))")
+# desc = Descriptor.from_string("pkh([911cf0a8/44h/1h/0h]tpubDD958ijpckkrCrWzY4jTwuCafkK1gijyJVbc96EViYN29Ac7K9eUyzSTrwQuoGUvwpzQMHh2fT8JGtnYHjTFWRXJAEs48s1nZSpG92hC1yb/<0;1>/*)")
 
 # where to send
 DESTINATION = "2N6AUY73q79SPzGvgPhR9biETV7DZffTQz9"

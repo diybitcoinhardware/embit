@@ -2,7 +2,6 @@ from embit import script
 from embit import bip32
 from embit import bip39
 from embit.networks import NETWORKS
-from binascii import unhexlify, hexlify
 import random
 
 # example of key and address derivations from mnemonic
