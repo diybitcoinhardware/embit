@@ -134,7 +134,7 @@ class AllowedDerivation(DescriptorBase):
                 for dd in d[1:-1].split(";")
             ]
         idx = 0
-        if d[-1] == "h":
+        if d[-1] in ["h", "H", "'"]:
             if not allow_hardened:
                 raise ArgumentError("Hardened derivation is not allowed in %s" % d)
             idx = HARDENED_INDEX
