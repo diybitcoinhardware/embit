@@ -293,7 +293,7 @@ def parse_path(path: str) -> list:
         # trailing slash
         arr = arr[:-1]
     for i, e in enumerate(arr):
-        if e[-1] == "h" or e[-1] == "'":
+        if e[-1] in ["h", "H", "'"]:
             arr[i] = int(e[:-1]) + HARDENED_INDEX
         else:
             arr[i] = int(e)
