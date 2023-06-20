@@ -8,8 +8,9 @@ from .arguments import *
 
 
 class Miniscript(DescriptorBase):
-    def __init__(self, *args):
+    def __init__(self, *args, **kwargs):
         self.args = args
+        self.taproot = kwargs.get("taproot", False)
 
     def compile(self):
         return self.inner_compile()
@@ -56,7 +57,7 @@ class Miniscript(DescriptorBase):
         return self.TYPE
 
     @classmethod
-    def read_from(cls, s):
+    def read_from(cls, s, taproot=False):
         op, char = read_until(s, b"(")
         op = op.decode()
         wrappers = ""
@@ -68,28 +69,28 @@ class Miniscript(DescriptorBase):
             raise MiniscriptError("Unknown operator '%s'" % op)
         # number of arguments, classes of arguments, compile function, type, validity checker
         MiniscriptCls = OPERATORS[OPERATOR_NAMES.index(op)]
-        args = MiniscriptCls.read_arguments(s)
-        miniscript = MiniscriptCls(*args)
+        args = MiniscriptCls.read_arguments(s, taproot=taproot)
+        miniscript = MiniscriptCls(*args, taproot=taproot)
         for w in reversed(wrappers):
             if w not in WRAPPER_NAMES:
                 raise MiniscriptError("Unknown wrapper")
             WrapperCls = WRAPPERS[WRAPPER_NAMES.index(w)]
-            miniscript = WrapperCls(miniscript)
+            miniscript = WrapperCls(miniscript, taproot=taproot)
         return miniscript
 
     @classmethod
-    def read_arguments(cls, s):
+    def read_arguments(cls, s, taproot=False):
         args = []
         if cls.NARGS is None:
             if type(cls.ARGCLS) == tuple:
                 firstcls, nextcls = cls.ARGCLS
             else:
                 firstcls, nextcls = cls.ARGCLS, cls.ARGCLS
-            args.append(firstcls.read_from(s))
+            args.append(firstcls.read_from(s, taproot=taproot))
             while True:
                 char = s.read(1)
                 if char == b",":
-                    args.append(nextcls.read_from(s))
+                    args.append(nextcls.read_from(s, taproot=taproot))
                 elif char == b")":
                     break
                 else:
@@ -98,7 +99,7 @@ class Miniscript(DescriptorBase):
                     )
         else:
             for i in range(cls.NARGS):
-                args.append(cls.ARGCLS.read_from(s))
+                args.append(cls.ARGCLS.read_from(s, taproot=taproot))
                 if i < cls.NARGS - 1:
                     char = s.read(1)
                     if char != b",":
@@ -861,7 +862,11 @@ class D(Wrapper):
 
     @property
     def properties(self):
-        props = "ndu"
+        # https://github.com/bitcoin/bitcoin/pull/24906
+        if self.taproot:
+            props = "ndu"
+        else:
+            props = "nd"
         px = self.arg.properties
         if "z" in px:
             props += "o"
