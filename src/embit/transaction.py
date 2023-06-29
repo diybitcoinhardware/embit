@@ -194,7 +194,14 @@ class Transaction(EmbitBase):
             self._hash_script_pubkeys = hash_script_pubkeys(script_pubkeys)
         return self._hash_script_pubkeys
 
-    def sighash_taproot(self, input_index, script_pubkeys, values, sighash=SIGHASH.DEFAULT):
+    def sighash_taproot(self,
+                        input_index,
+                        script_pubkeys,
+                        values,
+                        sighash=SIGHASH.DEFAULT,
+                        ext_flag=0,
+                        annex_present=False,
+    ):
         """check out bip-341"""
         if input_index < 0 or input_index >= len(self.vin):
             raise TransactionError("Invalid input index")
@@ -213,7 +220,7 @@ class Transaction(EmbitBase):
         if sh not in [SIGHASH.SINGLE, SIGHASH.NONE]:
             h.update(self.hash_outputs())
         # data about this input
-        h.update(b"\x00") # ext_flags and annex are not supported
+        h.update(bytes([2*ext_flag+int(annex_present)]))
         if anyonecanpay:
             h.update(self.vin[input_index].serialize())
             h.update(values[input_index].to_bytes(8, "little"))

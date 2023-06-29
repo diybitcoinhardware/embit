@@ -138,6 +138,9 @@ class InputScope(PSBTScope):
         # tuples of ([leaf_hashes], DerivationPath)
         self.taproot_bip32_derivations = OrderedDict()
         self.taproot_internal_key = None
+        self.taproot_merkle_root = None
+        self.taproot_sigs = OrderedDict()
+        self.taproot_scripts = OrderedDict()
 
         self.final_scriptsig = None
         self.final_scriptwitness = None
@@ -160,6 +163,8 @@ class InputScope(PSBTScope):
         self.bip32_derivations = OrderedDict()
         self.taproot_bip32_derivations = OrderedDict()
         self.taproot_internal_key = None
+        self.taproot_merkle_root = None
+        self.taproot_scripts = OrderedDict()
 
     def update(self, other):
         self.txid = other.txid or self.txid
@@ -176,6 +181,9 @@ class InputScope(PSBTScope):
         self.bip32_derivations.update(other.bip32_derivations)
         self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
         self.taproot_internal_key = other.taproot_internal_key
+        self.taproot_merkle_root = other.taproot_merkle.root or self.taproot_merkle_root
+        self.taproot_sigs.update(other.taproot_sigs)
+        self.taproot_scripts.update(other.taproot_scripts)
         self.final_scriptsig = other.final_scriptsig or self.final_scriptsig
         self.final_scriptwitness = other.final_scriptwitness or self.final_scriptwitness
 
@@ -325,6 +333,24 @@ class InputScope(PSBTScope):
         elif k == b"\x10":
             self.sequence = int.from_bytes(v, 'little')
 
+        # TODO: 0x13 - tap key signature
+        # PSBT_IN_TAP_SCRIPT_SIG
+        elif k[0] == 0x14:
+            if len(k) != 65:
+                raise PSBTError("Invalid key length")
+            pub = ec.PublicKey.from_xonly(k[1:33])
+            leaf = k[33:]
+            if (pub, leaf) in self.taproot_sigs:
+                raise PSBTError("Duplicated taproot sig")
+            self.taproot_sigs[(pub, leaf)] = v
+
+        # PSBT_IN_TAP_LEAF_SCRIPT
+        elif k[0] == 0x15:
+            control_block = k[1:]
+            if control_block in self.taproot_scripts:
+                raise PSBTError("Duplicated taproot script")
+            self.taproot_scripts[control_block] = v
+
         # PSBT_IN_TAP_BIP32_DERIVATION
         elif k[0] == 0x16:
             pub = ec.PublicKey.from_xonly(k[1:])
@@ -340,6 +366,10 @@ class InputScope(PSBTScope):
         # PSBT_IN_TAP_INTERNAL_KEY
         elif k[0] == 0x17:
             self.taproot_internal_key = ec.PublicKey.from_xonly(v)
+
+        # PSBT_IN_TAP_MERKLE_ROOT
+        elif k[0] == 0x18:
+            self.taproot_merkle_root = v
 
         else:
             if k in self.unknown:
@@ -387,6 +417,16 @@ class InputScope(PSBTScope):
                 r += ser_string(stream, b"\x10")
                 r += ser_string(stream, self.sequence.to_bytes(4, 'little'))
 
+        # PSBT_IN_TAP_SCRIPT_SIG
+        for (pub, leaf) in self.taproot_sigs:
+            r += ser_string(stream, b"\x14" + pub.xonly() + leaf)
+            r += ser_string(stream, self.taproot_sigs[(pub, leaf)])
+
+        # PSBT_IN_TAP_LEAF_SCRIPT
+        for control_block in self.taproot_scripts:
+            r += ser_string(stream, b"\x15" + control_block)
+            r += ser_string(stream, self.taproot_scripts[control_block])
+
         # PSBT_IN_TAP_BIP32_DERIVATION
         for pub in self.taproot_bip32_derivations:
             r += ser_string(stream, b"\x16" + pub.xonly())
@@ -397,6 +437,11 @@ class InputScope(PSBTScope):
         if self.taproot_internal_key is not None:
             r += ser_string(stream, b"\x17")
             r += ser_string(stream, self.taproot_internal_key.xonly())
+
+        # PSBT_IN_TAP_MERKLE_ROOT
+        if self.taproot_merkle_root is not None:
+            r += ser_string(stream, b"\x18")
+            r += ser_string(stream, self.taproot_merkle_root)
 
         # unknown
         for key in self.unknown:
