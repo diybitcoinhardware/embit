@@ -1,5 +1,4 @@
 from unittest import TestCase
-from embit import bip32
 from embit.bip32 import HDKey
 from embit.networks import NETWORKS
 from embit.script import p2tr, address_to_scriptpubkey
@@ -8,9 +7,8 @@ from embit.psbt import DerivationPath, PSBT
 from embit.psbtview import PSBTView
 from embit.ec import SchnorrSig, PublicKey
 from embit.transaction import SIGHASH
-from embit.psbtview import PSBTView
 from io import BytesIO
-from binascii import unhexlify, hexlify
+from binascii import unhexlify
 
 KEY = "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
 ROOT = HDKey.from_string(KEY)

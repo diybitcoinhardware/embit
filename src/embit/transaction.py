@@ -201,6 +201,7 @@ class Transaction(EmbitBase):
                         sighash=SIGHASH.DEFAULT,
                         ext_flag=0,
                         annex_present=False,
+                        extra=b"",
     ):
         """check out bip-341"""
         if input_index < 0 or input_index >= len(self.vin):
@@ -231,6 +232,7 @@ class Transaction(EmbitBase):
         # annex is not supported
         if sh == SIGHASH.SINGLE:
             h.update(self.vout[input_index].serialize())
+        h.update(extra)
         return h.digest()
 
     def sighash_segwit(self, input_index, script_pubkey, value, sighash=SIGHASH.ALL):
