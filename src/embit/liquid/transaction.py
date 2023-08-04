@@ -1,3 +1,4 @@
+import sys
 import io
 from .. import compact
 from ..script import Script, Witness

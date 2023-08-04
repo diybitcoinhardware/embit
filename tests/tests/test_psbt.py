@@ -3,7 +3,6 @@
 
 from binascii import hexlify, unhexlify
 from embit.bip32 import HDKey
-from embit.ec import PublicKey
 from embit.psbt import PSBT
 from unittest import TestCase
 

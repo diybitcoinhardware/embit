@@ -150,6 +150,11 @@ class DescriptorTest(TestCase):
             "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/<*;1>/34h/*",
         ]
         for k in keys:
+            try:
+                Key.from_string(k)
+                print(k)
+            except:
+                pass
             self.assertRaises(
                 Exception,
                 Key.from_string, k

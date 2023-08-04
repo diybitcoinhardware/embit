@@ -27,9 +27,13 @@ class KeyOrigin:
 class AllowedDerivation(DescriptorBase):
     # xpub/<0;1>/* - <0;1> is a set of allowed branches, wildcard * is stored as None
     def __init__(self, indexes=[[0, 1], None]):
-        # check only one wildcard and only one set is in the derivation
-        if len([i for i in indexes if i is None]) > 1:
+        # check only one wildcard 
+        if len([i
+                for i in indexes
+                if i is None or (isinstance(i, list) and None in i)
+                ]) > 1:
             raise ArgumentError("Only one wildcard is allowed")
+        # check only one set is in the derivation
         if len([i for i in indexes if isinstance(i, list)]) > 1:
             raise ArgumentError("Only one set of branches is allowed")
         self.indexes = indexes

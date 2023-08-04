@@ -1,10 +1,9 @@
-import sys
-import io
 import hashlib
 from . import compact
 from .script import Script, Witness
 from . import hashes
 from .base import EmbitBase, EmbitError
+
 
 class TransactionError(EmbitError):
     pass
@@ -200,8 +199,10 @@ class Transaction(EmbitBase):
                         values,
                         sighash=SIGHASH.DEFAULT,
                         ext_flag=0,
-                        annex_present=False,
-                        extra=b"",
+                        annex=None,
+                        script=None,
+                        leaf_version=0xc0,
+                        codeseparator_pos=None,
     ):
         """check out bip-341"""
         if input_index < 0 or input_index >= len(self.vin):
@@ -221,7 +222,7 @@ class Transaction(EmbitBase):
         if sh not in [SIGHASH.SINGLE, SIGHASH.NONE]:
             h.update(self.hash_outputs())
         # data about this input
-        h.update(bytes([2*ext_flag+int(annex_present)]))
+        h.update(bytes([2*ext_flag+int(annex is not None)]))
         if anyonecanpay:
             h.update(self.vin[input_index].serialize())
             h.update(values[input_index].to_bytes(8, "little"))
@@ -229,10 +230,20 @@ class Transaction(EmbitBase):
             h.update(self.vin[input_index].sequence.to_bytes(4, "little"))
         else:
             h.update(input_index.to_bytes(4, "little"))
-        # annex is not supported
+        if annex is not None:
+            h.update(hashes.sha256(compact.to_bytes(len(annex))+annex))
         if sh == SIGHASH.SINGLE:
             h.update(self.vout[input_index].serialize())
-        h.update(extra)
+        if script is not None:
+            h.update(
+                hashes.tagged_hash("TapLeaf", bytes([leaf_version])+script.serialize())
+            )
+            h.update(b"\x00")
+            h.update(
+                b"\xff\xff\xff\xff"
+                if codeseparator_pos is None
+                else codeseparator_pos.to_bytes(4,'little')
+            )
         return h.digest()
 
     def sighash_segwit(self, input_index, script_pubkey, value, sighash=SIGHASH.ALL):
