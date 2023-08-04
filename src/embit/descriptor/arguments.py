@@ -421,7 +421,7 @@ class Number(DescriptorBase):
         self.num = num
 
     @classmethod
-    def read_from(cls, s):
+    def read_from(cls, s, taproot=False):
         num = 0
         char = s.read(1)
         while char in b"0123456789":
@@ -454,7 +454,7 @@ class Raw(DescriptorBase):
         self.raw = unhexlify(raw)
 
     @classmethod
-    def read_from(cls, s):
+    def read_from(cls, s, taproot=False):
         return cls(s.read(2 * cls.LEN).decode())
 
     def __str__(self):
