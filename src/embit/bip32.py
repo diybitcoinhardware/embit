@@ -19,7 +19,7 @@ class HDKey(EmbitKey):
 
     def __init__(
         self,
-        key,
+        key: EmbitKey,  # more specifically, PrivateKey or PublicKey
         chain_code: bytes,
         version=None,
         depth: int = 0,
@@ -39,7 +39,7 @@ class HDKey(EmbitKey):
         self.chain_code = chain_code
         self.depth = depth
         self.fingerprint = fingerprint
-        self._my_fingerprint = None
+        self._my_fingerprint = b""
         self.child_number = child_number
         # check that base58[1:4] is "prv" or "pub"
         if self.is_private and self.to_base58()[1:4] != "prv":
@@ -61,8 +61,8 @@ class HDKey(EmbitKey):
         return cls.parse(b)
 
     @property
-    def my_fingerprint(self):
-        if self._my_fingerprint is None:
+    def my_fingerprint(self) -> bytes:
+        if not self._my_fingerprint:
             sec = self.sec()
             self._my_fingerprint = hashes.hash160(sec)[:4]
         return self._my_fingerprint
@@ -278,22 +278,21 @@ def detect_version(path, default="xprv", network=None) -> bytes:
     return net[key]
 
 
+def _parse_der_item(e: str) -> int:
+    if e[-1] in {"h", "H", "'"}:
+        return int(e[:-1]) + HARDENED_INDEX
+    else:
+        return int(e)
+
+
 def parse_path(path: str) -> list:
     """converts derivation path of the form m/44h/1'/0'/0/32 to int array"""
-    arr = path.split("/")
+    arr = path.rstrip("/").split("/")
     if arr[0] == "m":
         arr = arr[1:]
     if len(arr) == 0:
         return []
-    if arr[-1] == "":
-        # trailing slash
-        arr = arr[:-1]
-    for i, e in enumerate(arr):
-        if e[-1] in ["h", "H", "'"]:
-            arr[i] = int(e[:-1]) + HARDENED_INDEX
-        else:
-            arr[i] = int(e)
-    return arr
+    return [_parse_der_item(e) for e in arr]
 
 
 def path_to_str(path: list, fingerprint=None) -> str:

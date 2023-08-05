@@ -22,7 +22,7 @@ except ImportError:
             return f.read(n)
 
 
-def getrandbits(k):
+def getrandbits(k: int) -> int:
     b = urandom(k // 8 + 1)
     return int.from_bytes(b, "big") % (2**k)
 

@@ -206,10 +206,10 @@ class PrivateKey(EmbitKey):
     def from_base58(cls, s):
         return cls.from_wif(s)
 
-    def get_public_key(self):
+    def get_public_key(self) -> PublicKey:
         return PublicKey(secp256k1.ec_pubkey_create(self._secret), self.compressed)
 
-    def sign(self, msg_hash, grind=True):
+    def sign(self, msg_hash, grind=True) -> Signature:
         sig = Signature(secp256k1.ecdsa_sign(msg_hash, self._secret))
         if grind:
             counter = 1
@@ -225,10 +225,10 @@ class PrivateKey(EmbitKey):
                     break
         return sig
 
-    def schnorr_sign(self, msg_hash):
+    def schnorr_sign(self, msg_hash) -> SchnorrSig:
         return SchnorrSig(secp256k1.schnorrsig_sign(msg_hash, self._secret))
 
-    def verify(self, sig, msg_hash):
+    def verify(self, sig, msg_hash) -> bool:
         return self.get_public_key().verify(sig, msg_hash)
 
     def schnorr_verify(self, sig, msg_hash) -> bool:

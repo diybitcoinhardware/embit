@@ -28,7 +28,12 @@ def from_bytes(b: bytes) -> int:
 
 def read_from(stream) -> int:
     """reads a compact integer from a stream"""
-    i = stream.read(1)[0]
+    c = stream.read(1)
+    if not isinstance(c, bytes):
+        raise TypeError("Bytes must be returned from stream.read()")
+    if len(c) != 1:
+        raise RuntimeError("Can't read one byte from the stream")
+    i = c[0]
     if i >= 0xFD:
         bytes_to_read = 2 ** (i - 0xFC)
         return int.from_bytes(stream.read(bytes_to_read), "little")

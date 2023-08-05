@@ -153,11 +153,12 @@ class Share:
 
 
 class ShareSet:
+    exp = bytearray(255)
+    log2 = bytearray(256)
+
     @classmethod
     def _load(cls):
         """Pre-computes the exponent/log for LaGrange calculation"""
-        cls.exp = [0] * 255
-        cls.log2 = [0] * 256
         cur = 1
         for i in range(255):
             cls.exp[i] = cur

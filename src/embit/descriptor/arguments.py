@@ -268,9 +268,9 @@ class Key(DescriptorBase):
         return cls(k, origin, derivation, taproot, xonly_repr)
 
     @classmethod
-    def parse_key(cls, k: bytes, taproot: bool = False):
+    def parse_key(cls, key: bytes, taproot: bool = False):
         # convert to string
-        k = k.decode()
+        k = key.decode()
         if len(k) in [66, 130] and k[:2] in ["02", "03", "04"]:
             # bare public key
             return ec.PublicKey.parse(unhexlify(k)), False
@@ -480,6 +480,8 @@ class Number(DescriptorBase):
 
 
 class Raw(DescriptorBase):
+    LEN = 32
+
     def __init__(self, raw):
         if len(raw) != self.LEN * 2:
             raise ArgumentError("Invalid raw element length: %d" % len(raw))

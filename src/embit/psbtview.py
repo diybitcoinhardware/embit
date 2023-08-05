@@ -38,30 +38,29 @@ from .transaction import (
 )
 
 
-def read_write(sin, sout, l=None, chunk_size=32) -> int:
+def read_write(sin, sout, sz=None, chunk_size=32) -> int:
     """Reads l or all bytes from sin and writes to sout"""
     # number of bytes written
     res = 0
     barr = bytearray(chunk_size)
     while True:
-        if l == 0:  # nothing else to read
+        if sz == 0:  # nothing else to read
             return res
-        elif l and l < chunk_size:  # read less than full chunk
-            r = sin.read(l)
+        elif sz and sz < chunk_size:  # read less than full chunk
+            r = sin.read(sz)
             sout.write(r)
             return res + len(r)
-        else:  # reading full chunk
-            r = sin.readinto(barr)
-            if r == 0:
-                return res
-            res += r
-            if r == chunk_size:
-                sout.write(barr)
-            else:
-                sout.write(barr[:r])
-            if l:
-                l -= r
-    return res
+        # reading full chunk
+        r = sin.readinto(barr)
+        if r == 0:
+            return res
+        res += r
+        if r == chunk_size:
+            sout.write(barr)
+        else:
+            sout.write(barr[:r])
+        if sz:
+            sz -= r
 
 
 class GlobalTransactionView:
