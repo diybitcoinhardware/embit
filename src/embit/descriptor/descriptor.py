@@ -5,13 +5,27 @@ from .errors import DescriptorError
 from .base import DescriptorBase
 from .miniscript import Miniscript
 from .arguments import Key
+from .taptree import TapTree
 
 
 class Descriptor(DescriptorBase):
-    def __init__(self, miniscript=None, sh=False, wsh=True, key=None, wpkh=True, taproot=False):
+    def __init__(self,
+        miniscript = None,
+        sh = False,
+        wsh = True,
+        key = None,
+        wpkh = True,
+        taproot = False,
+        taptree = None,
+    ):
         # TODO: add support for taproot scripts
-        if key is None and miniscript is None:
-            raise DescriptorError("Provide either miniscript or a key")
+        # Should:
+        # - accept taptree without a key
+        # - accept key without taptree
+        # - raise if miniscript is not None, but taproot=True
+        # - raise if taptree is not None, but taproot=False
+        if key is None and miniscript is None and taptree is None:
+            raise DescriptorError("Provide a key, miniscript or taptree")
         if miniscript is not None:
             # will raise if can't verify
             miniscript.verify()
@@ -34,6 +48,7 @@ class Descriptor(DescriptorBase):
         self.miniscript = miniscript
         self.wpkh = wpkh
         self.taproot = taproot
+        self.taptree = taptree or TapTree()
         # make sure all keys are either taproot or not
         for k in self.keys:
             k.taproot = taproot
@@ -64,7 +79,13 @@ class Descriptor(DescriptorBase):
             )
         else:
             return type(self)(
-                None, self.sh, self.wsh, self.key.branch(branch_index), self.wpkh, self.taproot
+                None,
+                self.sh,
+                self.wsh,
+                self.key.branch(branch_index),
+                self.wpkh,
+                self.taproot,
+                self.taptree.branch(branch_index),
             )
 
 
@@ -149,7 +170,13 @@ class Descriptor(DescriptorBase):
             )
         else:
             return type(self)(
-                None, self.sh, self.wsh, self.key.derive(idx, branch_index), self.wpkh, self.taproot
+                None,
+                self.sh,
+                self.wsh,
+                self.key.derive(idx, branch_index),
+                self.wpkh,
+                self.taproot,
+                self.taptree.derive(idx, branch_index),
             )
 
     def to_public(self):
@@ -164,7 +191,13 @@ class Descriptor(DescriptorBase):
             )
         else:
             return type(self)(
-                None, self.sh, self.wsh, self.key.to_public(), self.wpkh, self.taproot
+                None,
+                self.sh,
+                self.wsh,
+                self.key.to_public(),
+                self.wpkh,
+                self.taproot,
+                self.taptree.to_public(),
             )
 
 
@@ -226,7 +259,7 @@ class Descriptor(DescriptorBase):
     def script_pubkey(self):
         # covers sh-wpkh, sh and sh-wsh
         if self.taproot:
-            return script.p2tr(self.key)
+            return script.p2tr(self.key, self.taptree)
         if self.sh:
             return script.p2sh(self.redeem_script())
         if self.wsh:
@@ -264,9 +297,9 @@ class Descriptor(DescriptorBase):
         wpkh = False
         is_miniscript = True
         taproot = False
+        taptree = TapTree()
         if start.startswith(b"tr("):
             taproot = True
-            is_miniscript = False
             s.seek(-4, 1)
         elif start.startswith(b"sh(wsh("):
             sh = True
@@ -293,10 +326,23 @@ class Descriptor(DescriptorBase):
             s.seek(-4, 1)
         else:
             raise ValueError("Invalid descriptor (starts with '%s')" % start.decode())
-        if is_miniscript:
+        # taproot always has a key, and may have taptree miniscript
+        if taproot:
+            miniscript = None
+            key = Key.read_from(s, taproot=taproot)
+            nbrackets = 1 + int(sh)
+            c = s.read(1)
+            # TODO: should it be ok to pass just taptree without a key?
+            # check if we have taptree after the key
+            if c != b",":
+                s.seek(-1, 1)
+            else:
+                taptree = TapTree.read_from(s)
+        elif is_miniscript:
             miniscript = Miniscript.read_from(s)
             key = None
             nbrackets = int(sh) + int(wsh)
+        # single key for sure
         else:
             miniscript = None
             key = Key.read_from(s, taproot=taproot)
@@ -306,10 +352,20 @@ class Descriptor(DescriptorBase):
             raise ValueError(
                 "Invalid descriptor (expected ')' but ends with '%s')" % end.decode()
             )
-        return cls(miniscript, sh=sh, wsh=wsh, key=key, wpkh=wpkh, taproot=taproot)
+        return cls(
+            miniscript,
+            sh=sh,
+            wsh=wsh,
+            key=key,
+            wpkh=wpkh,
+            taproot=taproot,
+            taptree=taptree
+        )
 
     def to_string(self):
         if self.taproot:
+            if self.taptree:
+                return "tr(%s,%s)" % (self.key, self.taptree)
             return "tr(%s)" % self.key
         if self.miniscript is not None:
             res = str(self.miniscript)

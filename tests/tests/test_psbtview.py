@@ -64,7 +64,7 @@ class PSBTViewTest(TestCase):
     def test_sign(self):
         """Test if we can sign psbtview and get the same as from signing psbt"""
         for compress in [CompressMode.KEEP_ALL, CompressMode.CLEAR_ALL, CompressMode.PARTIAL]:
-            for b64 in PSBTS:
+            for i, b64 in enumerate(PSBTS):
                 psbt = PSBT.from_string(b64, compress=compress)
                 stream = BytesIO(a2b_base64(b64))
                 psbtv = PSBTView.view(stream, compress=compress)
@@ -100,6 +100,10 @@ class PSBTViewTest(TestCase):
                     self.assertEqual(len(signed_inputs), len(psbt.inputs))
                     for i, inp in enumerate(signed_inputs):
                         inp2 = psbt.inputs[i]
+                        if inp.partial_sigs != inp2.partial_sigs:
+                            print(compress)
+                            print(i)
+                            print(inp.partial_sigs, inp2.partial_sigs)
                         self.assertEqual(inp.partial_sigs, inp2.partial_sigs)
                     # check serialization with signatures
                     sigs_stream.seek(0)

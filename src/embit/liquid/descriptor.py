@@ -1,9 +1,10 @@
+from .. import ec
 from ..descriptor.descriptor import *
 from .networks import NETWORKS
 from .addresses import address
 from . import slip77
 from ..hashes import tagged_hash, sha256
-from ..ec import PrivateKey, PublicKey, secp256k1
+from ..ec import secp256k1
 
 class LDescriptor(Descriptor):
     """Liquid descriptor that supports blinded() wrapper"""
@@ -191,7 +192,7 @@ class MuSigKey(DescriptorBase):
         if self._pubkey is None:
             pubs = [secp256k1.ec_pubkey_parse(k.sec()) for k in self.keys]
             pub = musig_combine_pubs(pubs)
-            self._pubkey = PublicKey(pub)
+            self._pubkey = ec.PublicKey(pub)
         return self._pubkey.sec()
 
 def musig_combine_privs(privs, sort=True):

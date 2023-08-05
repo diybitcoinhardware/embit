@@ -27,9 +27,13 @@ class KeyOrigin:
 class AllowedDerivation(DescriptorBase):
     # xpub/<0;1>/* - <0;1> is a set of allowed branches, wildcard * is stored as None
     def __init__(self, indexes=[[0, 1], None]):
-        # check only one wildcard and only one set is in the derivation
-        if len([i for i in indexes if i is None]) > 1:
+        # check only one wildcard 
+        if len([i
+                for i in indexes
+                if i is None or (isinstance(i, list) and None in i)
+                ]) > 1:
             raise ArgumentError("Only one wildcard is allowed")
+        # check only one set is in the derivation
         if len([i for i in indexes if isinstance(i, list)]) > 1:
             raise ArgumentError("Only one set of branches is allowed")
         self.indexes = indexes
@@ -169,10 +173,18 @@ class AllowedDerivation(DescriptorBase):
 
 
 class Key(DescriptorBase):
-    def __init__(self, key, origin=None, derivation=None, taproot=False):
+    def __init__(
+            self,
+            key,
+            origin=None,
+            derivation=None,
+            taproot=False,
+            xonly_repr=False,
+    ):
         self.origin = origin
         self.key = key
         self.taproot = taproot
+        self.xonly_repr = xonly_repr and taproot
         if not hasattr(key, "derive") and derivation:
             raise ArgumentError("Key %s doesn't support derivation" % key)
         self.allowed_derivation = derivation
@@ -241,13 +253,13 @@ class Key(DescriptorBase):
         if char is not None:
             s.seek(-1, 1)
         # parse key
-        k = cls.parse_key(k, taproot)
+        k, xonly_repr = cls.parse_key(k, taproot)
         # parse derivation
         allow_hardened = isinstance(k, bip32.HDKey) and isinstance(k.key, ec.PrivateKey)
         derivation = AllowedDerivation.from_string(
             der.decode(), allow_hardened=allow_hardened
         )
-        return cls(k, origin, derivation, taproot)
+        return cls(k, origin, derivation, taproot, xonly_repr)
 
     @classmethod
     def parse_key(cls, k: bytes, taproot:bool = False):
@@ -255,15 +267,15 @@ class Key(DescriptorBase):
         k = k.decode()
         if len(k) in [66, 130] and k[:2] in ["02", "03", "04"]:
             # bare public key
-            return ec.PublicKey.parse(unhexlify(k))
+            return ec.PublicKey.parse(unhexlify(k)), False
         elif taproot and len(k) == 64:
             # x-only pubkey
-            return ec.PublicKey.parse(b"\x02"+unhexlify(k))
+            return ec.PublicKey.parse(b"\x02"+unhexlify(k)), True
         elif k[1:4] in ["pub", "prv"]:
             # bip32 key
-            return bip32.HDKey.from_base58(k)
+            return bip32.HDKey.from_base58(k), False
         else:
-            return ec.PrivateKey.from_wif(k)
+            return ec.PrivateKey.from_wif(k), False
 
     @property
     def is_extended(self):
@@ -328,9 +340,11 @@ class Key(DescriptorBase):
         return 1 if self.branches is None else len(self.branches)
 
     def branch(self, branch_index=None):
-        if self.allowed_derivation is None:
-            return self
-        der = self.allowed_derivation.branch(branch_index)
+        der = (
+            self.allowed_derivation.branch(branch_index) 
+            if self.allowed_derivation is not None
+            else None
+        )
         return type(self)(self.key, self.origin, der, self.taproot)
 
     @property
@@ -378,7 +392,8 @@ class Key(DescriptorBase):
 
     def to_string(self, version=None):
         if isinstance(self.key, ec.PublicKey):
-            return self.prefix + hexlify(self.key.sec()).decode()
+            k = self.key.sec() if not self.xonly_repr else self.key.xonly()
+            return self.prefix + hexlify(k).decode()
         if isinstance(self.key, bip32.HDKey):
             return self.prefix + self.key.to_base58(version) + self.suffix
         if isinstance(self.key, ec.PrivateKey):
@@ -397,7 +412,7 @@ class KeyHash(Key):
         kd = k.decode()
         # raw 20-byte hash
         if len(kd) == 40:
-            return kd
+            return kd, False
         return super().parse_key(k, *args, **kwargs)
 
     def serialize(self, *args, **kwargs):

@@ -47,8 +47,9 @@ class DescriptorTest(TestCase):
             ("wsh(multi(2,%s,%s,%s))" % tuple(keys[:3]), 
              "522103801b3a4e3ca0d61d469445621561c47f6c1424d0fd353a44c2c3ebb84ae78f592103e7d285b4817f83f724cd29394da75dfc84fe639ed147a944e7e6064703b141302103b8fa5d5959fa4027ccbf0736a86ccde4242e3051ea363437b4ff0d52598d7cec53ae"),
 
-            ("wsh(thresh(3,pk(%s),s:pk(%s),s:pk(%s),sdv:older(12960)))" % tuple(keys[:3]), 
-             "2103801b3a4e3ca0d61d469445621561c47f6c1424d0fd353a44c2c3ebb84ae78f59ac7c2103e7d285b4817f83f724cd29394da75dfc84fe639ed147a944e7e6064703b14130ac937c2103b8fa5d5959fa4027ccbf0736a86ccde4242e3051ea363437b4ff0d52598d7cecac937c766302a032b26968935387"),
+            # TODO: invalid miniscript for segwit, but valid for taproot
+            # ("wsh(thresh(3,pk(%s),s:pk(%s),s:pk(%s),sdv:older(12960)))" % tuple(keys[:3]), 
+            #  "2103801b3a4e3ca0d61d469445621561c47f6c1424d0fd353a44c2c3ebb84ae78f59ac7c2103e7d285b4817f83f724cd29394da75dfc84fe639ed147a944e7e6064703b14130ac937c2103b8fa5d5959fa4027ccbf0736a86ccde4242e3051ea363437b4ff0d52598d7cecac937c766302a032b26968935387"),
 
             ("wsh(multi(10,"
                 "0373b665b6fe153c5872de1344339ee60588491257d2c34567aa026af237143a6c,"
@@ -150,6 +151,11 @@ class DescriptorTest(TestCase):
             "[f45912ab/44h/12/32h]xprvA1BtcqnJTKdjRQJ4K2874WTDyPCvgT7bCte7cXi4XrZ5csfoVqgWAL61U9dSf3xE9GUDrFL6RnxPRGvHMn85MHbuKSHDp4vqmJ7PK1Eewug/<*;1>/34h/*",
         ]
         for k in keys:
+            try:
+                Key.from_string(k)
+                print(k)
+            except:
+                pass
             self.assertRaises(
                 Exception,
                 Key.from_string, k

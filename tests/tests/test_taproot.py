@@ -1,5 +1,4 @@
 from unittest import TestCase
-from embit import bip32
 from embit.bip32 import HDKey
 from embit.networks import NETWORKS
 from embit.script import p2tr, address_to_scriptpubkey
@@ -8,9 +7,8 @@ from embit.psbt import DerivationPath, PSBT
 from embit.psbtview import PSBTView
 from embit.ec import SchnorrSig, PublicKey
 from embit.transaction import SIGHASH
-from embit.psbtview import PSBTView
 from io import BytesIO
-from binascii import unhexlify, hexlify
+from binascii import unhexlify
 
 KEY = "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
 ROOT = HDKey.from_string(KEY)
@@ -50,9 +48,32 @@ TAP_PSBTS = [
     "cHNidP8BAH0CAAAAAUAaxszo/duEBuHMtAC7DT2fNdfsnS4wy8vF3hAB/UlJAAAAAAD9////AoCWmAAAAAAAFgAUcCRqeVJZLDGtwLBhaMBPE63W5WnySV0FAAAAACJRIBrRhQ5SjnkT5tE70JEBxp9xkb4uBIHRIzkxac7HP5ZTAAAAAAABASsA4fUFAAAAACJRIFKH/tGO0Q0s2Smklua645o2AiaKUkBJnG3YDvfOcbbVQhXBVTVcqDyXPx2Xzg44Q8hdeJBa8WtNxTG8SI5XIS0jARZUoQdnQp/8bMLMLulMq6QGi4+kememhbEVYTvrM2DmDyMgBB+2r5b0+qaabbiKXfGsCCZ/X5i6EoOa82ErtH5BigCswGIVwVU1XKg8lz8dl84OOEPIXXiQWvFrTcUxvEiOVyEtIwEWFGi48vIp9D+FdjTmg1ubdkSHIVzdfVMACq33siHM79pMxC/7Yq3dbpesX7UJSDHq71fmbAYALaDQdod4fu5JsSMgBgozO1jxe6uPd2hvHYlLTaKei2UIjBpBGIJfyCL/os6swGIVwVU1XKg8lz8dl84OOEPIXXiQWvFrTcUxvEiOVyEtIwEWMbziDCAn/bPsPqCxK0QUbVF34xa8bETwhZ1jFzu+SvNMxC/7Yq3dbpesX7UJSDHq71fmbAYALaDQdod4fu5JsSMgtpzeELVS/INwpBPZEQhNBIUStilyPL6A7W14NH4UZeSswCEWBB+2r5b0+qaabbiKXfGsCCZ/X5i6EoOa82ErtH5BigA5AUzEL/tird1ul6xftQlIMervV+ZsBgAtoNB2h3h+7kmxAgjLd1YAAIABAACAAAAAgAAAAAAAAAAAIRYGCjM7WPF7q493aG8diUtNop6LZQiMGkEYgl/IIv+izjkBMbziDCAn/bPsPqCxK0QUbVF34xa8bETwhZ1jFzu+SvNH/BuhVgAAgAEAAIAAAACAAAAAAAAAAAAhFlU1XKg8lz8dl84OOEPIXXiQWvFrTcUxvEiOVyEtIwEWGQBzxdoKVgAAgAEAAIAAAACAAAAAAAAAAAAhFrac3hC1UvyDcKQT2REITQSFErYpcjy+gO1teDR+FGXkOQEUaLjy8in0P4V2NOaDW5t2RIchXN19UwAKrfeyIczv2vt8HxFWAACAAQAAgAAAAIAAAAAAAAAAAAEXIFU1XKg8lz8dl84OOEPIXXiQWvFrTcUxvEiOVyEtIwEWARggyx1Uf/jQ00tM3UjsFjZveDZgMfHHVAqzX2EeP2HYuVgAAAEFICDrkFAGiwE73j0gTbWaxdsqHHioqiUHP78uetSdBRXGAQZvAcAiIBzPJ1Xc+LktQvZ2DfUHF8ZjLstb2yy8knw6sWGa6npzrALAIiB7XX2FRbhtQQ1OMFHZrKQJgm9Uy11VIkks1y6DlEvafqwCwCIg0OVDwS5pv86EQus8QaNW31/onw7JQJ1aEgD4mu/9Iv2sIQcczydV3Pi5LUL2dg31BxfGYy7LW9ssvJJ8OrFhmup6czkBf88QfvUR3XwjmSYdA3uHV+ve/BhYs0/r70731kheDW8CCMt3VgAAgAEAAIAAAACAAQAAAAEAAAAhByDrkFAGiwE73j0gTbWaxdsqHHioqiUHP78uetSdBRXGGQBzxdoKVgAAgAEAAIAAAACAAQAAAAEAAAAhB3tdfYVFuG1BDU4wUdmspAmCb1TLXVUiSSzXLoOUS9p+OQGzJ3RT0eho23a5cca/2jX8AETEICnTMTP12ajR30czFEf8G6FWAACAAQAAgAAAAIABAAAAAQAAACEH0OVDwS5pv86EQus8QaNW31/onw7JQJ1aEgD4mu/9Iv05ATfGpiWBWMHLfN4FazQuz2SBvTDiVWvd3kqLsLZGpyDW+3wfEVYAAIABAACAAAAAgAEAAAABAAAAAA==",
 ]
 TAP_SIGS = [
-    (unhexlify("6f7f1255071fb5a103b5a4d3e5e295d19e9701e58fa1c457e92733c53ed16804f1036c90f30f6c4753a884c2be8b7d4a7c30a2a86dbfb0e8010bdf7064fd70f7"),),
-    (),
+    (
+        unhexlify("6f7f1255071fb5a103b5a4d3e5e295d19e9701e58fa1c457e92733c53ed16804f1036c90f30f6c4753a884c2be8b7d4a7c30a2a86dbfb0e8010bdf7064fd70f7"), # sig of keyA
+    ),
+    (
+        unhexlify("0574a2735988c4c8bd866ac546ae3f8a29f19a9596742892638c53f3b593269975135f0c58b2db945723e109db4111f6789e2abd37d2de82e94b8af47de63bda"), # A
+    ),
 ]
+# tr(A,{pk(B),and_v(v:pk(C),pk(D))})
+TAPTREE_PSBT = "cHNidP8BAH0CAAAAAeIMcyOBWNnbIqmCIqa0QL9JAwsaDV4HT6+Xv4wJjL17AAAAAAD9////AoCWmAAAAAAAFgAUvSBc5eYHgqHxk7upi3kv5gA/1O3ySV0FAAAAACJRIGNAxXuNUt0BJ6ByFOx9/al93vWen39D6Af7ss1QjlwKAAAAAAABASsA4fUFAAAAACJRIHC7J82blWTnJH9Nl/qeHS97m2KxuBv3L2g58EhgndRRQhXBfy5RDYbr51o4fyQYpNrWWE20ga8PKn5tEtuU8YRHEvhnBFg9xpf/3wPhiU5hrocTD1m9uX9M4MVKhILWLawC70UgUEM1JJofA2CVc9wW77clA2DWZfBnpHMi6GWAVIiEvz2tIK6FHC9E+O2EZBy/b2qVNwJHDf4+QsYN5obNcIcKAP18rMBCFcF/LlENhuvnWjh/JBik2tZYTbSBrw8qfm0S25TxhEcS+J35N4fUhRXmtCF4ZSZhqoN56GqlIBK0Gj/iYJQTJDRCIyBziRZlLMwPXQz69ZgIm6VuAY8hTHxOJrwUh+1pDTGcDazAIRZQQzUkmh8DYJVz3BbvtyUDYNZl8GekcyLoZYBUiIS/PS0Bnfk3h9SFFea0IXhlJmGqg3noaqUgErQaP+JglBMkNELPWtqTAAAAAAAAAAAhFnOJFmUszA9dDPr1mAibpW4BjyFMfE4mvBSH7WkNMZwNLQFnBFg9xpf/3wPhiU5hrocTD1m9uX9M4MVKhILWLawC78xSxyIAAAAAAAAAACEWfy5RDYbr51o4fyQYpNrWWE20ga8PKn5tEtuU8YRHEvgNAHNc6iAAAAAAAAAAACEWroUcL0T47YRkHL9vapU3AkcN/j5Cxg3mhs1whwoA/XwtAZ35N4fUhRXmtCF4ZSZhqoN56GqlIBK0Gj/iYJQTJDRCDAm+LgAAAAAAAAAAARcgfy5RDYbr51o4fyQYpNrWWE20ga8PKn5tEtuU8YRHEvgBGCCUd6Gt2gcmsS/p11C8qpWk79PycyZyAFfM9UNU20W7+wAAAQUg+Du+Rd0qJvYodMsO7j4IVEu8ULoV8jbI1xSbhvot3JEBBmwBwEQgSo5aG71puZDqSiCzIG8zB0pxRZ/Wwkomtl/qpfij37GtIOZJwZtZajmvPLeCviLhGhtqGqLhbezFzxyiqQ9rMrwarAHAIiCKbSCtGMYmKiLS7Ts2At4JPCw1D068SEAP4iuSS1r6pKwhB0qOWhu9abmQ6kogsyBvMwdKcUWf1sJKJrZf6qX4o9+xLQFy0Iqb4ksGrxmHa6MqKmavcuGFR40PfYWk3m4jZLMIHc9a2pMBAAAAAAAAACEHim0grRjGJioi0u07NgLeCTwsNQ9OvEhAD+Irkkta+qQtAd4SDZI0Q0pda4MXoWhUUigZ4oroff9guQq9Mb0CBc4yzFLHIgEAAAAAAAAAIQfmScGbWWo5rzy3gr4i4Robahqi4W3sxc8coqkPazK8Gi0BctCKm+JLBq8Zh2ujKipmr3LhhUeND32FpN5uI2SzCB0MCb4uAQAAAAAAAAAhB/g7vkXdKib2KHTLDu4+CFRLvFC6FfI2yNcUm4b6LdyRDQBzXOogAQAAAAAAAAAA"
+
+TAPTREE_KEYS = [
+    HDKey.from_string(k)
+    for k in [
+        "tprv8ZgxMBicQKsPdiNEPCogjnPGeK4zgUpZGGEP2k2hhiANSpPuUWGVWb6WCQhjSPDn7Nz2u9kq9U1Z1bz6ZVpYL4w3kudYESRMrTprfKzzNyd",
+        "tprv8ZgxMBicQKsPeDCydL6eDyVohN3tLNU4MWrrFBmKkSHUE46mWUQ6YzLAmW57JPiofGLkW2ZCPbtC4NtoKBGWDG9cJhx6d9UhuJdUbFbD36w",
+        "tprv8ZgxMBicQKsPeYcQMuAVda55CQtNHjWQmA33U9XXxPwpnxGHWSe9xoqmJRj4p1AJ8eXDDt82U4vJuvGETigWHYobjXCxpdCqRDsrqdUEpSt",
+        "tprv8ZgxMBicQKsPdabEfXZrBoDe7V2gmahYeASskjJCrpNLoeLuaDq6kzVXbceiQQAoacFDsB7oeek1XinDZy73A6N56z1mKFJv2o7f6EA8Vhn",
+    ]
+]
+TAPTREE_SIGS = [
+    unhexlify("fd2877b89797991d0e237f466a917a5300944f6fb1453b576763ef76e5d1140816d4ec923b36975b859cb744a85286cd0d15a6f7c0ed15f9d03852c7716b3207"), # internal
+    unhexlify("5fd88ed2ce431b003ce2b0e233a3b7870514b130e700b612a4d86fedeb603657ac88e2f4f290ee7ed16e23f6d27f717a5447acdbea5e72d16497a29a4ea46ca6"), # keyA
+    unhexlify("fe9f994315faa9caab4e41d78b0200ca19fd3c735ce7d88e879b0da0b7e1f4dd31f877b6529700f463670f1a6f6ea217f6dfc596cf8c55e78b42b70e3491aac3"), # keyB
+    unhexlify("d09a024358e7f609a0c3dfb94ac852c3f20859784f18911b5ec4cbc8c5ebf4a3642254519b47368fa1b2df75e10c56b77e7f9f34157335c2bc814106e544077c"), # keyC
+]
+
 
 class TaprootTest(TestCase):
     def test_script(self):
@@ -175,10 +196,23 @@ class TaprootTest(TestCase):
             psbt2 = PSBT.from_string(ser)
             assert psbt == psbt2
 
-    def test_sign(self):
-        psbt = PSBT.from_string(TAP_PSBTS[0])
-        psbt.sign_with(KEY_A)
-        self.assertEqual(psbt.inputs[0].final_scriptwitness.items[0], TAP_SIGS[0][0])
+    def test_sign_internal(self):
+        """Test we can sign with internal key"""
+        for b64psbt, sigs in zip(TAP_PSBTS, TAP_SIGS):
+            psbt = PSBT.from_string(b64psbt)
+            psbt.sign_with(KEY_A)
+            self.assertEqual(psbt.inputs[0].final_scriptwitness.items[0], sigs[0])
+
+    def test_sign_taptree(self):
+        """Test we can sign with internal key"""
+        psbt = PSBT.from_string(TAPTREE_PSBT)
+        for key in TAPTREE_KEYS:
+            psbt.sign_with(key)
+        # check internal key signature
+        self.assertEqual(psbt.inputs[0].final_scriptwitness.items[0], TAPTREE_SIGS[0])
+        # check taptree signatures
+        for sig in TAPTREE_SIGS[1:]:
+            self.assertTrue(sig in psbt.inputs[0].taproot_sigs.values())
 
     def test_owns(self):
         d = Descriptor.from_string("tr(%s/86h/1h/0h/{0,1}/*)" % KEY_A)

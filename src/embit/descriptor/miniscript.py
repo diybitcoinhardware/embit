@@ -1,10 +1,6 @@
-from binascii import hexlify, unhexlify
-from io import BytesIO
-from .. import hashes, compact, ec, bip32, script
-from ..networks import NETWORKS
 from .errors import MiniscriptError
-from .base import DescriptorBase
-from .arguments import *
+from .base import DescriptorBase, read_until
+from .arguments import Key, KeyHash, Number, Raw32, Raw20
 
 
 class Miniscript(DescriptorBase):
@@ -67,7 +63,7 @@ class Miniscript(DescriptorBase):
             raise MiniscriptError("Missing operator")
         if op not in OPERATOR_NAMES:
             raise MiniscriptError("Unknown operator '%s'" % op)
-        # number of arguments, classes of arguments, compile function, type, validity checker
+        # number of arguments, classes of args, compile fn, type, validity checker
         MiniscriptCls = OPERATORS[OPERATOR_NAMES.index(op)]
         args = MiniscriptCls.read_arguments(s, taproot=taproot)
         miniscript = MiniscriptCls(*args, taproot=taproot)
@@ -664,6 +660,31 @@ class Sortedmulti(Multi):
             + b"\xae"
         )
 
+class MultiA(Multi):
+    # <key1> CHECKSIG <key2> CHECKSIGADD ... <keyN> CHECKSIGNADD <k> NUMEQUAL
+    NAME = "multi_a"
+
+    def inner_compile(self):
+        return (self.args[1].compile()+b"\xac"+
+            b"".join([arg.compile()+b"\xba" for arg in self.args[2:]])
+            + self.args[0].compile()
+            + b"\x9c"
+        )
+
+    def __len__(self):
+        return self.len_args() + len(self.args)
+
+class SortedmultiA(MultiA):
+    # <key1> CHECKSIG <key2> CHECKSIGADD ... <keyN> CHECKSIGNADD <k> NUMEQUAL
+    NAME = "sortedmulti_a"
+
+    def inner_compile(self):
+        keys = list(sorted([k.compile() for k in self.args[1:]]))
+        return (keys[0]+b"\xac"+
+            b"".join([k+b"\xba" for k in keys[1:]])
+            + self.args[0].compile()
+            + b"\x9c"
+        )
 
 class Pk(OneArg):
     # <key> CHECKSIG
@@ -715,6 +736,8 @@ OPERATORS = [
     Thresh,
     Multi,
     Sortedmulti,
+    MultiA,
+    SortedmultiA,
     Pk,
     Pkh,
 ]

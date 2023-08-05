@@ -83,14 +83,14 @@ class LiquidTest(TestCase):
         self.assertEqual(extra, b"")
 
     def test_descriptors(self):
-        multi = "wsh(sortedmulti(1,[12345678/44h/12]xpub6BwcvdstHTJtLpp1WxUiQCYERWSB66XY5JrCpw71GAJxcJ6s2AiUoEK4Nzt6UDaTmanUiSe6TY2RoFturKNLXeWBhwBF6WBNghr8cr7qnjk/{0,1}/*,[abcdef12/84h/22h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/{0,1}/*))"
+        multi = "wsh(sortedmulti(1,[12345678/44h/12]xpub6BwcvdstHTJtLpp1WxUiQCYERWSB66XY5JrCpw71GAJxcJ6s2AiUoEK4Nzt6UDaTmanUiSe6TY2RoFturKNLXeWBhwBF6WBNghr8cr7qnjk/<0;1>/*,[abcdef12/84h/22h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/<0;1>/*))"
         descs = [
-            "wpkh([abcdef12/84h/22h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/{0,1}/*)",
+            "wpkh([abcdef12/84h/22h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA/<0;1>/*)",
             multi,
             "blinded(slip77(L2t59TFgKmc83tPJD1rTy2KxJt44CMMQYsECXdz75xSqVv1X9Tvr),%s)" % multi,
-            "blinded(xprvA18YC5Aog5LxHgMrSv5t9QaHyfh5DU8Pr8zFTP5QhJSTjdg3mSpEyxLZfNQaEc8sALUtsHeDJYsp8YnobhjJT9D7JADoEV4wXiMuNMYDLZ2/{0,1}/*,%s)" % multi,
-            "blinded(musig(xprvA18YC5Aog5LxHgMrSv5t9QaHyfh5DU8Pr8zFTP5QhJSTjdg3mSpEyxLZfNQaEc8sALUtsHeDJYsp8YnobhjJT9D7JADoEV4wXiMuNMYDLZ2/{0,1}/*,xprv9ybbsYg8NKhDxDrSdmWPWih2AVjyDYxvTYvjaqNLmSpQcaLhmXeXUcHDEK99MiPDJwteBF2EzZkhfwwQDycrTgdxWGAgyWVpVJxrgZF5eCT/{0,1}/*),%s)" % multi,
-            "blinded(musig(xpub6E7tbahhWSuFWASKYwctWYX2XhXZcvrFDMurFmV2FdyScS1CJz8VXkf3WchmYnBmC8uMVgENPLYd8uWjXYjxFFwFXD6unhFXs6VBjHTAb9e/{0,1}/*,xprv9ybbsYg8NKhDxDrSdmWPWih2AVjyDYxvTYvjaqNLmSpQcaLhmXeXUcHDEK99MiPDJwteBF2EzZkhfwwQDycrTgdxWGAgyWVpVJxrgZF5eCT/{0,1}/*),%s)" % multi,
+            "blinded(xprvA18YC5Aog5LxHgMrSv5t9QaHyfh5DU8Pr8zFTP5QhJSTjdg3mSpEyxLZfNQaEc8sALUtsHeDJYsp8YnobhjJT9D7JADoEV4wXiMuNMYDLZ2/<0;1>/*,%s)" % multi,
+            "blinded(musig(xprvA18YC5Aog5LxHgMrSv5t9QaHyfh5DU8Pr8zFTP5QhJSTjdg3mSpEyxLZfNQaEc8sALUtsHeDJYsp8YnobhjJT9D7JADoEV4wXiMuNMYDLZ2/<0;1>/*,xprv9ybbsYg8NKhDxDrSdmWPWih2AVjyDYxvTYvjaqNLmSpQcaLhmXeXUcHDEK99MiPDJwteBF2EzZkhfwwQDycrTgdxWGAgyWVpVJxrgZF5eCT/<0;1>/*),%s)" % multi,
+            "blinded(musig(xpub6E7tbahhWSuFWASKYwctWYX2XhXZcvrFDMurFmV2FdyScS1CJz8VXkf3WchmYnBmC8uMVgENPLYd8uWjXYjxFFwFXD6unhFXs6VBjHTAb9e/<0;1>/*,xprv9ybbsYg8NKhDxDrSdmWPWih2AVjyDYxvTYvjaqNLmSpQcaLhmXeXUcHDEK99MiPDJwteBF2EzZkhfwwQDycrTgdxWGAgyWVpVJxrgZF5eCT/<0;1>/*),%s)" % multi,
         ]
         for d in descs:
             desc = LDescriptor.from_string(d)

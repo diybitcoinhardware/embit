@@ -4,7 +4,6 @@ from io import BytesIO
 def read_until(s, chars=b",)(#"):
     res = b""
     chunk = b""
-    char = None
     while True:
         chunk = s.read(1)
         if len(chunk) == 0:
