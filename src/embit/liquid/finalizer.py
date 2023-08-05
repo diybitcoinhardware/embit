@@ -2,21 +2,23 @@ from .. import ec
 from ..script import Witness, Script
 from .transaction import TxOutWitness, Proof, LTransaction
 
+
 def parse_multisig(sc):
     d = sc.data
-    if d[-1] != 0xae:
+    if d[-1] != 0xAE:
         raise RuntimeError("Not multisig")
-    m = d[0]-80
-    n = d[-2]-80
+    m = d[0] - 80
+    n = d[-2] - 80
     if m > n or m < 1 or n < 1 or m > 16 or n > 16:
         raise RuntimeError("Invalid m or n in multisig script")
     pubs = d[1:-2]
     if len(pubs) % 34 != 0:
         raise RuntimeError("Pubkeys of strange length")
-    if len(pubs) != 34*n:
+    if len(pubs) != 34 * n:
         raise RuntimeError("Not enough pubkeys")
-    pubkeys = [ec.PublicKey.parse(pubs[i*34+1:(i+1)*34]) for i in range(n)]
+    pubkeys = [ec.PublicKey.parse(pubs[i * 34 + 1 : (i + 1) * 34]) for i in range(n)]
     return m, pubkeys
+
 
 def finalize_psbt(tx, ignore_missing=False):
     # ugly copy
@@ -36,7 +38,9 @@ def finalize_psbt(tx, ignore_missing=False):
                 if len(sigs) == m:
                     break
             if len(sigs) == m or ignore_missing:
-                inp.witness.script_witness = Witness([b""] + sigs + [tx.inputs[i].witness_script.data])
+                inp.witness.script_witness = Witness(
+                    [b""] + sigs + [tx.inputs[i].witness_script.data]
+                )
                 done += 1
             continue
 
@@ -51,4 +55,3 @@ def finalize_psbt(tx, ignore_missing=False):
     if not ignore_missing and done < len(ttx.vin):
         return None
     return ttx
-

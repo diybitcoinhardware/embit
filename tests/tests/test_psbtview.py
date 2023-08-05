@@ -5,7 +5,11 @@ from embit import bip32, bip39
 from binascii import a2b_base64, b2a_base64
 from io import BytesIO
 
-ROOT = bip32.HDKey.from_seed(bip39.mnemonic_to_seed("toy fault beef holiday later unit boring merge shield detail scrap negative"))
+ROOT = bip32.HDKey.from_seed(
+    bip39.mnemonic_to_seed(
+        "toy fault beef holiday later unit boring merge shield detail scrap negative"
+    )
+)
 # tprv8ZgxMBicQKsPeDhmZay7WoN2W9gkmZNv4bkPRgCsaqKAnafo2YkpmJFQUAv34PTdYciNteTu8A1tvDUBsusThseGfiPkdFAniazFzxRd8xv
 
 PSBTS = [
@@ -23,10 +27,15 @@ PSBTS = [
     "cHNidP8BAgQCAAAAAQMEaAAAAAEEAQIBBQECAfsEAgAAAAABAIkCAAAAAZtxoIrIK2VWr0F9+yJWW+u4lrJ7Jt8a7vcqyTehjnHhAQAAAAD+////AkBLTAAAAAAAIgAgEmbKGKSfdnRULLw/X2F3vsCX8kCU1Q5MHsyqnemip2IaWG0pAQAAACJRIO/5p6DvLGW4bS1rGXEN90/F4WYvXsAZ6lcDOu7r3vMsAAAAAAEBK0BLTAAAAAAAIgAgEmbKGKSfdnRULLw/X2F3vsCX8kCU1Q5MHsyqnemip2IBBUdRIQI0d9dRmoMchemObZucs3XuW+t9B5czDD26ejPpXp6deyEDaJVy4osP7anWmBwCN9nl3tv+wW3nFD9oCgLtXRWfdYdSriIGAjR311GagxyF6Y5tm5yzde5b630HlzMMPbp6M+lenp17HCYUvcQwAACAAQAAgAAAAIACAACAAAAAAAEAAAAiBgNolXLiiw/tqdaYHAI32eXe2/7BbecUP2gKAu1dFZ91hxxzxdoKMAAAgAEAAIAAAACAAgAAgAAAAAABAAAAAQ4grCdq+90cjg1s4G1WH2DAMxoSKEQQMdkZC+0i4NDCxf8BDwQAAAAAARAE/f///wABAIkCAAAAAZa1AcGuoTE/hvyx2z6J8nCQXx/w95NYLDJz/86ofJ8nAQAAAAD+////Ak1Chu0AAAAAIlEg2+nu/5cRFoR+h6D1Hr+2KDi4AXhSqzDAOcP+U73sm3yAlpgAAAAAACIAIFFGwzWLmusy+RnSQwoKbc3sAGDkWif+iApu0bBCGNTuAAAAAAEBK4CWmAAAAAAAIgAgUUbDNYua6zL5GdJDCgptzewAYORaJ/6ICm7RsEIY1O4BBUdRIQMLkO0uhrrX8qT+l2m7QX17qcqhEkgH2/s2Lfvutl5+ASED+7FQTEpqQ7FapyTEsb8sa40VIED+lpRG1BU0dIRy8glSriIGAwuQ7S6GutfypP6XabtBfXupyqESSAfb+zYt++62Xn4BHHPF2gowAACAAQAAgAAAAIACAACAAAAAAAAAAAAiBgP7sVBMSmpDsVqnJMSxvyxrjRUgQP6WlEbUFTR0hHLyCRwmFL3EMAAAgAEAAIAAAACAAgAAgAAAAAAAAAAAAQ4gYfVl48Yz2drXieVIad5Y7Wi0tSRJtFHrQlEnngrZ3QkBDwQBAAAAARAE/f///wABAUdRIQOgfTvgutY8gDXSHJe0EIkNPToZ0uQDr7P8/GgmqiY8diED41V+tIWahSqtEAq6IPVKeX7RITmu5WdtwNFRHa8RujRSriICA6B9O+C61jyANdIcl7QQiQ09OhnS5AOvs/z8aCaqJjx2HHPF2gowAACAAQAAgAAAAIACAACAAQAAAAAAAAAiAgPjVX60hZqFKq0QCrog9Up5ftEhOa7lZ23A0VEdrxG6NBwmFL3EMAAAgAEAAIAAAACAAgAAgAEAAAAAAAAAAQMIrMUtAAAAAAABBCIAIN+3uFj/eYJpVvPHmKjOj9adl8+SNgs7Tk9+G2HXP2gUAAEDCAAbtwAAAAAAAQQWABTQxKPvCemXtumeOX5Rj+PkGhGMoQA=",
 ]
 
+
 class PSBTViewTest(TestCase):
     def test_scopes(self):
         """Tests that PSBT and PSBTView result in the same scopes and other constants"""
-        for compress in [CompressMode.KEEP_ALL, CompressMode.CLEAR_ALL, CompressMode.PARTIAL]:
+        for compress in [
+            CompressMode.KEEP_ALL,
+            CompressMode.CLEAR_ALL,
+            CompressMode.PARTIAL,
+        ]:
             for b64 in PSBTS:
                 psbt = PSBT.from_string(b64, compress=compress)
                 stream = BytesIO(a2b_base64(b64))
@@ -37,22 +46,26 @@ class PSBTViewTest(TestCase):
                 if psbt.version != 2:
                     self.assertTrue(psbtv.tx_offset > 0)
                 # check something left when seek to n-1
-                psbtv.seek_to_scope(psbtv.num_inputs+psbtv.num_outputs-1)
+                psbtv.seek_to_scope(psbtv.num_inputs + psbtv.num_outputs - 1)
                 self.assertEqual(len(stream.read(1)), 1)
                 # check nothing left in the stream when seeking to the end
-                psbtv.seek_to_scope(psbtv.num_inputs+psbtv.num_outputs)
+                psbtv.seek_to_scope(psbtv.num_inputs + psbtv.num_outputs)
                 self.assertEqual(stream.read(1), b"")
                 # check that all scopes are the same in psbt and psbtv
                 # check random input scope first
-                idx = len(psbt.inputs)//2
-                self.assertEqual(psbt.inputs[idx].serialize(), psbtv.input(idx).serialize())
+                idx = len(psbt.inputs) // 2
+                self.assertEqual(
+                    psbt.inputs[idx].serialize(), psbtv.input(idx).serialize()
+                )
                 # check input scopes sequentially
                 for i, inp in enumerate(psbt.inputs):
                     self.assertEqual(inp.serialize(), psbtv.input(i).serialize())
                     self.assertEqual(inp.vin.serialize(), psbtv.vin(i).serialize())
                 # check random output scope
-                idx = len(psbt.outputs)//2
-                self.assertEqual(psbt.outputs[idx].serialize(), psbtv.output(idx).serialize())
+                idx = len(psbt.outputs) // 2
+                self.assertEqual(
+                    psbt.outputs[idx].serialize(), psbtv.output(idx).serialize()
+                )
                 # check input scopes sequentially
                 for i, out in enumerate(psbt.outputs):
                     self.assertEqual(out.serialize(), psbtv.output(i).serialize())
@@ -60,10 +73,13 @@ class PSBTViewTest(TestCase):
                 self.assertEqual(psbt.tx_version, psbtv.tx_version)
                 self.assertEqual(psbt.locktime, psbtv.locktime)
 
-
     def test_sign(self):
         """Test if we can sign psbtview and get the same as from signing psbt"""
-        for compress in [CompressMode.KEEP_ALL, CompressMode.CLEAR_ALL, CompressMode.PARTIAL]:
+        for compress in [
+            CompressMode.KEEP_ALL,
+            CompressMode.CLEAR_ALL,
+            CompressMode.PARTIAL,
+        ]:
             for i, b64 in enumerate(PSBTS):
                 psbt = PSBT.from_string(b64, compress=compress)
                 stream = BytesIO(a2b_base64(b64))
@@ -87,7 +103,9 @@ class PSBTViewTest(TestCase):
                 sigs_stream3 = BytesIO()
                 csigs3 = 0
                 for i in range(xpsbtv.num_inputs):
-                    csigs3 += xpsbtv.sign_input(i, ROOT, sigs_stream3, extra_scope_data=psbt.inputs[i])
+                    csigs3 += xpsbtv.sign_input(
+                        i, ROOT, sigs_stream3, extra_scope_data=psbt.inputs[i]
+                    )
                     # add separator
                     sigs_stream3.write(b"\x00")
 
@@ -96,7 +114,10 @@ class PSBTViewTest(TestCase):
                 for sigs_stream in [sigs_stream2, sigs_stream3]:
                     sigs_stream.seek(0)
                     # check all sigs
-                    signed_inputs = [InputScope.read_from(sigs_stream) for i in range(len(psbt.inputs))]
+                    signed_inputs = [
+                        InputScope.read_from(sigs_stream)
+                        for i in range(len(psbt.inputs))
+                    ]
                     self.assertEqual(len(signed_inputs), len(psbt.inputs))
                     for i, inp in enumerate(signed_inputs):
                         inp2 = psbt.inputs[i]
@@ -116,5 +137,9 @@ class PSBTViewTest(TestCase):
                 if compress != CompressMode.CLEAR_ALL:
                     sigs_stream2.seek(0)
                     ser2 = BytesIO()
-                    psbtv.write_to(ser2, extra_input_streams=[sigs_stream2], compress=CompressMode.CLEAR_ALL)
+                    psbtv.write_to(
+                        ser2,
+                        extra_input_streams=[sigs_stream2],
+                        compress=CompressMode.CLEAR_ALL,
+                    )
                     self.assertTrue(len(ser2.getvalue()) < len(ser.getvalue()))

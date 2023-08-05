@@ -36,21 +36,22 @@ miniscript_descriptors = [
     """
 ]
 
+
 def main():
     for dstr in classic_descriptors:
         # replace spaces and new lines
-        dstr = dstr.replace("\n","").replace(" ","")
+        dstr = dstr.replace("\n", "").replace(" ", "")
         # parse
         desc = Descriptor.from_string(dstr)
         # print(desc.policy)
         derived = desc.derive(12)
         print("Derived descriptor:\n%s" % derived)
-        addr = derived.address(NETWORKS['test'])
+        addr = derived.address(NETWORKS["test"])
         print("Address: %s\n" % addr)
 
     for dstr in paired_descriptors:
         # replace spaces and new lines
-        dstr = dstr.replace("\n","").replace(" ","")
+        dstr = dstr.replace("\n", "").replace(" ", "")
         # parse
         desc = Descriptor.from_string(dstr)
         # print(desc.policy)
@@ -59,21 +60,22 @@ def main():
         # then branch_index=1 will derive using 45 index
         derived = desc.derive(12, branch_index=1)
         print("Derived descriptor:\n%s" % derived)
-        addr = derived.address(NETWORKS['test'])
+        addr = derived.address(NETWORKS["test"])
         print("Address: %s\n" % addr)
 
     for dstr in miniscript_descriptors:
         # replace spaces and new lines
-        dstr = dstr.replace("\n","").replace(" ","")
+        dstr = dstr.replace("\n", "").replace(" ", "")
         # parse
         desc = Descriptor.from_string(dstr)
         # print(desc.policy)
         # 12-th address, testnet, 1st branch (change)
-        # if branch_index is not provided, we use the first index in all branches 
+        # if branch_index is not provided, we use the first index in all branches
         derived = desc.derive(12)
         print("Derived descriptor:\n%s" % derived)
-        addr = derived.address(NETWORKS['test'])
+        addr = derived.address(NETWORKS["test"])
         print("Address: %s\n" % addr)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -6,11 +6,13 @@ import random
 import hmac
 import hashlib
 
+
 def TaggedHash(tag, data):
-    ss = hashlib.sha256(tag.encode('utf-8')).digest()
+    ss = hashlib.sha256(tag.encode("utf-8")).digest()
     ss += ss
     ss += data
     return hashlib.sha256(ss).digest()
+
 
 def modinv(a, n):
     """Compute the modular inverse of a modulo n using the extended Euclidean
@@ -39,7 +41,8 @@ def jacobi_symbol(n, k):
 
     See http://en.wikipedia.org/wiki/Jacobi_symbol
 
-    For our application k is always prime, so this is the same as the Legendre symbol."""
+    For our application k is always prime, so this is the same as the Legendre symbol.
+    """
     assert k > 0 and k & 1, "jacobi symbol is only defined for positive odd k"
     n %= k
     t = 0
@@ -90,7 +93,7 @@ class EllipticCurve:
         if z1 == 0:
             return None
         inv = modinv(z1, self.p)
-        inv_2 = (inv ** 2) % self.p
+        inv_2 = (inv**2) % self.p
         inv_3 = (inv_2 * inv) % self.p
         return ((inv_2 * x1) % self.p, (inv_3 * y1) % self.p, 1)
 
@@ -137,19 +140,20 @@ class EllipticCurve:
     def double(self, p1):
         """Double a Jacobian tuple p1
 
-        See https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates - Point Doubling"""
+        See https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates - Point Doubling
+        """
         x1, y1, z1 = p1
         if z1 == 0:
             return (0, 1, 0)
-        y1_2 = (y1 ** 2) % self.p
-        y1_4 = (y1_2 ** 2) % self.p
-        x1_2 = (x1 ** 2) % self.p
+        y1_2 = (y1**2) % self.p
+        y1_4 = (y1_2**2) % self.p
+        x1_2 = (x1**2) % self.p
         s = (4 * x1 * y1_2) % self.p
         m = 3 * x1_2
         if self.a:
             m += self.a * pow(z1, 4, self.p)
         m = m % self.p
-        x2 = (m ** 2 - 2 * s) % self.p
+        x2 = (m**2 - 2 * s) % self.p
         y2 = (m * (s - x2) - 8 * y1_4) % self.p
         z2 = (2 * y1 * z1) % self.p
         return (x2, y2, z2)
@@ -157,14 +161,15 @@ class EllipticCurve:
     def add_mixed(self, p1, p2):
         """Add a Jacobian tuple p1 and an affine tuple p2
 
-        See https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates - Point Addition (with affine point)"""
+        See https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates - Point Addition (with affine point)
+        """
         x1, y1, z1 = p1
         x2, y2, z2 = p2
         assert z2 == 1
         # Adding to the point at infinity is a no-op
         if z1 == 0:
             return p2
-        z1_2 = (z1 ** 2) % self.p
+        z1_2 = (z1**2) % self.p
         z1_3 = (z1_2 * z1) % self.p
         u2 = (x2 * z1_2) % self.p
         s2 = (y2 * z1_3) % self.p
@@ -176,10 +181,10 @@ class EllipticCurve:
             return self.double(p1)
         h = u2 - x1
         r = s2 - y1
-        h_2 = (h ** 2) % self.p
+        h_2 = (h**2) % self.p
         h_3 = (h_2 * h) % self.p
         u1_h_2 = (x1 * h_2) % self.p
-        x3 = (r ** 2 - h_3 - 2 * u1_h_2) % self.p
+        x3 = (r**2 - h_3 - 2 * u1_h_2) % self.p
         y3 = (r * (u1_h_2 - x3) - y1 * h_3) % self.p
         z3 = (h * z1) % self.p
         return (x3, y3, z3)
@@ -187,7 +192,8 @@ class EllipticCurve:
     def add(self, p1, p2):
         """Add two Jacobian tuples p1 and p2
 
-        See https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates - Point Addition"""
+        See https://en.wikibooks.org/wiki/Cryptography/Prime_Curve/Jacobian_Coordinates - Point Addition
+        """
         x1, y1, z1 = p1
         x2, y2, z2 = p2
         # Adding the point at infinity is a no-op
@@ -200,9 +206,9 @@ class EllipticCurve:
             return self.add_mixed(p2, p1)
         if z2 == 1:
             return self.add_mixed(p1, p2)
-        z1_2 = (z1 ** 2) % self.p
+        z1_2 = (z1**2) % self.p
         z1_3 = (z1_2 * z1) % self.p
-        z2_2 = (z2 ** 2) % self.p
+        z2_2 = (z2**2) % self.p
         z2_3 = (z2_2 * z2) % self.p
         u1 = (x1 * z2_2) % self.p
         u2 = (x2 * z1_2) % self.p
@@ -216,10 +222,10 @@ class EllipticCurve:
             return self.double(p1)
         h = u2 - u1
         r = s2 - s1
-        h_2 = (h ** 2) % self.p
+        h_2 = (h**2) % self.p
         h_3 = (h_2 * h) % self.p
         u1_h_2 = (u1 * h_2) % self.p
-        x3 = (r ** 2 - h_3 - 2 * u1_h_2) % self.p
+        x3 = (r**2 - h_3 - 2 * u1_h_2) % self.p
         y3 = (r * (u1_h_2 - x3) - s1 * h_3) % self.p
         z3 = (h * z1 * z2) % self.p
         return (x3, y3, z3)
@@ -232,13 +238,13 @@ class EllipticCurve:
         r = (0, 1, 0)
         for i in range(255, -1, -1):
             r = self.double(r)
-            for (p, n) in ps:
+            for p, n in ps:
                 if (n >> i) & 1:
                     r = self.add(r, p)
         return r
 
 
-SECP256K1_FIELD_SIZE = 2 ** 256 - 2 ** 32 - 977
+SECP256K1_FIELD_SIZE = 2**256 - 2**32 - 977
 SECP256K1 = EllipticCurve(SECP256K1_FIELD_SIZE, 0, 7)
 SECP256K1_G = (
     0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798,
@@ -512,6 +518,7 @@ def tweak_add_pubkey(key, tweak):
         return None
     return (Q[0].to_bytes(32, "big"), not SECP256K1.has_even_y(Q))
 
+
 def verify_schnorr(key, sig, msg):
     """Verify a Schnorr signature (see BIP 340).
     - key is a 32-byte xonly pubkey (computed using compute_xonly_pubkey).
@@ -522,25 +529,29 @@ def verify_schnorr(key, sig, msg):
     assert len(msg) == 32
     assert len(sig) == 64
 
-    x_coord = int.from_bytes(key, 'big')
+    x_coord = int.from_bytes(key, "big")
     if x_coord == 0 or x_coord >= SECP256K1_FIELD_SIZE:
         return False
     P = SECP256K1.lift_x(x_coord)
     if P is None:
         return False
-    r = int.from_bytes(sig[0:32], 'big')
+    r = int.from_bytes(sig[0:32], "big")
     if r >= SECP256K1_FIELD_SIZE:
         return False
-    s = int.from_bytes(sig[32:64], 'big')
+    s = int.from_bytes(sig[32:64], "big")
     if s >= SECP256K1_ORDER:
         return False
-    e = int.from_bytes(TaggedHash("BIP0340/challenge", sig[0:32] + key + msg), 'big') % SECP256K1_ORDER
+    e = (
+        int.from_bytes(TaggedHash("BIP0340/challenge", sig[0:32] + key + msg), "big")
+        % SECP256K1_ORDER
+    )
     R = SECP256K1.mul([(SECP256K1_G, s), (P, SECP256K1_ORDER - e)])
     if not SECP256K1.has_even_y(R):
         return False
     if ((r * R[2] * R[2]) % SECP256K1_FIELD_SIZE) != R[0]:
         return False
     return True
+
 
 def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
     """Create a Schnorr signature (see BIP 340)."""
@@ -550,19 +561,37 @@ def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
     if aux is not None:
         assert len(aux) == 32
 
-    sec = int.from_bytes(key, 'big')
+    sec = int.from_bytes(key, "big")
     if sec == 0 or sec >= SECP256K1_ORDER:
         return None
     P = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, sec)]))
     if SECP256K1.has_even_y(P) == flip_p:
         sec = SECP256K1_ORDER - sec
     if aux is not None:
-        t = (sec ^ int.from_bytes(TaggedHash("BIP0340/aux", aux), 'big')).to_bytes(32, 'big')
+        t = (sec ^ int.from_bytes(TaggedHash("BIP0340/aux", aux), "big")).to_bytes(
+            32, "big"
+        )
     else:
-        t = sec.to_bytes(32, 'big')
-    kp = int.from_bytes(TaggedHash("BIP0340/nonce", t + P[0].to_bytes(32, 'big') + msg), 'big') % SECP256K1_ORDER
+        t = sec.to_bytes(32, "big")
+    kp = (
+        int.from_bytes(
+            TaggedHash("BIP0340/nonce", t + P[0].to_bytes(32, "big") + msg), "big"
+        )
+        % SECP256K1_ORDER
+    )
     assert kp != 0
     R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, kp)]))
     k = kp if SECP256K1.has_even_y(R) != flip_r else SECP256K1_ORDER - kp
-    e = int.from_bytes(TaggedHash("BIP0340/challenge", R[0].to_bytes(32, 'big') + P[0].to_bytes(32, 'big') + msg), 'big') % SECP256K1_ORDER
-    return R[0].to_bytes(32, 'big') + ((k + e * sec) % SECP256K1_ORDER).to_bytes(32, 'big')
+    e = (
+        int.from_bytes(
+            TaggedHash(
+                "BIP0340/challenge",
+                R[0].to_bytes(32, "big") + P[0].to_bytes(32, "big") + msg,
+            ),
+            "big",
+        )
+        % SECP256K1_ORDER
+    )
+    return R[0].to_bytes(32, "big") + ((k + e * sec) % SECP256K1_ORDER).to_bytes(
+        32, "big"
+    )

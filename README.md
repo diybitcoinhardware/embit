@@ -67,10 +67,29 @@ mnemonic_from_bytes(bytes_data, wordlist=spanish_wordlist)
 ```
 
 
-# Run the tests
-Clone the repo and complete the development mode `pip3` installation step above.
+# Development
 
+Install in developer mode with dev dependencies:
+
+```sh
+pip install -e .[dev]
 ```
+
+Install pre-commit hook:
+
+```sh
+pre-commit install
+```
+
+Run tests with desktop python:
+
+```sh
+pytest
+```
+
+Run tests with micropython:
+
+```sh
 cd tests
-python3 run_tests.py
+micropython ./run_tests.py
 ```

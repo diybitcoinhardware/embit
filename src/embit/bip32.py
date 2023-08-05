@@ -1,25 +1,21 @@
-import sys
-
-if sys.implementation.name == "micropython":
-    import secp256k1
-else:
-    from .util import secp256k1
 from . import ec
-from .base import EmbitKey, EmbitError, copy
+from .base import EmbitKey, EmbitError
+from .misc import copy, const, secp256k1
 from .networks import NETWORKS
 from . import base58
 from . import hashes
 import hmac
 from binascii import hexlify
 
-HARDENED_INDEX = 0x80000000
+HARDENED_INDEX = const(0x80000000)
+
 
 class HDError(EmbitError):
     pass
 
 
 class HDKey(EmbitKey):
-    """ HD Private or Public key """
+    """HD Private or Public key"""
 
     def __init__(
         self,
@@ -54,7 +50,7 @@ class HDKey(EmbitKey):
     @classmethod
     def from_seed(cls, seed: bytes, version=NETWORKS["main"]["xprv"]):
         """Creates a root private key from 64-byte seed"""
-        raw = hmac.new(b"Bitcoin seed", seed, digestmod='sha512').digest()
+        raw = hmac.new(b"Bitcoin seed", seed, digestmod="sha512").digest()
         private_key = ec.PrivateKey(raw[:32])
         chain_code = raw[32:]
         return cls(private_key, chain_code, version=version)
@@ -73,7 +69,7 @@ class HDKey(EmbitKey):
 
     @property
     def is_private(self) -> bool:
-        """ checks if the HDKey is private or public """
+        """checks if the HDKey is private or public"""
         return self.key.is_private
 
     @property
@@ -199,7 +195,7 @@ class HDKey(EmbitKey):
             data = b"\x00" + self.key.serialize() + index.to_bytes(4, "big")
         else:
             data = sec + index.to_bytes(4, "big")
-        raw = hmac.new(self.chain_code, data, digestmod='sha512').digest()
+        raw = hmac.new(self.chain_code, data, digestmod="sha512").digest()
         secret = raw[:32]
         chain_code = raw[32:]
         if self.is_private:
@@ -220,7 +216,7 @@ class HDKey(EmbitKey):
         )
 
     def derive(self, path):
-        """ path: int array or a string starting with m/ """
+        """path: int array or a string starting with m/"""
         if isinstance(path, str):
             # string of the form m/44h/0'/ind
             path = parse_path(path)

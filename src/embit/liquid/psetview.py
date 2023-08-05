@@ -2,17 +2,19 @@ from ..psbtview import *
 from .pset import *
 import hashlib
 
+
 def skip_commitment(stream):
     c = stream.read(1)
     assert len(c) == 1
-    if c == b"\x00": # None
+    if c == b"\x00":  # None
         return 1
-    if c == b"\x01": # unconfidential
+    if c == b"\x01":  # unconfidential
         r = stream.seek(8, 1)
         return 9
     # confidential
     r = stream.seek(32, 1)
     return 33
+
 
 class GlobalLTransactionView(GlobalTransactionView):
     """
@@ -20,7 +22,8 @@ class GlobalLTransactionView(GlobalTransactionView):
     - unsigned (with empty scriptsigs)
     - doesn't have witness
     """
-    NUM_VIN_OFFSET = 5 # version + marker
+
+    NUM_VIN_OFFSET = 5  # version + marker
 
     def __init__(self, *args, **kwargs):
         self._num_vout_offset = None
@@ -47,7 +50,9 @@ class GlobalLTransactionView(GlobalTransactionView):
     @property
     def vout0_offset(self):
         if self._vout0_offset is None:
-            self._vout0_offset = self.num_vout_offset + len(compact.to_bytes(self.num_vout))
+            self._vout0_offset = self.num_vout_offset + len(
+                compact.to_bytes(self.num_vout)
+            )
         return self._vout0_offset
 
     def vin(self, i):
@@ -60,33 +65,33 @@ class GlobalLTransactionView(GlobalTransactionView):
 
     def _skip_input(self):
         off = 32 + 4 + 5
-        self.stream.seek(32, 1) # txid
+        self.stream.seek(32, 1)  # txid
         vout = int.from_bytes(self.stream.read(4), "little")
-        self.stream.seek(5, 1) # scriptsig, sequence
+        self.stream.seek(5, 1)  # scriptsig, sequence
         is_pegin = False
         if vout != 0xFFFFFFFF:
             is_pegin = vout & (1 << 30) != 0
             has_issuance = vout & (1 << 31) != 0
             if has_issuance:
-                self.stream.seek(32+32, 1) # nonce, entropy
+                self.stream.seek(32 + 32, 1)  # nonce, entropy
                 off += 64
-                off += skip_commitment(self.stream) # amount commitment
-                off += skip_commitment(self.stream) # token commitment
+                off += skip_commitment(self.stream)  # amount commitment
+                off += skip_commitment(self.stream)  # token commitment
         return off
 
     def _skip_output(self):
         """Seeks over one output"""
-        self.stream.seek(33, 1) # asset
+        self.stream.seek(33, 1)  # asset
         c = self.stream.read(1)
         if c != b"\x01":
-            self.stream.seek(32, 1) # confidential
+            self.stream.seek(32, 1)  # confidential
         else:
-            self.stream.seek(8, 1) # unconfidential
+            self.stream.seek(8, 1)  # unconfidential
         c = self.stream.read(1)
         if c != b"\x00":
-            self.stream.seek(32, 1) # ecdh_pubkey
+            self.stream.seek(32, 1)  # ecdh_pubkey
         l = compact.read_from(self.stream)
-        self.stream.seek(l, 1) # scriptpubkey
+        self.stream.seek(l, 1)  # scriptpubkey
 
     def vout(self, i):
         if i < 0 or i >= self.num_vout:
@@ -98,11 +103,13 @@ class GlobalLTransactionView(GlobalTransactionView):
             n -= 1
         return LTransactionOutput.read_from(self.stream)
 
+
 class PSETView(PSBTView):
     """
     Constructor shouldn't be used directly. PSBTView.view_from(stream) should be used instead.
     Either version should be 2 or tx_offset should be int, otherwise you get an error
     """
+
     MAGIC = b"pset\xff"
     PSBTIN_CLS = LInputScope
     PSBTOUT_CLS = LOutputScope
@@ -149,10 +156,14 @@ class PSETView(PSBTView):
             h = hashlib.sha256()
             for i in range(self.num_outputs):
                 off = self.seek_to_scope(self.num_inputs + i)
-                rangeproof_offset = self.seek_to_value(b'\xfc\x04pset\x04', from_current=True)
+                rangeproof_offset = self.seek_to_value(
+                    b"\xfc\x04pset\x04", from_current=True
+                )
                 if not rangeproof_offset:
                     self.stream.seek(off)
-                    rangeproof_offset = self.seek_to_value(b'\xfc\x08elements\x04', from_current=True)
+                    rangeproof_offset = self.seek_to_value(
+                        b"\xfc\x08elements\x04", from_current=True
+                    )
                 if not rangeproof_offset:
                     h.update(b"\x00")
                 else:
@@ -161,10 +172,14 @@ class PSETView(PSBTView):
                     self._hash_to(h, l)
 
                 self.stream.seek(off)
-                surj_proof_offset = self.seek_to_value(b'\xfc\x04pset\x05', from_current=True)
+                surj_proof_offset = self.seek_to_value(
+                    b"\xfc\x04pset\x05", from_current=True
+                )
                 if not surj_proof_offset:
                     self.stream.seek(off)
-                    surj_proof_offset = self.seek_to_value(b'\xfc\x08elements\x05', from_current=True)
+                    surj_proof_offset = self.seek_to_value(
+                        b"\xfc\x08elements\x05", from_current=True
+                    )
                 if not surj_proof_offset:
                     h.update(b"\x00")
                 else:
@@ -183,12 +198,18 @@ class PSETView(PSBTView):
             self._hash_outputs = h.digest()
         return self._hash_outputs
 
-    def sighash_segwit(self, input_index, script_pubkey, value, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)):
+    def sighash_segwit(
+        self,
+        input_index,
+        script_pubkey,
+        value,
+        sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF),
+    ):
         if input_index < 0 or input_index >= self.num_inputs:
             raise PSBTError("Invalid input index")
         sh, anyonecanpay, hash_rangeproofs = LSIGHASH.check(sighash)
         inp = self.blinded_vin(input_index, compress=True)
-        zero = b"\x00"*32 # for sighashes
+        zero = b"\x00" * 32  # for sighashes
         h = hashlib.sha256()
         h.update(self.tx_version.to_bytes(4, "little"))
         if anyonecanpay:
@@ -204,7 +225,7 @@ class PSETView(PSBTView):
         h.update(inp.vout.to_bytes(4, "little"))
         h.update(script_pubkey.serialize())
         if isinstance(value, int):
-            h.update(b"\x01"+value.to_bytes(8, 'big'))
+            h.update(b"\x01" + value.to_bytes(8, "big"))
         else:
             h.update(value)
         h.update(inp.sequence.to_bytes(4, "little"))
@@ -215,9 +236,19 @@ class PSETView(PSBTView):
             if hash_rangeproofs:
                 h.update(hashlib.sha256(self.hash_rangeproofs()).digest())
         elif sh == SIGHASH.SINGLE and input_index < self.num_outputs:
-            h.update(hashlib.sha256(hashlib.sha256(self.blinded_vout(input_index).serialize()).digest()).digest())
+            h.update(
+                hashlib.sha256(
+                    hashlib.sha256(self.blinded_vout(input_index).serialize()).digest()
+                ).digest()
+            )
             if hash_rangeproofs:
-                h.update(hashlib.sha256(hashlib.sha256(self.blinded_vout(input_index).witness.serialize()).digest()).digest())
+                h.update(
+                    hashlib.sha256(
+                        hashlib.sha256(
+                            self.blinded_vout(input_index).witness.serialize()
+                        ).digest()
+                    ).digest()
+                )
         else:
             h.update(zero)
         h.update(self.locktime.to_bytes(4, "little"))
@@ -227,6 +258,8 @@ class PSETView(PSBTView):
     def sighash_legacy(self, input_index, script_pubkey, sighash=SIGHASH.ALL):
         raise NotImplementedError()
 
-    def sighash_taproot(self, input_index, script_pubkeys, values, sighash=SIGHASH.DEFAULT):
+    def sighash_taproot(
+        self, input_index, script_pubkeys, values, sighash=SIGHASH.DEFAULT
+    ):
         """check out bip-341"""
         raise NotImplementedError()

@@ -11,13 +11,16 @@ from .base import EmbitBase, EmbitError
 from binascii import b2a_base64, a2b_base64, hexlify, unhexlify
 from io import BytesIO
 
+
 class PSBTError(EmbitError):
     pass
+
 
 class CompressMode:
     KEEP_ALL = 0
     CLEAR_ALL = 1
     PARTIAL = 2
+
 
 def ser_string(stream, s: bytes) -> int:
     return stream.write(compact.to_bytes(len(s))) + stream.write(s)
@@ -175,7 +178,9 @@ class InputScope(PSBTScope):
         self.witness_utxo = other.witness_utxo or self.witness_utxo
         self._utxo = other._utxo or self._utxo
         self.partial_sigs.update(other.partial_sigs)
-        self.sighash_type = other.sighash_type if other.sighash_type is not None else self.sighash_type
+        self.sighash_type = (
+            other.sighash_type if other.sighash_type is not None else self.sighash_type
+        )
         self.redeem_script = other.redeem_script or self.redeem_script
         self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
@@ -189,11 +194,19 @@ class InputScope(PSBTScope):
 
     @property
     def vin(self):
-        return TransactionInput(self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF))
+        return TransactionInput(
+            self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF)
+        )
 
     @property
     def utxo(self):
-        return self._utxo or self.witness_utxo or (self.non_witness_utxo.vout[self.vout] if self.non_witness_utxo else None)
+        return (
+            self._utxo
+            or self.witness_utxo
+            or (
+                self.non_witness_utxo.vout[self.vout] if self.non_witness_utxo else None
+            )
+        )
 
     @property
     def script_pubkey(self):
@@ -216,7 +229,11 @@ class InputScope(PSBTScope):
         For legacy txs we need to verify it to calculate fee.
         """
         if self.non_witness_utxo or self._txhash:
-            txid = bytes(reversed(self._txhash)) if self._txhash else self.non_witness_utxo.txid()
+            txid = (
+                bytes(reversed(self._txhash))
+                if self._txhash
+                else self.non_witness_utxo.txid()
+            )
             if self.txid == txid:
                 self._verified = True
                 return True
@@ -325,13 +342,13 @@ class InputScope(PSBTScope):
                 self.final_scriptwitness = Witness.parse(v)
             else:
                 raise PSBTError("Duplicated final scriptwitness")
-        
+
         elif k == b"\x0e":
             self.txid = bytes(reversed(v))
         elif k == b"\x0f":
-            self.vout = int.from_bytes(v, 'little')
+            self.vout = int.from_bytes(v, "little")
         elif k == b"\x10":
-            self.sequence = int.from_bytes(v, 'little')
+            self.sequence = int.from_bytes(v, "little")
 
         # TODO: 0x13 - tap key signature
         # PSBT_IN_TAP_SCRIPT_SIG
@@ -358,11 +375,11 @@ class InputScope(PSBTScope):
                 b = BytesIO(v)
                 num_leaf_hashes = compact.read_from(b)
                 leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
-                if not all([len(leaf)==32 for leaf in leaf_hashes]):
+                if not all([len(leaf) == 32 for leaf in leaf_hashes]):
                     raise PSBTError("Invalid length of taproot leaf hashes")
                 der = DerivationPath.read_from(b)
                 self.taproot_bip32_derivations[pub] = (leaf_hashes, der)
-        
+
         # PSBT_IN_TAP_INTERNAL_KEY
         elif k[0] == 0x17:
             self.taproot_internal_key = ec.PublicKey.from_xonly(v)
@@ -412,13 +429,13 @@ class InputScope(PSBTScope):
                 r += ser_string(stream, bytes(reversed(self.txid)))
             if self.vout is not None:
                 r += ser_string(stream, b"\x0f")
-                r += ser_string(stream, self.vout.to_bytes(4, 'little'))
+                r += ser_string(stream, self.vout.to_bytes(4, "little"))
             if self.sequence is not None:
                 r += ser_string(stream, b"\x10")
-                r += ser_string(stream, self.sequence.to_bytes(4, 'little'))
+                r += ser_string(stream, self.sequence.to_bytes(4, "little"))
 
         # PSBT_IN_TAP_SCRIPT_SIG
-        for (pub, leaf) in self.taproot_sigs:
+        for pub, leaf in self.taproot_sigs:
             r += ser_string(stream, b"\x14" + pub.xonly() + leaf)
             r += ser_string(stream, self.taproot_sigs[(pub, leaf)])
 
@@ -431,7 +448,12 @@ class InputScope(PSBTScope):
         for pub in self.taproot_bip32_derivations:
             r += ser_string(stream, b"\x16" + pub.xonly())
             leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
-            r += ser_string(stream, compact.to_bytes(len(leaf_hashes)) + b"".join(leaf_hashes) + derivation.serialize())
+            r += ser_string(
+                stream,
+                compact.to_bytes(len(leaf_hashes))
+                + b"".join(leaf_hashes)
+                + derivation.serialize(),
+            )
 
         # PSBT_IN_TAP_INTERNAL_KEY
         if self.taproot_internal_key is not None:
@@ -526,7 +548,7 @@ class OutputScope(PSBTScope):
                 self.bip32_derivations[pub] = DerivationPath.parse(v)
 
         elif k == b"\x03":
-            self.value = int.from_bytes(v, 'little')
+            self.value = int.from_bytes(v, "little")
         elif k == b"\x04":
             self.script_pubkey = Script(v)
 
@@ -541,7 +563,7 @@ class OutputScope(PSBTScope):
                 b = BytesIO(v)
                 num_leaf_hashes = compact.read_from(b)
                 leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
-                if not all([len(leaf)==32 for leaf in leaf_hashes]):
+                if not all([len(leaf) == 32 for leaf in leaf_hashes]):
                     raise PSBTError("Invalid length of taproot leaf hashes")
                 der = DerivationPath.read_from(b)
                 self.taproot_bip32_derivations[pub] = (leaf_hashes, der)
@@ -550,7 +572,6 @@ class OutputScope(PSBTScope):
             if k in self.unknown:
                 raise PSBTError("Duplicated key")
             self.unknown[k] = v
-
 
     def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
         r = 0
@@ -567,7 +588,7 @@ class OutputScope(PSBTScope):
         if version == 2:
             if self.value is not None:
                 r += ser_string(stream, b"\x03")
-                r += ser_string(stream, self.value.to_bytes(8, 'little'))
+                r += ser_string(stream, self.value.to_bytes(8, "little"))
             if self.script_pubkey is not None:
                 r += ser_string(stream, b"\x04")
                 r += self.script_pubkey.write_to(stream)
@@ -581,7 +602,12 @@ class OutputScope(PSBTScope):
         for pub in self.taproot_bip32_derivations:
             r += ser_string(stream, b"\x07" + pub.xonly())
             leaf_hashes, derivation = self.taproot_bip32_derivations[pub]
-            r += ser_string(stream, compact.to_bytes(len(leaf_hashes)) + b"".join(leaf_hashes) + derivation.serialize())
+            r += ser_string(
+                stream,
+                compact.to_bytes(len(leaf_hashes))
+                + b"".join(leaf_hashes)
+                + derivation.serialize(),
+            )
 
         # unknown
         for key in self.unknown:
@@ -592,6 +618,7 @@ class OutputScope(PSBTScope):
             r += stream.write(b"\x00")
         return r
 
+
 class PSBT(EmbitBase):
     MAGIC = b"psbt\xff"
     # for subclasses
@@ -600,7 +627,7 @@ class PSBT(EmbitBase):
     TX_CLS = Transaction
 
     def __init__(self, tx=None, unknown={}, version=None):
-        self.version = version # None for v0
+        self.version = version  # None for v0
         self.inputs = []
         self.outputs = []
         self.tx_version = None
@@ -621,10 +648,12 @@ class PSBT(EmbitBase):
 
     @property
     def tx(self):
-        return self.TX_CLS(version=self.tx_version or 2,
-                           locktime=self.locktime or 0,
-                           vin=[inp.vin for inp in self.inputs],
-                           vout=[out.vout for out in self.outputs])
+        return self.TX_CLS(
+            version=self.tx_version or 2,
+            locktime=self.locktime or 0,
+            vin=[inp.vin for inp in self.inputs],
+            vout=[out.vout for out in self.outputs],
+        )
 
     def sighash_segwit(self, *args, **kwargs):
         return self.tx.sighash_segwit(*args, **kwargs)
@@ -649,7 +678,10 @@ class PSBT(EmbitBase):
             return self.inputs[i].utxo
         if not (self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo):
             raise PSBTError("Missing previous utxo on input %d" % i)
-        return self.inputs[i].witness_utxo or self.inputs[i].non_witness_utxo.vout[self.inputs[i].vout]
+        return (
+            self.inputs[i].witness_utxo
+            or self.inputs[i].non_witness_utxo.vout[self.inputs[i].vout]
+        )
 
     def fee(self):
         fee = sum([self.utxo(i).value for i in range(len(self.inputs))])
@@ -673,16 +705,16 @@ class PSBT(EmbitBase):
         if self.version == 2:
             if self.tx_version is not None:
                 r += ser_string(stream, b"\x02")
-                r += ser_string(stream, self.tx_version.to_bytes(4, 'little'))
+                r += ser_string(stream, self.tx_version.to_bytes(4, "little"))
             if self.locktime is not None:
                 r += ser_string(stream, b"\x03")
-                r += ser_string(stream, self.locktime.to_bytes(4, 'little'))
+                r += ser_string(stream, self.locktime.to_bytes(4, "little"))
             r += ser_string(stream, b"\x04")
             r += ser_string(stream, compact.to_bytes(len(self.inputs)))
             r += ser_string(stream, b"\x05")
             r += ser_string(stream, compact.to_bytes(len(self.outputs)))
             r += ser_string(stream, b"\xfb")
-            r += ser_string(stream, self.version.to_bytes(4, 'little'))
+            r += ser_string(stream, self.version.to_bytes(4, "little"))
         # unknown
         for key in self.unknown:
             r += ser_string(stream, key)
@@ -746,7 +778,7 @@ class PSBT(EmbitBase):
                         "Failed to parse PSBT - duplicated transaction field"
                     )
             elif key == b"\xfb":
-                version = int.from_bytes(value, 'little')
+                version = int.from_bytes(value, "little")
             else:
                 if key in unknown:
                     raise PSBTError("Duplicated key")
@@ -757,10 +789,14 @@ class PSBT(EmbitBase):
         psbt = cls(tx, unknown, version=version)
         # input scopes
         for i, vin in enumerate(psbt.tx.vin):
-            psbt.inputs[i] = cls.PSBTIN_CLS.read_from(stream, compress=compress, vin=vin)
+            psbt.inputs[i] = cls.PSBTIN_CLS.read_from(
+                stream, compress=compress, vin=vin
+            )
         # output scopes
         for i, vout in enumerate(psbt.tx.vout):
-            psbt.outputs[i] = cls.PSBTOUT_CLS.read_from(stream, compress=compress, vout=vout)
+            psbt.outputs[i] = cls.PSBTOUT_CLS.read_from(
+                stream, compress=compress, vout=vout
+            )
         return psbt
 
     def parse_unknowns(self):
@@ -770,17 +806,23 @@ class PSBT(EmbitBase):
                 xpub = bip32.HDKey.parse(k[1:])
                 self.xpubs[xpub] = DerivationPath.parse(self.unknown.pop(k))
             elif k == b"\x02":
-                self.tx_version = int.from_bytes(self.unknown.pop(k), 'little')
+                self.tx_version = int.from_bytes(self.unknown.pop(k), "little")
             elif k == b"\x03":
-                self.locktime = int.from_bytes(self.unknown.pop(k), 'little')
+                self.locktime = int.from_bytes(self.unknown.pop(k), "little")
             elif k == b"\x04":
                 if len(self.inputs) > 0:
                     raise PSBTError("Inputs already initialized")
-                self.inputs = [self.PSBTIN_CLS() for _ in range(compact.from_bytes(self.unknown.pop(k)))]
+                self.inputs = [
+                    self.PSBTIN_CLS()
+                    for _ in range(compact.from_bytes(self.unknown.pop(k)))
+                ]
             elif k == b"\x05":
                 if len(self.outputs) > 0:
                     raise PSBTError("Outputs already initialized")
-                self.outputs = [self.PSBTOUT_CLS() for _ in range(compact.from_bytes(self.unknown.pop(k)))]
+                self.outputs = [
+                    self.PSBTOUT_CLS()
+                    for _ in range(compact.from_bytes(self.unknown.pop(k)))
+                ]
 
     def sighash(self, i, sighash=SIGHASH.ALL, **kwargs):
         inp = self.inputs[i]
@@ -789,24 +831,25 @@ class PSBT(EmbitBase):
             values = [inp.utxo.value for inp in self.inputs]
             scripts = [inp.utxo.script_pubkey for inp in self.inputs]
             return self.sighash_taproot(
-                    i,
-                    script_pubkeys=scripts,
-                    values=values,
-                    sighash=sighash,
-                    **kwargs,
+                i,
+                script_pubkeys=scripts,
+                values=values,
+                sighash=sighash,
+                **kwargs,
             )
 
         value = inp.utxo.value
         sc = inp.witness_script or inp.redeem_script or inp.utxo.script_pubkey
 
         # detect if it is a segwit input
-        is_segwit = (inp.witness_script
-                    or inp.witness_utxo
-                    or inp.utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
-                    or (
-                        inp.redeem_script
-                        and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
-                    )
+        is_segwit = (
+            inp.witness_script
+            or inp.witness_utxo
+            or inp.utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
+            or (
+                inp.redeem_script
+                and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
+            )
         )
         # convert to p2pkh according to bip143
         if sc.script_type() == "p2wpkh":
@@ -819,11 +862,11 @@ class PSBT(EmbitBase):
         return h
 
     def sign_input_with_tapkey(
-            self,
-            key: ec.PrivateKey,
-            input_index: int,
-            inp = None,
-            sighash = SIGHASH.DEFAULT,
+        self,
+        key: ec.PrivateKey,
+        input_index: int,
+        inp=None,
+        sighash=SIGHASH.DEFAULT,
     ) -> int:
         """Sign taproot input with key. Signs with internal or leaf key."""
         # get input ourselves if not provided
@@ -834,8 +877,8 @@ class PSBT(EmbitBase):
         pk = key.taproot_tweak(inp.taproot_merkle_root or b"")
         if pk.xonly() in inp.utxo.script_pubkey.data:
             h = self.sighash(
-                    input_index,
-                    sighash=sighash,
+                input_index,
+                sighash=sighash,
             )
             sig = pk.schnorr_sign(h)
             wit = sig.serialize()
@@ -855,22 +898,21 @@ class PSBT(EmbitBase):
             leaf_version = sc[-1]
             script = Script(sc[:-1])
             h = self.sighash(
-                    input_index,
-                    sighash=sighash,
-                    ext_flag=1,
-                    script=script,
-                    leaf_version=leaf_version,
+                input_index,
+                sighash=sighash,
+                ext_flag=1,
+                script=script,
+                leaf_version=leaf_version,
             )
             sig = key.schnorr_sign(h)
             leaf = hashes.tagged_hash(
-                    "TapLeaf",
-                    bytes([leaf_version])+script.serialize()
+                "TapLeaf", bytes([leaf_version]) + script.serialize()
             )
             sigdata = sig.serialize()
             # append sighash if necessary
             if sighash != SIGHASH.DEFAULT:
                 sigdata += bytes([sighash])
-            inp.taproot_sigs[(pub,leaf)] = sigdata
+            inp.taproot_sigs[(pub, leaf)] = sigdata
             counter += 1
         return counter
 
@@ -883,7 +925,7 @@ class PSBT(EmbitBase):
         so if PSBT is asking to sign with a different sighash this function won't sign.
         If you want to sign with sighashes provided in the PSBT - set sighash=None.
         """
-        counter = 0 # sigs counter
+        counter = 0  # sigs counter
         # check if it's a descriptor, and sign with all private keys in this descriptor
         if hasattr(root, "keys"):
             for k in root.keys:
@@ -895,12 +937,12 @@ class PSBT(EmbitBase):
         fingerprint = None
         # if descriptor key
         if hasattr(root, "origin"):
-            if not root.is_private: # pubkey can't sign
+            if not root.is_private:  # pubkey can't sign
                 return 0
-            if root.is_extended: # use fingerprint only for HDKey
+            if root.is_extended:  # use fingerprint only for HDKey
                 fingerprint = root.fingerprint
             else:
-                root = root.key # WIF key
+                root = root.key  # WIF key
         # if HDKey
         if not fingerprint and hasattr(root, "my_fingerprint"):
             fingerprint = root.my_fingerprint
@@ -928,8 +970,10 @@ class PSBT(EmbitBase):
             # we don't sign this input
             # except DEFAULT is functionally the same as ALL
             if required_sighash is not None and inp_sighash != required_sighash:
-                if (inp_sighash not in {SIGHASH.DEFAULT, SIGHASH.ALL}
-                    or required_sighash not in {SIGHASH.DEFAULT, SIGHASH.ALL}):
+                if inp_sighash not in {
+                    SIGHASH.DEFAULT,
+                    SIGHASH.ALL,
+                } or required_sighash not in {SIGHASH.DEFAULT, SIGHASH.ALL}:
                     continue
 
             # get all possible derivations with matching fingerprint
@@ -948,16 +992,16 @@ class PSBT(EmbitBase):
                         bip32_derivations.add((pub, derivation))
 
             # get derived keys for signing
-            derived_keypairs = set() # (prv, pub)
+            derived_keypairs = set()  # (prv, pub)
             for pub, derivation in bip32_derivations:
                 der = derivation.derivation
                 # descriptor key has origin derivation that we take into account
                 if hasattr(root, "origin"):
                     if root.origin:
-                        if root.origin.derivation != der[:len(root.origin.derivation)]:
+                        if root.origin.derivation != der[: len(root.origin.derivation)]:
                             # derivation doesn't match - go to next input
                             continue
-                        der = der[len(root.origin.derivation):]
+                        der = der[len(root.origin.derivation) :]
                     hdkey = root.key.derive(der)
                 else:
                     hdkey = root.derive(der)
@@ -971,12 +1015,18 @@ class PSBT(EmbitBase):
                 # try to sign with individual private key (WIF)
                 # or with root without derivations
                 counter += self.sign_input_with_tapkey(
-                    root, i, inp, sighash=inp_sighash,
+                    root,
+                    i,
+                    inp,
+                    sighash=inp_sighash,
                 )
                 # sign with all derived keys
                 for prv, pub in derived_keypairs:
                     counter += self.sign_input_with_tapkey(
-                        prv, i, inp, sighash=inp_sighash,
+                        prv,
+                        i,
+                        inp,
+                        sighash=inp_sighash,
                     )
                 continue
 

@@ -21,17 +21,17 @@ B64PSBT = "cHNidP8BAKYCAAAAAsBlMEaxkJwNZ6V+BZ06bKIb5q2CpF9sHDDj0/eJfzA1AAAAAAD+/
 B64SIGNED = "cHNidP8BAKYCAAAAAsBlMEaxkJwNZ6V+BZ06bKIb5q2CpF9sHDDj0/eJfzA1AAAAAAD+////kqnvuD+I8rLf8eELSAqvqBiEy5+IpOKpn/acu+gs0E8BAAAAAP7///8CAA4nBwAAAAAWABStYQVCeoRPwINTcqOPmDkTReYZVbjCyQEAAAAAIlEgDTyyEUjN1Oyxc6Z5xifyM3Kamy+Hrt0UdV86CeDMvf8AAAAAAAEAfQIAAAABRL1RocN1LnP4aONGuWFAJm0+Hej0SWAqlSlJ9caTP/gBAAAAAP7///8CAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmc4uGh4BAAAAFgAU1ZjhFjq1hmtoVb2+6O7jHrtqYsDLAAAAAQErAOH1BQAAAAAiUSBCFZNDTJDvmyVvyzL/thnwUyHGSdn0HDwInUIk/SHzmQEIQwFBApOkiV6PkijNENaddILURidJhTlnK3EnYT1zPnksBel0HHz4TyPDhF3VJA0RG480dr0yAy1l1agcbyZFKduv9QEAAQB9AgAAAAHAZTBGsZCcDWelfgWdOmyiG+atgqRfbBww49P3iX8wNQEAAAAA/v///wK1PR8bAQAAABYAFDhlMpnWgXEd50FaGfNOKhn/R/YigPD6AgAAAAAiUSA6xiC/NHQ4fWOcSAXpO++jvcaVawLYrsosvB12Urk1GcwAAAABASuA8PoCAAAAACJRIDrGIL80dDh9Y5xIBek776O9xpVrAtiuyiy8HXZSuTUZAQhDAUGRfNtYnHLUoAOM57UwVvcuqe0bUAiaO5PAnxp0AcyqdrV3d4Q8303FOCNp8SUDlbTs2idGiNqa+TCaUVQC6AmdAQAAAA=="
 
 DERIVED_ADDRESSES = [
-  "bcrt1pgg2exs6vjrhekft0eve0ldse7pfjr3jfm86pc0qgn4pzflfp7wvsc0kwqa",
-  "bcrt1p8trzp0e5wsu86cuufqz7jwl05w7ud9ttqtv2aj3vhswhv54ex5vschn0cd",
-  "bcrt1pvlk0rphxu63lj8rvp56r5984l68zmsl0hwxuusp2tgc3v23amxfqgk77mr",
-  "bcrt1pxm8encfk3a2wukzj3766gqj78sppaqvjg4e403fx0f0zms4p0nasv3vvkn",
-  "bcrt1pdq8ruhpcl0cfnwe4gwt4l5a44dmlmyw2jd2wynr5zkjdm9f6plwqrrzax3",
-  "bcrt1pa92ls6t4msgucze8namtyzjxd4ttxaarpf7xxzxm9t0wya0aqyms972s7j",
-  "bcrt1p2828a3nqsu5rsh4m0h0ymz4wunkldzwgv58zqzj4spxnxd09ql8sgjekvh",
-  "bcrt1pkchswx6ygzf6rnn6wrxr8xqcmdjvw3nl0xcfxah0264uad8mkfjs7ze9ue",
-  "bcrt1p35etfrlwmp0g4ycgvuz6qrc33zq66mq7yeuar0pawh68lae9nxps5kq5n5",
-  "bcrt1pcwdyaf529a9qh38c2yttxxu2lgkwa2jpqt9rc259avqlxpf9d8hqmhxq26",
-  "bcrt1p5s4g6v365uu54hsz6cvkn4l45fds2p6nw55ucnskhaz3kars0x2qnpef89",
+    "bcrt1pgg2exs6vjrhekft0eve0ldse7pfjr3jfm86pc0qgn4pzflfp7wvsc0kwqa",
+    "bcrt1p8trzp0e5wsu86cuufqz7jwl05w7ud9ttqtv2aj3vhswhv54ex5vschn0cd",
+    "bcrt1pvlk0rphxu63lj8rvp56r5984l68zmsl0hwxuusp2tgc3v23amxfqgk77mr",
+    "bcrt1pxm8encfk3a2wukzj3766gqj78sppaqvjg4e403fx0f0zms4p0nasv3vvkn",
+    "bcrt1pdq8ruhpcl0cfnwe4gwt4l5a44dmlmyw2jd2wynr5zkjdm9f6plwqrrzax3",
+    "bcrt1pa92ls6t4msgucze8namtyzjxd4ttxaarpf7xxzxm9t0wya0aqyms972s7j",
+    "bcrt1p2828a3nqsu5rsh4m0h0ymz4wunkldzwgv58zqzj4spxnxd09ql8sgjekvh",
+    "bcrt1pkchswx6ygzf6rnn6wrxr8xqcmdjvw3nl0xcfxah0264uad8mkfjs7ze9ue",
+    "bcrt1p35etfrlwmp0g4ycgvuz6qrc33zq66mq7yeuar0pawh68lae9nxps5kq5n5",
+    "bcrt1pcwdyaf529a9qh38c2yttxxu2lgkwa2jpqt9rc259avqlxpf9d8hqmhxq26",
+    "bcrt1p5s4g6v365uu54hsz6cvkn4l45fds2p6nw55ucnskhaz3kars0x2qnpef89",
 ]
 
 # Test vector(s) from BIP-371:
@@ -39,7 +39,9 @@ DERIVED_ADDRESSES = [
 TAPROOT_01 = "70736274ff010052020000000127744ababf3027fe0d6cf23a96eee2efb188ef52301954585883e69b6624b2420000000000ffffffff0148e6052a01000000160014768e1eeb4cf420866033f80aceff0f9720744969000000000001012b00f2052a010000002251205a2c2cf5b52cf31f83ad2e8da63ff03183ecd8f609c7510ae8a48e03910a07572116fe349064c98d6e2a853fa3c9b12bd8b304a19c195c60efa7ee2393046d3fa2321900772b2da75600008001000080000000800100000000000000011720fe349064c98d6e2a853fa3c9b12bd8b304a19c195c60efa7ee2393046d3fa232002202036b772a6db74d8753c98a827958de6c78ab3312109f37d3e0304484242ece73d818772b2da7540000800100008000000080000000000000000000"
 
 # Test vectors generated from master branch of Bitcoin Core
-KEY_A = HDKey.from_string("xprv9s21ZrQH143K3GJpoapnV8SFfukcVBSfeCficPSGfubmSFDxo1kuHnLisriDvSnRRuL2Qrg5ggqHKNVpxR86QEC8w35uxmGoggxtQTPvfUu")
+KEY_A = HDKey.from_string(
+    "xprv9s21ZrQH143K3GJpoapnV8SFfukcVBSfeCficPSGfubmSFDxo1kuHnLisriDvSnRRuL2Qrg5ggqHKNVpxR86QEC8w35uxmGoggxtQTPvfUu"
+)
 # psbt with taproot derivations
 TAP_PSBTS = [
     # tr(A)
@@ -49,10 +51,14 @@ TAP_PSBTS = [
 ]
 TAP_SIGS = [
     (
-        unhexlify("6f7f1255071fb5a103b5a4d3e5e295d19e9701e58fa1c457e92733c53ed16804f1036c90f30f6c4753a884c2be8b7d4a7c30a2a86dbfb0e8010bdf7064fd70f7"), # sig of keyA
+        unhexlify(
+            "6f7f1255071fb5a103b5a4d3e5e295d19e9701e58fa1c457e92733c53ed16804f1036c90f30f6c4753a884c2be8b7d4a7c30a2a86dbfb0e8010bdf7064fd70f7"
+        ),  # sig of keyA
     ),
     (
-        unhexlify("0574a2735988c4c8bd866ac546ae3f8a29f19a9596742892638c53f3b593269975135f0c58b2db945723e109db4111f6789e2abd37d2de82e94b8af47de63bda"), # A
+        unhexlify(
+            "0574a2735988c4c8bd866ac546ae3f8a29f19a9596742892638c53f3b593269975135f0c58b2db945723e109db4111f6789e2abd37d2de82e94b8af47de63bda"
+        ),  # A
     ),
 ]
 # tr(A,{pk(B),and_v(v:pk(C),pk(D))})
@@ -68,10 +74,18 @@ TAPTREE_KEYS = [
     ]
 ]
 TAPTREE_SIGS = [
-    unhexlify("fd2877b89797991d0e237f466a917a5300944f6fb1453b576763ef76e5d1140816d4ec923b36975b859cb744a85286cd0d15a6f7c0ed15f9d03852c7716b3207"), # internal
-    unhexlify("5fd88ed2ce431b003ce2b0e233a3b7870514b130e700b612a4d86fedeb603657ac88e2f4f290ee7ed16e23f6d27f717a5447acdbea5e72d16497a29a4ea46ca6"), # keyA
-    unhexlify("fe9f994315faa9caab4e41d78b0200ca19fd3c735ce7d88e879b0da0b7e1f4dd31f877b6529700f463670f1a6f6ea217f6dfc596cf8c55e78b42b70e3491aac3"), # keyB
-    unhexlify("d09a024358e7f609a0c3dfb94ac852c3f20859784f18911b5ec4cbc8c5ebf4a3642254519b47368fa1b2df75e10c56b77e7f9f34157335c2bc814106e544077c"), # keyC
+    unhexlify(
+        "fd2877b89797991d0e237f466a917a5300944f6fb1453b576763ef76e5d1140816d4ec923b36975b859cb744a85286cd0d15a6f7c0ed15f9d03852c7716b3207"
+    ),  # internal
+    unhexlify(
+        "5fd88ed2ce431b003ce2b0e233a3b7870514b130e700b612a4d86fedeb603657ac88e2f4f290ee7ed16e23f6d27f717a5447acdbea5e72d16497a29a4ea46ca6"
+    ),  # keyA
+    unhexlify(
+        "fe9f994315faa9caab4e41d78b0200ca19fd3c735ce7d88e879b0da0b7e1f4dd31f877b6529700f463670f1a6f6ea217f6dfc596cf8c55e78b42b70e3491aac3"
+    ),  # keyB
+    unhexlify(
+        "d09a024358e7f609a0c3dfb94ac852c3f20859784f18911b5ec4cbc8c5ebf4a3642254519b47368fa1b2df75e10c56b77e7f9f34157335c2bc814106e544077c"
+    ),  # keyC
 ]
 
 
@@ -109,9 +123,13 @@ class TaprootTest(TestCase):
         with self.assertRaises(Exception):
             Descriptor.from_string("sh(tr(%s/0/*))" % ROOT)
         # x-only is only allowed in tr
-        Descriptor.from_string("tr(b4ca2da5380d9aeb5ca67e4f18c487ae9b668748517e12b788496f63765e2efa)")
+        Descriptor.from_string(
+            "tr(b4ca2da5380d9aeb5ca67e4f18c487ae9b668748517e12b788496f63765e2efa)"
+        )
         with self.assertRaises(Exception):
-            Descriptor.from_string("wpkh(b4ca2da5380d9aeb5ca67e4f18c487ae9b668748517e12b788496f63765e2efa)")
+            Descriptor.from_string(
+                "wpkh(b4ca2da5380d9aeb5ca67e4f18c487ae9b668748517e12b788496f63765e2efa)"
+            )
 
     def test_sign_verify(self):
         unsigned = PSBT.from_string(B64PSBT)
@@ -126,7 +144,9 @@ class TaprootTest(TestCase):
                 sighash = wit[64]
             else:
                 sighash = SIGHASH.DEFAULT
-            hsh = tx.sighash_taproot(i, script_pubkeys=scripts, values=values, sighash=sighash)
+            hsh = tx.sighash_taproot(
+                i, script_pubkeys=scripts, values=values, sighash=sighash
+            )
             pub = PublicKey.from_xonly(inp.utxo.script_pubkey.data[2:])
             self.assertTrue(pub.schnorr_verify(sig, hsh))
             # check signing and derivation
@@ -139,7 +159,10 @@ class TaprootTest(TestCase):
             # sign with individual pks
             sigcount = unsigned.sign_with(prv.key, SIGHASH.ALL)
             self.assertEqual(sigcount, 1)
-            self.assertEqual(unsigned.inputs[i].final_scriptwitness, signed.inputs[i].final_scriptwitness)
+            self.assertEqual(
+                unsigned.inputs[i].final_scriptwitness,
+                signed.inputs[i].final_scriptwitness,
+            )
 
         # TODO: Won't need to populate derivation when a psbt with Taproot fields is
         # used for this test.
@@ -148,7 +171,9 @@ class TaprootTest(TestCase):
             # remove final scriptwitness to test signing with root
             inp.final_scriptwitness = None
             # populate derivation; Taproot signing expects X-only pubkeys
-            inp.bip32_derivations[PublicKey.from_xonly(prv.key.xonly())] = DerivationPath(ROOT.my_fingerprint, [0, i])
+            inp.bip32_derivations[
+                PublicKey.from_xonly(prv.key.xonly())
+            ] = DerivationPath(ROOT.my_fingerprint, [0, i])
 
         # test signing with root key
         counter = unsigned.sign_with(ROOT, SIGHASH.ALL)
@@ -170,10 +195,9 @@ class TaprootTest(TestCase):
         for inp in signed.inputs:
             self.assertTrue(inp.final_scriptwitness.items[0] in v)
 
-
     def test_taproot_internal_keyspend(self):
-        """Should parse Taproot `PSBT_IN_TAP_BIP32_DERIVATION` field and populate 
-            `taproot_bip32_derivations` in each input. """
+        """Should parse Taproot `PSBT_IN_TAP_BIP32_DERIVATION` field and populate
+        `taproot_bip32_derivations` in each input."""
         psbt_bytes = unhexlify(TAPROOT_01)
         psbt_act = PSBT.parse(psbt_bytes)
         inp = psbt_act.inputs[0]
@@ -229,13 +253,15 @@ class TaprootTest(TestCase):
         sigs_stream = BytesIO()
         psbt.sign_with(KEY_A)
         psbtv.sign_with(KEY_A, sigs_stream)
-        sigs_stream.seek(0,0)
+        sigs_stream.seek(0, 0)
         # serialize psbtview into bytestream and parse back into psbt - for convenient
         ser = BytesIO()
         psbtv.write_to(ser, extra_input_streams=[sigs_stream])
-        ser.seek(0,0)
+        ser.seek(0, 0)
         psbt2 = PSBT.read_from(ser)
         # check signatures in every input
         for inp1, inp2 in zip(psbt.inputs, psbt2.inputs):
-            self.assertTrue(bool(inp1.final_scriptwitness)) # test not empty
-            self.assertEqual(inp1.final_scriptwitness, inp2.final_scriptwitness) # test psbt and psbtview give the same results
+            self.assertTrue(bool(inp1.final_scriptwitness))  # test not empty
+            self.assertEqual(
+                inp1.final_scriptwitness, inp2.final_scriptwitness
+            )  # test psbt and psbtview give the same results

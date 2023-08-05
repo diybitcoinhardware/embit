@@ -1,4 +1,7 @@
-def polymod(c, val):
+from .errors import DescriptorError
+
+
+def polymod(c: int, val: int) -> int:
     c0 = c >> 35
     c = ((c & 0x7FFFFFFFF) << 5) ^ val
     if c0 & 1:
@@ -14,8 +17,12 @@ def polymod(c, val):
     return c
 
 
-def checksum(desc):
-    INPUT_CHARSET = "0123456789()[],'/*abcdefgh@:$%{}IJKLMNOPQRSTUVWXYZ&+-.;<=>?!^_|~ijklmnopqrstuvwxyzABCDEFGH`#\"\\ "
+def checksum(desc: str) -> str:
+    """Calculate checksum of desciptor string"""
+    INPUT_CHARSET = (
+        "0123456789()[],'/*abcdefgh@:$%{}IJKLMNOPQRSTUVW"
+        'XYZ&+-.;<=>?!^_|~ijklmnopqrstuvwxyzABCDEFGH`#"\\ '
+    )
     CHECKSUM_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
     c = 1
@@ -24,7 +31,7 @@ def checksum(desc):
     for ch in desc:
         pos = INPUT_CHARSET.find(ch)
         if pos == -1:
-            return ""
+            raise DescriptorError("Invalid character '%s' in the input string" % ch)
         c = polymod(c, pos & 31)
         cls = cls * 3 + (pos >> 5)
         clscount += 1
@@ -38,13 +45,12 @@ def checksum(desc):
         c = polymod(c, 0)
     c ^= 1
 
-    ret = [None] * 8
-    for j in range(0, 8):
-        ret[j] = CHECKSUM_CHARSET[(c >> (5 * (7 - j))) & 31]
+    ret = [CHECKSUM_CHARSET[(c >> (5 * (7 - j))) & 31] for j in range(0, 8)]
     return "".join(ret)
 
 
-def add_checksum(desc):
+def add_checksum(desc: str) -> str:
+    """Add checksum to descriptor string"""
     if "#" in desc:
         desc = desc.split("#")[0]
     return desc + "#" + checksum(desc)

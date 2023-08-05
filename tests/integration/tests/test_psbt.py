@@ -7,13 +7,17 @@ from embit.bip32 import HDKey
 from embit.networks import NETWORKS
 from embit.psbt import PSBT
 
-wallet_prefix = "test"+random.randint(0,0xFFFFFFFF).to_bytes(4,'big').hex()
-root = HDKey.from_string("tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j")
+wallet_prefix = "test" + random.randint(0, 0xFFFFFFFF).to_bytes(4, "big").hex()
+root = HDKey.from_string(
+    "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
+)
 fgp = root.child(0).fingerprint.hex()
-net = NETWORKS['regtest']
+net = NETWORKS["regtest"]
+
 
 def random_wallet_name():
-    return "test"+random.randint(0,0xFFFFFFFF).to_bytes(4,'big').hex()
+    return "test" + random.randint(0, 0xFFFFFFFF).to_bytes(4, "big").hex()
+
 
 class PSBTTest(TestCase):
     """Complete tests with Core on regtest - should catch problems with signing of transactions"""
@@ -34,24 +38,36 @@ class PSBTTest(TestCase):
         d2 = add_checksum(str(d2))
         rpc.createwallet(wname, True, True)
         w = daemon.wallet(wname)
-        res = w.importmulti([{
-                "desc": d1,
-                "internal": False,
-                "timestamp": "now",
-                "watchonly": True,
-                "range": 10,
-            },{
-                "desc": d2,
-                "internal": True,
-                "timestamp": "now",
-                "watchonly": True,
-                "range": 10,
-            }],{"rescan": False})
+        res = w.importmulti(
+            [
+                {
+                    "desc": d1,
+                    "internal": False,
+                    "timestamp": "now",
+                    "watchonly": True,
+                    "range": 10,
+                },
+                {
+                    "desc": d2,
+                    "internal": True,
+                    "timestamp": "now",
+                    "watchonly": True,
+                    "range": 10,
+                },
+            ],
+            {"rescan": False},
+        )
         self.assertTrue(all([k["success"] for k in res]))
         wdefault = daemon.wallet()
         wdefault.sendtoaddress(addr1, 0.1)
         daemon.mine()
-        psbt = w.walletcreatefundedpsbt([], [{wdefault.getnewaddress(): 0.002}], 0, {"includeWatching": True, "changeAddress": addr2}, True)
+        psbt = w.walletcreatefundedpsbt(
+            [],
+            [{wdefault.getnewaddress(): 0.002}],
+            0,
+            {"includeWatching": True, "changeAddress": addr2},
+            True,
+        )
         unsigned = psbt["psbt"]
         psbt = PSBT.from_string(unsigned)
         psbt.sign_with(root)

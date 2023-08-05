@@ -2,7 +2,7 @@ from unittest import TestCase
 from embit.descriptor import Descriptor
 from embit.networks import NETWORKS
 
-NETWORK = NETWORKS['test']
+NETWORK = NETWORKS["test"]
 
 TPRVS = [
     "tprv8ZgxMBicQKsPerQj6m35no46amfKQdjY7AhLnmatHYXs8S4MTgeZYkWAn4edSGwwL3vkSiiGqSZQrmy5D3P5gBoqgvYP2fCUpBwbKTMTAkL",
@@ -32,11 +32,34 @@ P2WSH_MINISCRIPTS = [
     # One of two keys
     "or_b(pk(%s/*),s:pk(%s/*))" % (TPUBS[0], TPUBS[1]),
     # A script similar (same spending policy) to BOLT3's offered HTLC (with anchor outputs)
-    "or_d(pk(%s/*),and_v(and_v(v:pk(%s/*),or_c(pk(%s/*),v:hash160(7f999c905d5e35cefd0a37673f746eb13fba3640))),older(1)))" % (TPUBS[0], TPUBS[1], TPUBS[2]),
+    "or_d(pk(%s/*),and_v(and_v(v:pk(%s/*),or_c(pk(%s/*),v:hash160(7f999c905d5e35cefd0a37673f746eb13fba3640))),older(1)))"
+    % (TPUBS[0], TPUBS[1], TPUBS[2]),
     # A Revault Unvault policy with the older() replaced by an after()
-    "andor(multi(2,%s/*,%s/*),and_v(v:multi(4,%s,%s,%s,%s),after(424242)),thresh(4,pkh(%s/*),a:pkh(%s/*),a:pkh(%s/*),a:pkh(%s/*)))" % (TPUBS[0], TPUBS[1], PUBKEYS[0], PUBKEYS[1], PUBKEYS[2], PUBKEYS[3], TPUBS[2], TPUBS[3], TPUBS[4], TPUBS[5]),
+    "andor(multi(2,%s/*,%s/*),and_v(v:multi(4,%s,%s,%s,%s),after(424242)),thresh(4,pkh(%s/*),a:pkh(%s/*),a:pkh(%s/*),a:pkh(%s/*)))"
+    % (
+        TPUBS[0],
+        TPUBS[1],
+        PUBKEYS[0],
+        PUBKEYS[1],
+        PUBKEYS[2],
+        PUBKEYS[3],
+        TPUBS[2],
+        TPUBS[3],
+        TPUBS[4],
+        TPUBS[5],
+    ),
     # Liquid-like federated pegin with emergency recovery keys
-    "or_i(and_b(pk(%s),a:and_b(pk(%s),a:and_b(pk(%s),a:and_b(pk(%s),s:pk(%s))))),and_v(v:thresh(2,pkh(%s/*),a:pkh(%s),a:pkh(%s)),older(4209713)))" % (PUBKEYS[0], PUBKEYS[1], PUBKEYS[2], PUBKEYS[3], PUBKEYS[4], TPUBS[0], PUBKEYS[5], PUBKEYS[6]),
+    "or_i(and_b(pk(%s),a:and_b(pk(%s),a:and_b(pk(%s),a:and_b(pk(%s),s:pk(%s))))),and_v(v:thresh(2,pkh(%s/*),a:pkh(%s),a:pkh(%s)),older(4209713)))"
+    % (
+        PUBKEYS[0],
+        PUBKEYS[1],
+        PUBKEYS[2],
+        PUBKEYS[3],
+        PUBKEYS[4],
+        TPUBS[0],
+        PUBKEYS[5],
+        PUBKEYS[6],
+    ),
 ]
 
 DESCS = ["wsh(%s)" % ms for ms in P2WSH_MINISCRIPTS] + [
@@ -45,15 +68,29 @@ DESCS = ["wsh(%s)" % ms for ms in P2WSH_MINISCRIPTS] + [
     "tr(024d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768)",
     "tr(034d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768)",
     # one pubkey in taptree
-    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,pk(%s))" % PUBKEYS[0],
+    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,pk(%s))"
+    % PUBKEYS[0],
     # A Taproot with one of the above scripts as the single script path.
-    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,%s)" % P2WSH_MINISCRIPTS[0],
+    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,%s)"
+    % P2WSH_MINISCRIPTS[0],
     # A Taproot with two script paths among the above scripts.
-    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,{%s,%s})" % (P2WSH_MINISCRIPTS[0], P2WSH_MINISCRIPTS[1]),
+    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,{%s,%s})"
+    % (P2WSH_MINISCRIPTS[0], P2WSH_MINISCRIPTS[1]),
     # A Taproot with three script paths among the above scripts.
-    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,{{%s,%s},%s})" % (P2WSH_MINISCRIPTS[0], P2WSH_MINISCRIPTS[1], P2WSH_MINISCRIPTS[2].replace("multi", "multi_a")),
+    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,{{%s,%s},%s})"
+    % (
+        P2WSH_MINISCRIPTS[0],
+        P2WSH_MINISCRIPTS[1],
+        P2WSH_MINISCRIPTS[2].replace("multi", "multi_a"),
+    ),
     # A Taproot with all above scripts in its tree.
-    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,{{%s,%s},{%s,%s}})"% (P2WSH_MINISCRIPTS[0], P2WSH_MINISCRIPTS[1], P2WSH_MINISCRIPTS[2].replace("multi", "multi_a"), P2WSH_MINISCRIPTS[3]),
+    "tr(4d54bb9928a0683b7e383de72943b214b0716f58aa54c7ba6bcea2328bc9c768,{{%s,%s},{%s,%s}})"
+    % (
+        P2WSH_MINISCRIPTS[0],
+        P2WSH_MINISCRIPTS[1],
+        P2WSH_MINISCRIPTS[2].replace("multi", "multi_a"),
+        P2WSH_MINISCRIPTS[3],
+    ),
 ]
 
 # expected addresses for all descriptors with derivation index 0
@@ -79,6 +116,7 @@ ADDRESSES = [
 # - multi and sortedmulti can't be used in taproot
 # - multi_a can't be used outside of taproot
 
+
 class TapTreeTest(TestCase):
     def test_addresses(self):
         for d, addr in zip(DESCS, ADDRESSES):
@@ -87,4 +125,3 @@ class TapTreeTest(TestCase):
             self.assertEqual(str(desc), d)
             # check address if provided in test case
             self.assertEqual(desc.derive(0).address(NETWORK), addr)
-

@@ -16,11 +16,11 @@ def encode(b):
     n = int("0x0" + binascii.hexlify(b).decode("utf8"), 16)
 
     # Divide that integer into bas58
-    res = []
+    chars = []
     while n > 0:
         n, r = divmod(n, 58)
-        res.append(B58_DIGITS[r])
-    res = "".join(res[::-1])
+        chars.append(B58_DIGITS[r])
+    result = "".join(chars[::-1])
 
     pad = 0
     for c in b:
@@ -28,7 +28,7 @@ def encode(b):
             pad += 1
         else:
             break
-    return B58_DIGITS[0] * pad + res
+    return B58_DIGITS[0] * pad + result
 
 
 def decode(s):

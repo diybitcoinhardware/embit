@@ -1,6 +1,7 @@
 import os
 from .bitcoin import Bitcoind
 
+
 class Elementsd(Bitcoind):
     datadir = os.path.abspath("./chain/elements")
     rpcport = 18998
@@ -22,8 +23,9 @@ class Elementsd(Bitcoind):
         self.mine(10)
         balance = self.rpc.getbalance(wallet="")
         addr = self.rpc.getnewaddress(wallet="")
-        self.rpc.sendtoaddress(addr, balance["bitcoin"]//2)
+        self.rpc.sendtoaddress(addr, balance["bitcoin"] // 2)
         self.mine(1)
         assert self.rpc.getbalance(wallet="").get("bitcoin", 0) > 0
+
 
 daemon = Elementsd()

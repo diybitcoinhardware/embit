@@ -115,5 +115,6 @@ class PSBTTest(TestCase):
                     act_pub_str = hexlify(act_pub.serialize()).decode("utf-8")
                     self.assertIn(act_pub_str, exp_partial_sigs[i].keys())
                     self.assertEqual(
-                        hexlify(act_sig).decode("utf-8"), exp_partial_sigs[i][act_pub_str]
+                        hexlify(act_sig).decode("utf-8"),
+                        exp_partial_sigs[i][act_pub_str],
                     )

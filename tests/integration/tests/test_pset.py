@@ -14,13 +14,17 @@ from embit.liquid.finalizer import finalize_psbt
 from embit.liquid.addresses import addr_decode
 from embit.ec import PrivateKey
 
-wallet_prefix = "test"+random.randint(0,0xFFFFFFFF).to_bytes(4,'big').hex()
-root = HDKey.from_string("tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j")
+wallet_prefix = "test" + random.randint(0, 0xFFFFFFFF).to_bytes(4, "big").hex()
+root = HDKey.from_string(
+    "tprv8ZgxMBicQKsPf27gmh4DbQqN2K6xnXA7m7AeceqQVGkRYny3X49sgcufzbJcq4k5eaGZDMijccdDzvQga2Saqd78dKqN52QwLyqgY8apX3j"
+)
 fgp = root.child(0).fingerprint.hex()
-net = get_network('elreg')
+net = get_network("elreg")
+
 
 def random_wallet_name():
-    return "test"+random.randint(0,0xFFFFFFFF).to_bytes(4,'big').hex()
+    return "test" + random.randint(0, 0xFFFFFFFF).to_bytes(4, "big").hex()
+
 
 class PSETTest(TestCase):
     """Complete tests with Core on regtest - should catch problems with signing of transactions"""
@@ -41,26 +45,37 @@ class PSETTest(TestCase):
         d2 = add_checksum(str(d2))
         rpc.createwallet(wname, True, True, "", False, True, False)
         w = daemon.wallet(wname)
-        res = w.importdescriptors([{
-                "desc": d1,
-                "active": True,
-                "internal": False,
-                "timestamp": "now",
-            },{
-                "desc": d2,
-                "active": True,
-                "internal": True,
-                "timestamp": "now",
-            }])
+        res = w.importdescriptors(
+            [
+                {
+                    "desc": d1,
+                    "active": True,
+                    "internal": False,
+                    "timestamp": "now",
+                },
+                {
+                    "desc": d2,
+                    "active": True,
+                    "internal": True,
+                    "timestamp": "now",
+                },
+            ]
+        )
         self.assertTrue(all([k["success"] for k in res]))
-        bpk = b"1"*32
+        bpk = b"1" * 32
         w.importmasterblindingkey(bpk.hex())
         addr1 = w.getnewaddress()
         wdefault = daemon.wallet()
         wdefault.sendtoaddress(addr1, 0.1)
         daemon.mine()
         waddr = wdefault.getnewaddress()
-        psbt = w.walletcreatefundedpsbt([], [{waddr: 0.002}], 0, {"includeWatching": True, "changeAddress": addr1, "fee_rate": 1}, True)
+        psbt = w.walletcreatefundedpsbt(
+            [],
+            [{waddr: 0.002}],
+            0,
+            {"includeWatching": True, "changeAddress": addr1, "fee_rate": 1},
+            True,
+        )
         unsigned = psbt["psbt"]
 
         # fix blinding change address
@@ -74,11 +89,17 @@ class PSETTest(TestCase):
         if selfblind:
             unblinded_psbt = PSBT.from_string(unsigned)
             # generate all blinding stuff
-            unblinded_psbt.unblind(PrivateKey(bpk)) # get values and blinding factors for inputs
-            unblinded_psbt.blind(os.urandom(32)) # generate all blinding factors etc
+            unblinded_psbt.unblind(
+                PrivateKey(bpk)
+            )  # get values and blinding factors for inputs
+            unblinded_psbt.blind(os.urandom(32))  # generate all blinding factors etc
             for i, out in enumerate(unblinded_psbt.outputs):
                 if unblinded_psbt.outputs[i].blinding_pubkey:
-                    out.reblind(b"1"*32, unblinded_psbt.outputs[i].blinding_pubkey, b"test message")
+                    out.reblind(
+                        b"1" * 32,
+                        unblinded_psbt.outputs[i].blinding_pubkey,
+                        b"test message",
+                    )
 
             # remove stuff that Core doesn't like
             for inp in unblinded_psbt.inputs:
@@ -97,10 +118,10 @@ class PSETTest(TestCase):
             psbt = unblinded_psbt
         # use rpc to blind transaction
         else:
-            try: # master branch
+            try:  # master branch
                 blinded = w.blindpsbt(unsigned)
             except:
-                blinded = w.walletprocesspsbt(unsigned)['psbt']
+                blinded = w.walletprocesspsbt(unsigned)["psbt"]
 
             psbt = PSBT.from_string(blinded)
 
@@ -118,9 +139,14 @@ class PSETTest(TestCase):
         if selfblind:
             # check we can reblind all outputs
             import json
+
             raw = w.unblindrawtransaction(raw)["hex"]
             decoded = w.decoderawtransaction(raw)
-            self.assertEqual(len(decoded["vout"]) - sum([int("value" in out) for out in decoded["vout"]]), 1)
+            self.assertEqual(
+                len(decoded["vout"])
+                - sum([int("value" in out) for out in decoded["vout"]]),
+                1,
+            )
 
     def test_wpkh(self):
         path = "84h/1h/0h"

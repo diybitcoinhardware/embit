@@ -37,19 +37,20 @@ from .transaction import (
     hash_script_pubkeys,
 )
 
+
 def read_write(sin, sout, l=None, chunk_size=32) -> int:
     """Reads l or all bytes from sin and writes to sout"""
     # number of bytes written
     res = 0
     barr = bytearray(chunk_size)
     while True:
-        if l == 0: # nothing else to read
+        if l == 0:  # nothing else to read
             return res
-        elif l and l < chunk_size: # read less than full chunk
+        elif l and l < chunk_size:  # read less than full chunk
             r = sin.read(l)
             sout.write(r)
             return res + len(r)
-        else: # reading full chunk
+        else:  # reading full chunk
             r = sin.readinto(barr)
             if r == 0:
                 return res
@@ -62,14 +63,17 @@ def read_write(sin, sout, l=None, chunk_size=32) -> int:
                 l -= r
     return res
 
+
 class GlobalTransactionView:
     """
     Global transaction in PSBT is
     - unsigned (with empty scriptsigs)
     - doesn't have witness
     """
-    LEN_VIN = 32 + 4 + 1 + 4 # txid, vout, scriptsig, sequence
-    NUM_VIN_OFFSET = 4 # version
+
+    LEN_VIN = 32 + 4 + 1 + 4  # txid, vout, scriptsig, sequence
+    NUM_VIN_OFFSET = 4  # version
+
     def __init__(self, stream, offset):
         self.stream = stream
         self.offset = offset
@@ -106,9 +110,7 @@ class GlobalTransactionView:
     def vin0_offset(self):
         if self._vin0_offset is None:
             self._vin0_offset = (
-                self.offset +
-                self.NUM_VIN_OFFSET +
-                len(compact.to_bytes(self.num_vin))
+                self.offset + self.NUM_VIN_OFFSET + len(compact.to_bytes(self.num_vin))
             )
         return self._vin0_offset
 
@@ -116,9 +118,9 @@ class GlobalTransactionView:
     def vout0_offset(self):
         if self._vout0_offset is None:
             self._vout0_offset = (
-                self.vin0_offset +
-                self.LEN_VIN * self.num_vin +
-                len(compact.to_bytes(self.num_vout))
+                self.vin0_offset
+                + self.LEN_VIN * self.num_vin
+                + len(compact.to_bytes(self.num_vout))
             )
         return self._vout0_offset
 
@@ -155,27 +157,32 @@ class GlobalTransactionView:
             n -= 1
         return TransactionOutput.read_from(self.stream)
 
+
 class PSBTView:
     """
     Constructor shouldn't be used directly. PSBTView.view_from(stream) should be used instead.
     Either version should be 2 or tx_offset should be int, otherwise you get an error
     """
+
     # for subclasses like PSET
     MAGIC = b"psbt\xff"
     PSBTIN_CLS = InputScope
     PSBTOUT_CLS = OutputScope
     TX_CLS = GlobalTransactionView
 
-    def __init__(self, stream,
-            num_inputs, num_outputs,
-            offset, first_scope,
-            version=None, tx_offset=None,
-            compress=CompressMode.KEEP_ALL,
-        ):
+    def __init__(
+        self,
+        stream,
+        num_inputs,
+        num_outputs,
+        offset,
+        first_scope,
+        version=None,
+        tx_offset=None,
+        compress=CompressMode.KEEP_ALL,
+    ):
         if version != 2 and tx_offset is None:
-            raise PSBTError(
-                "Global tx is not found, but PSBT version is %d" % version
-            )
+            raise PSBTError("Global tx is not found, but PSBT version is %d" % version)
         self.version = version
         self.stream = stream
         # by default we use provided offset, tell() or 0 as default value
@@ -201,7 +208,7 @@ class PSBTView:
 
     @classmethod
     def view(cls, stream, offset=None, compress=CompressMode.KEEP_ALL):
-        if offset is None and hasattr(stream, 'tell'):
+        if offset is None and hasattr(stream, "tell"):
             offset = stream.tell()
         offset = offset or 0
         # current offset
@@ -226,7 +233,7 @@ class PSBTView:
                 value = read_string(stream)
                 cur += len(value) + len(compact.to_bytes(len(value)))
                 if key == b"\xfb":
-                    version = int.from_bytes(value, 'little')
+                    version = int.from_bytes(value, "little")
                 elif key == b"\x04":
                     num_inputs = compact.from_bytes(value)
                 elif key == b"\x05":
@@ -249,8 +256,16 @@ class PSBTView:
         first_scope = cur
         if None in [version or tx_offset, num_inputs, num_outputs]:
             raise PSBTError("Missing something important in PSBT")
-        return cls(stream, num_inputs, num_outputs, offset,
-                   first_scope, version, tx_offset, compress)
+        return cls(
+            stream,
+            num_inputs,
+            num_outputs,
+            offset,
+            first_scope,
+            version,
+            tx_offset,
+            compress,
+        )
 
     def _skip_scope(self):
         off = 0
@@ -275,7 +290,7 @@ class PSBTView:
         Returns an offset at this scope.
         """
         if n is None:
-            off = self.offset+len(self.MAGIC)
+            off = self.offset + len(self.MAGIC)
             self.stream.seek(off)
             return off
         if n > self.num_inputs + self.num_outputs:
@@ -321,11 +336,11 @@ class PSBTView:
 
         self.seek_to_scope(i)
         v = self.get_value(b"\x0f", from_current=True)
-        vout = int.from_bytes(v, 'little')
+        vout = int.from_bytes(v, "little")
 
         self.seek_to_scope(i)
         v = self.get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
-        sequence = int.from_bytes(v, 'little')
+        sequence = int.from_bytes(v, "little")
 
         return TransactionInput(txid, vout, sequence=sequence)
 
@@ -338,7 +353,7 @@ class PSBTView:
 
         self.seek_to_scope(self.num_inputs + i)
         v = self.get_value(b"\x03", from_current=True)
-        value = int.from_bytes(v, 'little')
+        value = int.from_bytes(v, "little")
 
         self.seek_to_scope(self.num_inputs + i)
         v = self.get_value(b"\x04", from_current=True)
@@ -350,14 +365,14 @@ class PSBTView:
     def locktime(self):
         if self._locktime is None:
             v = self.get_value(b"\x03")
-            self._locktime = int.from_bytes(v, 'little') if v is not None else 0
+            self._locktime = int.from_bytes(v, "little") if v is not None else 0
         return self._locktime
 
     @property
     def tx_version(self):
         if self._tx_version is None:
             v = self.get_value(b"\x02")
-            self._tx_version = int.from_bytes(v, 'little') if v is not None else 0
+            self._tx_version = int.from_bytes(v, "little") if v is not None else 0
         return self._tx_version
 
     def seek_to_value(self, key_start, from_current=False):
@@ -426,16 +441,17 @@ class PSBTView:
             self._hash_script_pubkeys = hash_script_pubkeys(script_pubkeys)
         return self._hash_script_pubkeys
 
-    def sighash_taproot(self,
-                        input_index,
-                        script_pubkeys,
-                        values,
-                        sighash=SIGHASH.DEFAULT,
-                        ext_flag=0,
-                        annex=None,
-                        script=None,
-                        leaf_version=0xc0,
-                        codeseparator_pos=None,
+    def sighash_taproot(
+        self,
+        input_index,
+        script_pubkeys,
+        values,
+        sighash=SIGHASH.DEFAULT,
+        ext_flag=0,
+        annex=None,
+        script=None,
+        leaf_version=0xC0,
+        codeseparator_pos=None,
     ):
         """check out bip-341"""
         # TODO: refactor, it's almost a complete copy of tx.sighash_taproot
@@ -456,7 +472,7 @@ class PSBTView:
         if sh not in [SIGHASH.SINGLE, SIGHASH.NONE]:
             h.update(self.hash_outputs())
         # data about this input
-        h.update(bytes([2*ext_flag+int(annex is not None)]))
+        h.update(bytes([2 * ext_flag + int(annex is not None)]))
         if anyonecanpay:
             vin = self.vin(input_index)
             h.update(vin.serialize())
@@ -466,18 +482,20 @@ class PSBTView:
         else:
             h.update(input_index.to_bytes(4, "little"))
         if annex is not None:
-            h.update(hashes.sha256(compact.to_bytes(len(annex))+annex))
+            h.update(hashes.sha256(compact.to_bytes(len(annex)) + annex))
         if sh == SIGHASH.SINGLE:
             h.update(self.vout(input_index).serialize())
         if script is not None:
             h.update(
-                hashes.tagged_hash("TapLeaf", bytes([leaf_version])+script.serialize())
+                hashes.tagged_hash(
+                    "TapLeaf", bytes([leaf_version]) + script.serialize()
+                )
             )
             h.update(b"\x00")
             h.update(
                 b"\xff\xff\xff\xff"
                 if codeseparator_pos is None
-                else codeseparator_pos.to_bytes(4,'little')
+                else codeseparator_pos.to_bytes(4, "little")
             )
         return h.digest()
 
@@ -490,7 +508,7 @@ class PSBTView:
         if sh == SIGHASH.DEFAULT:
             sh = SIGHASH.ALL
         inp = self.vin(input_index)
-        zero = b"\x00"*32 # for sighashes
+        zero = b"\x00" * 32  # for sighashes
         h = hashlib.sha256()
         h.update(self.tx_version.to_bytes(4, "little"))
         if anyonecanpay:
@@ -509,9 +527,11 @@ class PSBTView:
         if sh not in {SIGHASH.NONE, SIGHASH.SINGLE}:
             h.update(hashlib.sha256(self.hash_outputs()).digest())
         elif sh == SIGHASH.SINGLE and input_index < self.num_outputs:
-            h.update(hashlib.sha256(
-                hashlib.sha256(self.vout(input_index).serialize()).digest()
-            ).digest())
+            h.update(
+                hashlib.sha256(
+                    hashlib.sha256(self.vout(input_index).serialize()).digest()
+                ).digest()
+            )
         else:
             h.update(zero)
         h.update(self.locktime.to_bytes(4, "little"))
@@ -527,7 +547,7 @@ class PSBTView:
             sh = SIGHASH.ALL
         # no corresponding output for this input, we sign 00...01
         if sh == SIGHASH.SINGLE and input_index >= self.num_outputs:
-            return b"\x00"*31+b"\x01"
+            return b"\x00" * 31 + b"\x01"
 
         h = hashlib.sha256()
         h.update(self.tx_version.to_bytes(4, "little"))
@@ -548,7 +568,7 @@ class PSBTView:
             h.update(compact.to_bytes(0))
         # one output on the same index, others are empty
         elif sh == SIGHASH.SINGLE:
-            h.update(compact.to_bytes(input_index+1))
+            h.update(compact.to_bytes(input_index + 1))
             empty = TransactionOutput(0xFFFFFFFF, Script(b"")).serialize()
             # this way we commit to input index
             for i in range(input_index):
@@ -579,24 +599,25 @@ class PSBTView:
                 values.append(inp.utxo.value)
                 scripts.append(inp.utxo.script_pubkey)
             return self.sighash_taproot(
-                    i,
-                    script_pubkeys=scripts,
-                    values=values,
-                    sighash=sighash,
-                    **kwargs,
+                i,
+                script_pubkeys=scripts,
+                values=values,
+                sighash=sighash,
+                **kwargs,
             )
 
         value = inp.utxo.value
         sc = inp.witness_script or inp.redeem_script or inp.utxo.script_pubkey
 
         # detect if it is a segwit input
-        is_segwit = (inp.witness_script
-                    or inp.witness_utxo
-                    or inp.utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
-                    or (
-                        inp.redeem_script
-                        and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
-                    )
+        is_segwit = (
+            inp.witness_script
+            or inp.witness_utxo
+            or inp.utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
+            or (
+                inp.redeem_script
+                and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
+            )
         )
         # convert to p2pkh according to bip143
         if sc.script_type() == "p2wpkh":
@@ -609,11 +630,11 @@ class PSBTView:
         return h
 
     def sign_input_with_tapkey(
-            self,
-            key: ec.PrivateKey,
-            input_index: int,
-            inp = None,
-            sighash = SIGHASH.DEFAULT,
+        self,
+        key: ec.PrivateKey,
+        input_index: int,
+        inp=None,
+        sighash=SIGHASH.DEFAULT,
     ) -> int:
         """Sign taproot input with key. Signs with internal or leaf key."""
         # get input ourselves if not provided
@@ -624,8 +645,8 @@ class PSBTView:
         pk = key.taproot_tweak(inp.taproot_merkle_root or b"")
         if pk.xonly() in inp.utxo.script_pubkey.data:
             h = self.sighash(
-                    input_index,
-                    sighash=sighash,
+                input_index,
+                sighash=sighash,
             )
             sig = pk.schnorr_sign(h)
             wit = sig.serialize()
@@ -645,36 +666,31 @@ class PSBTView:
             leaf_version = sc[-1]
             script = Script(sc[:-1])
             h = self.sighash(
-                    input_index,
-                    sighash=sighash,
-                    ext_flag=1,
-                    script=script,
-                    leaf_version=leaf_version,
+                input_index,
+                sighash=sighash,
+                ext_flag=1,
+                script=script,
+                leaf_version=leaf_version,
             )
             sig = key.schnorr_sign(h)
             leaf = hashes.tagged_hash(
-                    "TapLeaf",
-                    bytes([leaf_version])+script.serialize()
+                "TapLeaf", bytes([leaf_version]) + script.serialize()
             )
             sigdata = sig.serialize()
             # append sighash if necessary
             if sighash != SIGHASH.DEFAULT:
                 sigdata += bytes([sighash])
-            inp.taproot_sigs[(pub,leaf)] = sigdata
+            inp.taproot_sigs[(pub, leaf)] = sigdata
             counter += 1
         return counter
 
-    def sign_input(self,
-                   i,
-                   root,
-                   sig_stream,
-                   sighash=SIGHASH.DEFAULT,
-                   extra_scope_data=None
+    def sign_input(
+        self, i, root, sig_stream, sighash=SIGHASH.DEFAULT, extra_scope_data=None
     ) -> int:
         """
         Signs input taking into account additional
         derivation information for this input.
-        
+
         It's helpful if your wallet knows more than provided in PSBT.
         As PSBTView is read-only it can't change anything in PSBT,
         that's why you may need extra_scope_data.
@@ -686,12 +702,12 @@ class PSBTView:
         fingerprint = None
         # if descriptor key
         if hasattr(root, "origin"):
-            if not root.is_private: # pubkey can't sign
+            if not root.is_private:  # pubkey can't sign
                 return 0
-            if root.is_extended: # use fingerprint only for HDKey
+            if root.is_extended:  # use fingerprint only for HDKey
                 fingerprint = root.fingerprint
             else:
-                root = root.key # WIF key
+                root = root.key  # WIF key
         # if HDKey
         if not fingerprint and hasattr(root, "my_fingerprint"):
             fingerprint = root.my_fingerprint
@@ -720,8 +736,10 @@ class PSBTView:
         # we don't sign this input
         # except DEFAULT is functionally the same as ALL
         if required_sighash is not None and inp_sighash != required_sighash:
-            if (inp_sighash not in {SIGHASH.DEFAULT, SIGHASH.ALL}
-                or required_sighash not in {SIGHASH.DEFAULT, SIGHASH.ALL}):
+            if inp_sighash not in {
+                SIGHASH.DEFAULT,
+                SIGHASH.ALL,
+            } or required_sighash not in {SIGHASH.DEFAULT, SIGHASH.ALL}:
                 return 0
 
         # get all possible derivations with matching fingerprint
@@ -740,16 +758,16 @@ class PSBTView:
                     bip32_derivations.add((pub, derivation))
 
         # get derived keys for signing
-        derived_keypairs = set() # (prv, pub)
+        derived_keypairs = set()  # (prv, pub)
         for pub, derivation in bip32_derivations:
             der = derivation.derivation
             # descriptor key has origin derivation that we take into account
             if hasattr(root, "origin"):
                 if root.origin:
-                    if root.origin.derivation != der[:len(root.origin.derivation)]:
+                    if root.origin.derivation != der[: len(root.origin.derivation)]:
                         # derivation doesn't match - go to next input
                         continue
-                    der = der[len(root.origin.derivation):]
+                    der = der[len(root.origin.derivation) :]
                 hdkey = root.key.derive(der)
             else:
                 hdkey = root.derive(der)
@@ -764,18 +782,24 @@ class PSBTView:
             # try to sign with individual private key (WIF)
             # or with root without derivations
             counter += self.sign_input_with_tapkey(
-                root, i, inp, sighash=inp_sighash,
+                root,
+                i,
+                inp,
+                sighash=inp_sighash,
             )
             # sign with all derived keys
             for prv, pub in derived_keypairs:
                 counter += self.sign_input_with_tapkey(
-                    prv, i, inp, sighash=inp_sighash,
+                    prv,
+                    i,
+                    inp,
+                    sighash=inp_sighash,
                 )
             if inp.final_scriptwitness:
                 ser_string(sig_stream, b"\x08")
                 ser_string(sig_stream, inp.final_scriptwitness.serialize())
 
-            for (pub, leaf) in inp.taproot_sigs:
+            for pub, leaf in inp.taproot_sigs:
                 ser_string(sig_stream, b"\x14" + pub.xonly() + leaf)
                 ser_string(sig_stream, inp.taproot_sigs[(pub, leaf)])
             return counter
@@ -823,9 +847,12 @@ class PSBTView:
             sig_stream.write(b"\x00")
         return counter
 
-    def write_to(self, writable_stream, compress=None,
-            extra_input_streams=[],
-            extra_output_streams=[],
+    def write_to(
+        self,
+        writable_stream,
+        compress=None,
+        extra_input_streams=[],
+        extra_output_streams=[],
     ):
         """
         Writes PSBTView to stream.
@@ -842,7 +869,7 @@ class PSBTView:
 
         # first we write global scope
         self.stream.seek(self.offset)
-        res = read_write(self.stream, writable_stream, self.first_scope-self.offset)
+        res = read_write(self.stream, writable_stream, self.first_scope - self.offset)
 
         # write all inputs
         for i in range(self.num_inputs):

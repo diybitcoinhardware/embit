@@ -219,22 +219,29 @@ class Bip39Test(TestCase):
     def test_alternate_wordlist(self):
         # Spanish mnemonics validated via https://iancoleman.io/bip39/#spanish
         mnemonics = [
-            ("título paso humano cañón enfado ropero hueco cromo blusa turno fideo glaciar verano baba gordo fila trance íntimo rotar gustar sombra revés laguna jardín",
-                "bb0c5656117fd52d995dafca2d692974e74cb7c713c35871a0915d7bda6122694b2b67664113b198d2c1dd828195587c7dec8d6179f93d2157d6a11d8d0a949d"),
-            ("natural tóxico choque regreso norte tarta uña prisión bulto ángulo fervor nariz",
-                "30affe746f3a81816739c2dacc3de426084482b729c7b592cee0ff2bdf73315943a5da8d8da4afd767f905d5ded4b0ab3a948d7eff9834fca5e8691a186fee20"),
+            (
+                "título paso humano cañón enfado ropero hueco cromo blusa turno fideo glaciar verano baba gordo fila trance íntimo rotar gustar sombra revés laguna jardín",
+                "bb0c5656117fd52d995dafca2d692974e74cb7c713c35871a0915d7bda6122694b2b67664113b198d2c1dd828195587c7dec8d6179f93d2157d6a11d8d0a949d",
+            ),
+            (
+                "natural tóxico choque regreso norte tarta uña prisión bulto ángulo fervor nariz",
+                "30affe746f3a81816739c2dacc3de426084482b729c7b592cee0ff2bdf73315943a5da8d8da4afd767f905d5ded4b0ab3a948d7eff9834fca5e8691a186fee20",
+            ),
         ]
         from .data.bip39_es import WORDLIST as ES_WORDLIST
 
         for mnemonic, expected_seed in mnemonics:
             self.assertTrue(mnemonic_is_valid(mnemonic, wordlist=ES_WORDLIST))
 
-            self.assertEqual(hexlify(mnemonic_to_seed(mnemonic, wordlist=ES_WORDLIST)).decode(), expected_seed)
+            self.assertEqual(
+                hexlify(mnemonic_to_seed(mnemonic, wordlist=ES_WORDLIST)).decode(),
+                expected_seed,
+            )
 
             self.assertEqual(
                 mnemonic_from_bytes(
                     mnemonic_to_bytes(mnemonic, wordlist=ES_WORDLIST),
-                    wordlist=ES_WORDLIST
+                    wordlist=ES_WORDLIST,
                 ),
-                mnemonic
+                mnemonic,
             )

@@ -5,6 +5,7 @@ import signal
 import shutil
 from .rpc import BitcoinRPC
 
+
 class Bitcoind:
     datadir = os.path.abspath("./chain/bitcoin")
     rpcport = 18778
@@ -48,9 +49,9 @@ class Bitcoind:
             os.makedirs(self.datadir)
         except:
             pass
-        self.proc = subprocess.Popen(self.cmd,
-                                stdout=subprocess.PIPE,
-                                shell=True, preexec_fn=os.setsid)
+        self.proc = subprocess.Popen(
+            self.cmd, stdout=subprocess.PIPE, shell=True, preexec_fn=os.setsid
+        )
         time.sleep(1)
         self.get_coins()
 
@@ -66,7 +67,9 @@ class Bitcoind:
 
     def stop(self):
         print(f"Shutting down {self.name}")
-        os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)  # Send the signal to all the process groups
+        os.killpg(
+            os.getpgid(self.proc.pid), signal.SIGTERM
+        )  # Send the signal to all the process groups
         time.sleep(3)
         for i in range(self.retry_count):
             try:
@@ -76,5 +79,6 @@ class Bitcoind:
                 print(f"Exception: {e}")
                 print(f"Retrying in 1 second... {i}/{retry_count}")
                 time.sleep(1)
+
 
 daemon = Bitcoind()
