@@ -42,6 +42,11 @@ testpaths = [
     "tests/tests",
 ]
 
+[tool.coverage.run]
+omit = [
+    "*/liquid/*",
+]
+
 [tool.mypy]
 mypy_path = "src"
 namespace_packages = true

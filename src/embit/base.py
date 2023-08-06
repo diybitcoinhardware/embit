@@ -69,6 +69,8 @@ class EmbitBase:
 
     def __eq__(self, other):
         """Compare two objects by checking their serializations"""
+        if not hasattr(other, "serialize"):
+            return False
         return self.serialize() == other.serialize()
 
     def __ne__(self, other):
