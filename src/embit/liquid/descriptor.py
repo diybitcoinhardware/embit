@@ -1,13 +1,18 @@
 from .. import ec
-from ..descriptor.descriptor import *
+from ..descriptor.descriptor import Descriptor
+from ..descriptor.base import DescriptorBase
+from ..descriptor.errors import DescriptorError
+from ..descriptor.arguments import Key
 from .networks import NETWORKS
 from .addresses import address
 from . import slip77
 from ..hashes import tagged_hash, sha256
-from ..ec import secp256k1
+from ..misc import secp256k1
+
 
 class LDescriptor(Descriptor):
     """Liquid descriptor that supports blinded() wrapper"""
+
     def __init__(self, *args, blinding_key=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.blinding_key = blinding_key
@@ -53,7 +58,15 @@ class LDescriptor(Descriptor):
         if not start.startswith(b"blinded("):
             s.seek(-8, 1)
             d = Descriptor.read_from(s)
-            return cls(d.miniscript, sh=d.sh, wsh=d.wsh, key=d.key, wpkh=d.wpkh, blinding_key=None, taproot=d.taproot)
+            return cls(
+                d.miniscript,
+                sh=d.sh,
+                wsh=d.wsh,
+                key=d.key,
+                wpkh=d.wpkh,
+                blinding_key=None,
+                taproot=d.taproot,
+            )
 
         blinding_key = BlindingKey.read_from(s)
         if s.read(1) != b",":
@@ -63,16 +76,27 @@ class LDescriptor(Descriptor):
             raise DescriptorError("Missing ending bracket")
         if not blinding_key.slip77:
             if blinding_key.is_wildcard != d.is_wildcard:
-                raise DescriptorError("Wildcards mismatch in blinded key and descriptor")
+                raise DescriptorError(
+                    "Wildcards mismatch in blinded key and descriptor"
+                )
             if blinding_key.num_branches != d.num_branches:
                 raise DescriptorError("Branches mismatch in blinded key and descriptor")
-        return cls(d.miniscript, sh=d.sh, wsh=d.wsh, key=d.key, wpkh=d.wpkh, blinding_key=blinding_key, taproot=d.taproot)
+        return cls(
+            d.miniscript,
+            sh=d.sh,
+            wsh=d.wsh,
+            key=d.key,
+            wpkh=d.wpkh,
+            blinding_key=blinding_key,
+            taproot=d.taproot,
+        )
 
     def to_string(self, blinded=True):
         res = super().to_string()
         if self.is_blinded and blinded:
             res = "blinded(%s,%s)" % (self.blinding_key, res)
         return res
+
 
 class BlindingKey(DescriptorBase):
     def __init__(self, key, slip77=False):
@@ -110,10 +134,12 @@ class BlindingKey(DescriptorBase):
             secret = secp256k1.ec_privkey_add(self.key.secret, tweak)
             # negate if it's odd
             if ec.PrivateKey(secret).sec()[0] == 0x03:
-                 secp256k1.ec_privkey_negate(secret)
+                secp256k1.ec_privkey_negate(secret)
             return ec.PrivateKey(secret)
         else:
-            pub = secp256k1.ec_pubkey_add(secp256k1.ec_pubkey_parse(self.key.sec()), tweak)
+            pub = secp256k1.ec_pubkey_add(
+                secp256k1.ec_pubkey_parse(self.key.sec()), tweak
+            )
             if secp256k1.ec_pubkey_serialize(pub)[0] == 0x03:
                 secp256k1.ec_pubkey_negate(pub)
             return ec.PublicKey(pub)
@@ -142,6 +168,7 @@ class BlindingKey(DescriptorBase):
             return "slip77(%s)" % self.key
         else:
             return str(self.key)
+
 
 class MuSigKey(DescriptorBase):
     def __init__(self, keys):
@@ -195,8 +222,12 @@ class MuSigKey(DescriptorBase):
             self._pubkey = ec.PublicKey(pub)
         return self._pubkey.sec()
 
+
 def musig_combine_privs(privs, sort=True):
-    keys = [[b""+prv, secp256k1.ec_pubkey_serialize(secp256k1.ec_pubkey_create(prv))] for prv in privs]
+    keys = [
+        [b"" + prv, secp256k1.ec_pubkey_serialize(secp256k1.ec_pubkey_create(prv))]
+        for prv in privs
+    ]
     for karr in keys:
         if karr[1][0] == 0x03:
             secp256k1.ec_privkey_negate(karr[0])
@@ -206,7 +237,10 @@ def musig_combine_privs(privs, sort=True):
         keys = list(sorted(keys, key=lambda k: k[1]))
     secs = [k[1] for k in keys]
     ll = sha256(b"".join(secs))
-    coefs = [tagged_hash("MuSig coefficient", ll+i.to_bytes(4,'little')) for i in range(len(keys))]
+    coefs = [
+        tagged_hash("MuSig coefficient", ll + i.to_bytes(4, "little"))
+        for i in range(len(keys))
+    ]
     # tweak them all
     for i in range(len(keys)):
         secp256k1.ec_privkey_tweak_mul(coefs[i], keys[i][0])
@@ -217,6 +251,7 @@ def musig_combine_privs(privs, sort=True):
     if secp256k1.ec_pubkey_serialize(pub)[0] == 0x03:
         secp256k1.ec_privkey_negate(s)
     return s
+
 
 def musig_combine_pubs(pubs, sort=True):
     keys = [[pub, secp256k1.ec_pubkey_serialize(pub)] for pub in pubs]
@@ -229,7 +264,10 @@ def musig_combine_pubs(pubs, sort=True):
         keys = list(sorted(keys, key=lambda k: k[1]))
     secs = [k[1] for k in keys]
     ll = sha256(b"".join(secs))
-    coefs = [tagged_hash("MuSig coefficient", ll+i.to_bytes(4,'little')) for i in range(len(keys))]
+    coefs = [
+        tagged_hash("MuSig coefficient", ll + i.to_bytes(4, "little"))
+        for i in range(len(keys))
+    ]
     # tweak them all
     pubs = [k[0] for k in keys]
     for i in range(len(keys)):

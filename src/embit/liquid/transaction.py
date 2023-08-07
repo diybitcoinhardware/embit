@@ -6,10 +6,12 @@ from .. import hashes
 from ..transaction import *
 from ..base import EmbitBase
 import hashlib
+
 if sys.implementation.name == "micropython":
     import secp256k1
 else:
     from ..util import secp256k1
+
 
 class LSIGHASH(SIGHASH):
     # ALL and others are defined in SIGHASH
@@ -31,31 +33,43 @@ class LSIGHASH(SIGHASH):
             raise TransactionError("Invalid SIGHASH type")
         return sighash, anyonecanpay, rangeproof
 
+
 class LTransactionError(TransactionError):
     pass
+
 
 def read_commitment(stream):
     c = stream.read(1)
     assert len(c) == 1
-    if c == b"\x00": # None
+    if c == b"\x00":  # None
         return None
-    if c == b"\x01": # unconfidential
+    if c == b"\x01":  # unconfidential
         r = stream.read(8)
         assert len(r) == 8
         return int.from_bytes(r, "big")
     # confidential
     r = stream.read(32)
     assert len(r) == 32
-    return c+r
+    return c + r
+
 
 def write_commitment(c):
     if c is None:
         return b"\x00"
     if isinstance(c, int):
-        return b"\x01"+c.to_bytes(8, 'big')
+        return b"\x01" + c.to_bytes(8, "big")
     return c
 
-def unblind(pubkey:bytes, blinding_key:bytes, range_proof:bytes, value_commitment:bytes, asset_commitment:bytes, script_pubkey, message_length=64) -> tuple:
+
+def unblind(
+    pubkey: bytes,
+    blinding_key: bytes,
+    range_proof: bytes,
+    value_commitment: bytes,
+    asset_commitment: bytes,
+    script_pubkey,
+    message_length=64,
+) -> tuple:
     """Unblinds a range proof and returns value, asset, value blinding factor, asset blinding factor, extra data, min and max values"""
     assert len(pubkey) in [33, 65]
     assert len(blinding_key) == 32
@@ -69,7 +83,9 @@ def unblind(pubkey:bytes, blinding_key:bytes, range_proof:bytes, value_commitmen
     commit = secp256k1.pedersen_commitment_parse(value_commitment)
     gen = secp256k1.generator_parse(asset_commitment)
 
-    value, vbf, msg, min_value, max_value = secp256k1.rangeproof_rewind(range_proof, nonce, commit, script_pubkey.data, gen, message_length)
+    value, vbf, msg, min_value, max_value = secp256k1.rangeproof_rewind(
+        range_proof, nonce, commit, script_pubkey.data, gen, message_length
+    )
     if len(msg) < 64:
         raise TransactionError("Rangeproof message is too small")
     asset = msg[:32]
@@ -77,7 +93,8 @@ def unblind(pubkey:bytes, blinding_key:bytes, range_proof:bytes, value_commitmen
     extra = msg[64:]
     # vbf[:16]+vbf[16:] is an ugly copy that works both in micropython and python3
     # not sure why rewind() changes previous values after a fresh new call, but this is a fix...
-    return value, asset, vbf[:16]+vbf[16:], abf, extra, min_value, max_value
+    return value, asset, vbf[:16] + vbf[16:], abf, extra, min_value, max_value
+
 
 class Proof(EmbitBase):
     def __init__(self, data=b""):
@@ -100,18 +117,35 @@ class Proof(EmbitBase):
 
 
 class RangeProof(Proof):
-
-    def unblind(self, ecdh_pubkey, blinding_key, value, asset, script_pubkey, message_length=64):
+    def unblind(
+        self, ecdh_pubkey, blinding_key, value, asset, script_pubkey, message_length=64
+    ):
         if not self.data:
             raise TransactionError("Rangeproof is empty")
-        return unblind(ecdh_pubkey, blinding_key, self.data, value, asset, script_pubkey, message_length)
+        return unblind(
+            ecdh_pubkey,
+            blinding_key,
+            self.data,
+            value,
+            asset,
+            script_pubkey,
+            message_length,
+        )
 
 
 class TxInWitness(EmbitBase):
-    def __init__(self, amount_proof=None, token_proof=None, script_witness=None, pegin_witness=None):
+    def __init__(
+        self,
+        amount_proof=None,
+        token_proof=None,
+        script_witness=None,
+        pegin_witness=None,
+    ):
         self.amount_proof = amount_proof if amount_proof is not None else Proof()
         self.token_proof = token_proof if token_proof is not None else Proof()
-        self.script_witness = script_witness if script_witness is not None else Witness([])
+        self.script_witness = (
+            script_witness if script_witness is not None else Witness([])
+        )
         self.pegin_witness = pegin_witness if pegin_witness is not None else Witness([])
 
     def write_to(self, stream):
@@ -123,15 +157,28 @@ class TxInWitness(EmbitBase):
 
     @property
     def is_empty(self):
-        return self.amount_proof.is_empty and self.token_proof.is_empty and len(self.script_witness.items)==0 and len(self.pegin_witness.items)==0
+        return (
+            self.amount_proof.is_empty
+            and self.token_proof.is_empty
+            and len(self.script_witness.items) == 0
+            and len(self.pegin_witness.items) == 0
+        )
 
     @classmethod
     def read_from(cls, stream):
-        return cls(Proof.read_from(stream), Proof.read_from(stream), Witness.read_from(stream), Witness.read_from(stream))
+        return cls(
+            Proof.read_from(stream),
+            Proof.read_from(stream),
+            Witness.read_from(stream),
+            Witness.read_from(stream),
+        )
+
 
 class TxOutWitness(EmbitBase):
     def __init__(self, surjection_proof=None, range_proof=None):
-        self.surjection_proof = surjection_proof if surjection_proof is not None else Proof()
+        self.surjection_proof = (
+            surjection_proof if surjection_proof is not None else Proof()
+        )
         self.range_proof = range_proof if range_proof is not None else RangeProof()
 
     def write_to(self, stream):
@@ -149,7 +196,6 @@ class TxOutWitness(EmbitBase):
 
 
 class LTransaction(Transaction):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._hash_rangeproofs = None
@@ -216,7 +262,9 @@ class LTransaction(Transaction):
         num_vout = compact.read_from(stream)
         h.update(compact.to_bytes(num_vout))
         if idx >= num_vout or idx < 0:
-            raise TransactionError("Invalid vout index %d, max is %d"  % (idx, num_vout-1))
+            raise TransactionError(
+                "Invalid vout index %d, max is %d" % (idx, num_vout - 1)
+            )
         res = None
         for i in range(num_vout):
             vout = LTransactionOutput.read_from(stream)
@@ -281,12 +329,18 @@ class LTransaction(Transaction):
             self._hash_outputs = h.digest()
         return self._hash_outputs
 
-    def sighash_segwit(self, input_index, script_pubkey, value, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)):
+    def sighash_segwit(
+        self,
+        input_index,
+        script_pubkey,
+        value,
+        sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF),
+    ):
         if input_index < 0 or input_index >= len(self.vin):
             raise LTransactionError("Invalid input index")
         sh, anyonecanpay, hash_rangeproofs = LSIGHASH.check(sighash)
         inp = self.vin[input_index]
-        zero = b"\x00"*32 # for sighashes
+        zero = b"\x00" * 32  # for sighashes
         h = hashlib.sha256()
         h.update(self.version.to_bytes(4, "little"))
         if anyonecanpay:
@@ -302,7 +356,7 @@ class LTransaction(Transaction):
         h.update(inp.vout.to_bytes(4, "little"))
         h.update(script_pubkey.serialize())
         if isinstance(value, int):
-            h.update(b"\x01"+value.to_bytes(8, 'big'))
+            h.update(b"\x01" + value.to_bytes(8, "big"))
         else:
             h.update(value)
         h.update(inp.sequence.to_bytes(4, "little"))
@@ -313,19 +367,30 @@ class LTransaction(Transaction):
             if hash_rangeproofs:
                 h.update(hashlib.sha256(self.hash_rangeproofs()).digest())
         elif sh == SIGHASH.SINGLE and input_index < len(self.vout):
-            h.update(hashlib.sha256(hashlib.sha256(self.vout[input_index].serialize()).digest()).digest())
+            h.update(
+                hashlib.sha256(
+                    hashlib.sha256(self.vout[input_index].serialize()).digest()
+                ).digest()
+            )
             if hash_rangeproofs:
-                h.update(hashlib.sha256(hashlib.sha256(self.vout[input_index].witness.serialize()).digest()).digest())
+                h.update(
+                    hashlib.sha256(
+                        hashlib.sha256(
+                            self.vout[input_index].witness.serialize()
+                        ).digest()
+                    ).digest()
+                )
         else:
             h.update(zero)
         h.update(self.locktime.to_bytes(4, "little"))
         h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
+
 class AssetIssuance(EmbitBase):
     def __init__(self, nonce, entropy, amount_commitment, token_commitment=None):
-        self.nonce = nonce or b"\x00"*32
-        self.entropy = entropy or b"\x00"*32
+        self.nonce = nonce or b"\x00" * 32
+        self.entropy = entropy or b"\x00" * 32
         self.amount_commitment = amount_commitment
         self.token_commitment = token_commitment
 
@@ -352,8 +417,18 @@ class AssetIssuance(EmbitBase):
         res += stream.write(write_commitment(self.token_commitment))
         return res
 
+
 class LTransactionInput(TransactionInput):
-    def __init__(self, txid, vout, script_sig=None, sequence=0xFFFFFFFF, witness=None, is_pegin=False, asset_issuance=None):
+    def __init__(
+        self,
+        txid,
+        vout,
+        script_sig=None,
+        sequence=0xFFFFFFFF,
+        witness=None,
+        is_pegin=False,
+        asset_issuance=None,
+    ):
         super().__init__(txid, vout, script_sig, sequence, witness)
         self.is_pegin = is_pegin
         self.asset_issuance = asset_issuance
@@ -364,9 +439,9 @@ class LTransactionInput(TransactionInput):
             script_sig = self.script_sig
         vout = self.vout
         if self.has_issuance:
-            vout += (1<<31)
+            vout += 1 << 31
         if self.is_pegin:
-            vout += (1<<30)
+            vout += 1 << 30
         res = stream.write(bytes(reversed(self.txid)))
         res += stream.write(vout.to_bytes(4, "little"))
         res += script_sig.write_to(stream)
@@ -388,14 +463,21 @@ class LTransactionInput(TransactionInput):
             has_issuance = vout & (1 << 31) != 0
             if has_issuance:
                 asset_issuance = AssetIssuance.read_from(stream)
-            # remove issue and pegin flags 
+            # remove issue and pegin flags
             vout &= 0x3FFFFFFF
-        return cls(txid, vout, script_sig, sequence, is_pegin=is_pegin, asset_issuance=asset_issuance)
+        return cls(
+            txid,
+            vout,
+            script_sig,
+            sequence,
+            is_pegin=is_pegin,
+            asset_issuance=asset_issuance,
+        )
 
     @property
     def has_issuance(self):
         return self.asset_issuance is not None
-    
+
 
 class LTransactionOutput(TransactionOutput):
     def __init__(self, asset, value, script_pubkey, ecdh_pubkey=None, witness=None):
@@ -436,7 +518,15 @@ class LTransactionOutput(TransactionOutput):
         if not self.is_blinded:
             return self.value, self.asset, None, None, None, None
 
-        return unblind(self.ecdh_pubkey, blinding_key, self.witness.range_proof.data, self.value, self.asset, self.script_pubkey, message_length)
+        return unblind(
+            self.ecdh_pubkey,
+            blinding_key,
+            self.witness.range_proof.data,
+            self.value,
+            self.asset,
+            self.script_pubkey,
+            message_length,
+        )
 
     @classmethod
     def read_from(cls, stream):

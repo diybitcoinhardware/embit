@@ -344,7 +344,9 @@ class Slip39Test(TestCase):
         ]
         for test_name, mnemonics, expected in test_cases:
             share_set = ShareSet([Share.parse(m) for m in mnemonics])
-            self.assertEqual(share_set.recover(b"TREZOR"), unhexlify(expected), test_name)
+            self.assertEqual(
+                share_set.recover(b"TREZOR"), unhexlify(expected), test_name
+            )
 
     def test_split(self):
         secret = unhexlify("7c3397a292a5941682d7a4ae2d898d11")
@@ -353,7 +355,10 @@ class Slip39Test(TestCase):
             self.assertEqual(secret, ShareSet.interpolate(255, share_data[:k]))
 
     def test_generate(self):
-        test_cases = ["zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong", "void come effort suffer camp survey warrior heavy shoot primary clutch crush open amazing screen patrol group space point ten exist slush involve unfold"]
+        test_cases = [
+            "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong",
+            "void come effort suffer camp survey warrior heavy shoot primary clutch crush open amazing screen patrol group space point ten exist slush involve unfold",
+        ]
         for bip39_mnemonic in test_cases:
             passphrase = b"embittest"
             for k, n in ((2, 3), (3, 5), (5, 5), (9, 9), (13, 15), (2, 8)):
@@ -367,12 +372,18 @@ class Slip39Test(TestCase):
 
     def test_deterministic(self):
         arr = ShareSet.generate_shares(
-            "abandon "*11+"about", 2, 3, passphrase=b"qwe",
+            "abandon " * 11 + "about",
+            2,
+            3,
+            passphrase=b"qwe",
             exponent=1,
-            randint=lambda v1,v2: 7 # very non-random rng
+            randint=lambda v1, v2: 7,  # very non-random rng
         )
-        self.assertEqual(arr, [
-            "academic discuss acrobat leader ambition human stay item benefit ladle endless season empty install reaction jewelry adapt lift idea victim",
-            "academic discuss beard leader beaver argue geology ivory muscle prisoner forward aluminum sugar float ancient daisy legs verify railroad general",
-            "academic discuss ceramic leader dragon preach pipeline shelter branch roster away envy resident crazy payroll staff adapt crush closet burning",
-        ])
+        self.assertEqual(
+            arr,
+            [
+                "academic discuss acrobat leader ambition human stay item benefit ladle endless season empty install reaction jewelry adapt lift idea victim",
+                "academic discuss beard leader beaver argue geology ivory muscle prisoner forward aluminum sugar float ancient daisy legs verify railroad general",
+                "academic discuss ceramic leader dragon preach pipeline shelter branch roster away envy resident crazy payroll staff adapt crush closet burning",
+            ],
+        )

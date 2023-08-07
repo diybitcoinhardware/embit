@@ -22,20 +22,23 @@
 
 CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
+
 def bech32_polymod(values):
     """Internal function that computes the Bech32 checksum."""
     generator = [
         # ELEMENTS
-        0x7d52fba40bd886,
-        0x5e8dbf1a03950c,
-        0x1c3a3c74072a18,
-        0x385d72fa0e5139,
-        0x7093e5a608865b,
+        0x7D52FBA40BD886,
+        0x5E8DBF1A03950C,
+        0x1C3A3C74072A18,
+        0x385D72FA0E5139,
+        0x7093E5A608865B,
     ]
     chk = 1
     for value in values:
-        top = chk >> 55 # ELEMENTS: 25->55
-        chk = (chk & 0x7fffffffffffff) << 5 ^ value # ELEMENTS 0x1ffffff->0x7fffffffffffff
+        top = chk >> 55  # ELEMENTS: 25->55
+        chk = (
+            chk & 0x7FFFFFFFFFFFFF
+        ) << 5 ^ value  # ELEMENTS 0x1ffffff->0x7fffffffffffff
         for i in range(5):
             chk ^= generator[i] if ((top >> i) & 1) else 0
     return chk
@@ -54,29 +57,30 @@ def bech32_verify_checksum(hrp, data):
 def bech32_create_checksum(hrp, data):
     """Compute the checksum values given HRP and data."""
     values = bech32_hrp_expand(hrp) + data
-    polymod = bech32_polymod(values + [0]*12) ^ 1
-    return [(polymod >> 5 * (11 - i)) & 0x1f for i in range(12)]
+    polymod = bech32_polymod(values + [0] * 12) ^ 1
+    return [(polymod >> 5 * (11 - i)) & 0x1F for i in range(12)]
 
 
 def bech32_encode(hrp, data):
     """Compute a Bech32 string given HRP and data values."""
     combined = data + bech32_create_checksum(hrp, data)
-    return hrp + '1' + ''.join([CHARSET[d] for d in combined])
+    return hrp + "1" + "".join([CHARSET[d] for d in combined])
 
 
 def bech32_decode(bech):
     """Validate a Bech32 string, and determine HRP and data."""
-    if ((any(ord(x) < 33 or ord(x) > 126 for x in bech)) or
-            (bech.lower() != bech and bech.upper() != bech)):
+    if (any(ord(x) < 33 or ord(x) > 126 for x in bech)) or (
+        bech.lower() != bech and bech.upper() != bech
+    ):
         return (None, None)
     bech = bech.lower()
-    pos = bech.rfind('1')
+    pos = bech.rfind("1")
     if pos < 1 or pos + 7 > len(bech):
         return (None, None)
-    if not all(x in CHARSET for x in bech[pos+1:]):
+    if not all(x in CHARSET for x in bech[pos + 1 :]):
         return (None, None)
     hrp = bech[:pos]
-    data = [CHARSET.find(x) for x in bech[pos+1:]]
+    data = [CHARSET.find(x) for x in bech[pos + 1 :]]
     if not bech32_verify_checksum(hrp, data):
         return (None, None)
     return (hrp, data[:-12])

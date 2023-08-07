@@ -1,29 +1,25 @@
-import sys
-
-if sys.implementation.name == "micropython":
-    import secp256k1
-else:
-    from .util import secp256k1
 from . import ec
-from .base import EmbitKey, EmbitError, copy
+from .base import EmbitKey, EmbitError
+from .misc import copy, const, secp256k1
 from .networks import NETWORKS
 from . import base58
 from . import hashes
 import hmac
 from binascii import hexlify
 
-HARDENED_INDEX = 0x80000000
+HARDENED_INDEX = const(0x80000000)
+
 
 class HDError(EmbitError):
     pass
 
 
 class HDKey(EmbitKey):
-    """ HD Private or Public key """
+    """HD Private or Public key"""
 
     def __init__(
         self,
-        key,
+        key: EmbitKey,  # more specifically, PrivateKey or PublicKey
         chain_code: bytes,
         version=None,
         depth: int = 0,
@@ -43,7 +39,7 @@ class HDKey(EmbitKey):
         self.chain_code = chain_code
         self.depth = depth
         self.fingerprint = fingerprint
-        self._my_fingerprint = None
+        self._my_fingerprint = b""
         self.child_number = child_number
         # check that base58[1:4] is "prv" or "pub"
         if self.is_private and self.to_base58()[1:4] != "prv":
@@ -54,7 +50,7 @@ class HDKey(EmbitKey):
     @classmethod
     def from_seed(cls, seed: bytes, version=NETWORKS["main"]["xprv"]):
         """Creates a root private key from 64-byte seed"""
-        raw = hmac.new(b"Bitcoin seed", seed, digestmod='sha512').digest()
+        raw = hmac.new(b"Bitcoin seed", seed, digestmod="sha512").digest()
         private_key = ec.PrivateKey(raw[:32])
         chain_code = raw[32:]
         return cls(private_key, chain_code, version=version)
@@ -65,15 +61,15 @@ class HDKey(EmbitKey):
         return cls.parse(b)
 
     @property
-    def my_fingerprint(self):
-        if self._my_fingerprint is None:
+    def my_fingerprint(self) -> bytes:
+        if not self._my_fingerprint:
             sec = self.sec()
             self._my_fingerprint = hashes.hash160(sec)[:4]
         return self._my_fingerprint
 
     @property
     def is_private(self) -> bool:
-        """ checks if the HDKey is private or public """
+        """checks if the HDKey is private or public"""
         return self.key.is_private
 
     @property
@@ -199,7 +195,7 @@ class HDKey(EmbitKey):
             data = b"\x00" + self.key.serialize() + index.to_bytes(4, "big")
         else:
             data = sec + index.to_bytes(4, "big")
-        raw = hmac.new(self.chain_code, data, digestmod='sha512').digest()
+        raw = hmac.new(self.chain_code, data, digestmod="sha512").digest()
         secret = raw[:32]
         chain_code = raw[32:]
         if self.is_private:
@@ -220,7 +216,7 @@ class HDKey(EmbitKey):
         )
 
     def derive(self, path):
-        """ path: int array or a string starting with m/ """
+        """path: int array or a string starting with m/"""
         if isinstance(path, str):
             # string of the form m/44h/0'/ind
             path = parse_path(path)
@@ -282,22 +278,21 @@ def detect_version(path, default="xprv", network=None) -> bytes:
     return net[key]
 
 
+def _parse_der_item(e: str) -> int:
+    if e[-1] in {"h", "H", "'"}:
+        return int(e[:-1]) + HARDENED_INDEX
+    else:
+        return int(e)
+
+
 def parse_path(path: str) -> list:
     """converts derivation path of the form m/44h/1'/0'/0/32 to int array"""
-    arr = path.split("/")
+    arr = path.rstrip("/").split("/")
     if arr[0] == "m":
         arr = arr[1:]
     if len(arr) == 0:
         return []
-    if arr[-1] == "":
-        # trailing slash
-        arr = arr[:-1]
-    for i, e in enumerate(arr):
-        if e[-1] in ["h", "H", "'"]:
-            arr[i] = int(e[:-1]) + HARDENED_INDEX
-        else:
-            arr[i] = int(e)
-    return arr
+    return [_parse_der_item(e) for e in arr]
 
 
 def path_to_str(path: list, fingerprint=None) -> str:

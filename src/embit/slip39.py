@@ -1,37 +1,9 @@
 import hmac
-import sys
 import hashlib
 from .bip39 import mnemonic_from_bytes, mnemonic_to_bytes
-
+from .misc import secure_randint
 from .wordlists.slip39 import SLIP39_WORDS
 
-try:
-    # if urandom is available from os module:
-    from os import urandom as _urandom
-except:
-    # otherwise - try reading from /dev/urandom
-    def _urandom(n):
-        with open("/dev/urandom", "rb") as f:
-            return f.read(n)
-
-def _getrandbits(k):
-    b = _urandom(k//8+1)
-    return int.from_bytes(b,'big') % (2**k)
-
-def secure_randint(vmin:int, vmax:int) -> int:
-    """
-    Normal random.randint uses PRNG that is not suitable
-    for cryptographic applications.
-    This one uses os.urandom for randomness.
-    """
-    import math
-    assert vmax > vmin
-    delta = vmax - vmin
-    nbits = math.ceil(math.log2(delta+1))
-    randn = _getrandbits(nbits)
-    while randn > delta:
-        randn = _getrandbits(nbits)
-    return vmin + randn
 
 # functions for SLIP39 checksum
 def rs1024_polymod(values):
@@ -105,9 +77,7 @@ class Share:
         self.exponent = exponent
         self.group_index = group_index
         if group_index < 0 or group_index > 15:
-            raise ValueError(
-                "Group index should be between 0 and 15 inclusive"
-            )
+            raise ValueError("Group index should be between 0 and 15 inclusive")
         self.group_threshold = group_threshold
         if group_threshold < 1 or group_threshold > group_count:
             raise ValueError(
@@ -115,19 +85,13 @@ class Share:
             )
         self.group_count = group_count
         if group_count < 1 or group_count > 16:
-            raise ValueError(
-                "Group count should be between 1 and 16 inclusive"
-            )
+            raise ValueError("Group count should be between 1 and 16 inclusive")
         self.member_index = member_index
         if member_index < 0 or member_index > 15:
-            raise ValueError(
-                "Member index should be between 0 and 15 inclusive"
-            )
+            raise ValueError("Member index should be between 0 and 15 inclusive")
         self.member_threshold = member_threshold
         if member_threshold < 1 or member_threshold > 16:
-            raise ValueError(
-                "Member threshold should be between 1 and 16 inclusive"
-            )
+            raise ValueError("Member threshold should be between 1 and 16 inclusive")
         self.value = value
         self.bytes = value.to_bytes(share_bit_length // 8, "big")
 
@@ -189,11 +153,12 @@ class Share:
 
 
 class ShareSet:
+    exp = bytearray(255)
+    log2 = bytearray(256)
+
     @classmethod
     def _load(cls):
         """Pre-computes the exponent/log for LaGrange calculation"""
-        cls.exp = [0] * 255
-        cls.log2 = [0] * 256
         cur = 1
         for i in range(255):
             cls.exp[i] = cur
@@ -341,7 +306,8 @@ class ShareSet:
             digest = cls.digest(r, secret)
             digest_share = digest + r
             share_data = [
-                (i, bytes(randint(0, 255) for _ in range(num_bytes))) for i in range(k - 2)
+                (i, bytes(randint(0, 255) for _ in range(num_bytes)))
+                for i in range(k - 2)
             ]
             more_data = share_data.copy()
             share_data.append((254, digest_share))
@@ -351,9 +317,12 @@ class ShareSet:
         return more_data
 
     @classmethod
-    def generate_shares(cls, mnemonic, k, n, passphrase=b"", exponent=0, randint=secure_randint):
+    def generate_shares(
+        cls, mnemonic, k, n, passphrase=b"", exponent=0, randint=secure_randint
+    ):
         """Takes a BIP39 mnemonic along with k, n, passphrase and exponent.
-        Returns a list of SLIP39 mnemonics, any k of of which, along with the passphrase, recover the secret"""
+        Returns a list of SLIP39 mnemonics, any k of of which, along with the passphrase, recover the secret
+        """
         # convert mnemonic to a shared secret
         secret = mnemonic_to_bytes(mnemonic)
         num_bits = len(secret) * 8

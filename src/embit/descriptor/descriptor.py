@@ -9,14 +9,15 @@ from .taptree import TapTree
 
 
 class Descriptor(DescriptorBase):
-    def __init__(self,
-        miniscript = None,
-        sh = False,
-        wsh = True,
-        key = None,
-        wpkh = True,
-        taproot = False,
-        taptree = None,
+    def __init__(
+        self,
+        miniscript=None,
+        sh=False,
+        wsh=True,
+        key=None,
+        wpkh=True,
+        taproot=False,
+        taptree=None,
     ):
         # TODO: add support for taproot scripts
         # Should:
@@ -31,17 +32,12 @@ class Descriptor(DescriptorBase):
             miniscript.verify()
             if miniscript.type != "B":
                 raise DescriptorError("Top level miniscript should be 'B'")
-            branches = [k.branches for k in miniscript.keys]
-            branch = None
-            for b in branches:
-                if b is not None:
-                    if branch is None:
-                        branch = b
-                    else:
-                        if len(branch) != len(b):
-                            raise DescriptorError(
-                                "All branches should have the same length"
-                            )
+            # check all branches have the same length
+            branches = {
+                len(k.branches) for k in miniscript.keys if k.branches is not None
+            }
+            if len(branches) > 1:
+                raise DescriptorError("All branches should have the same length")
         self.sh = sh
         self.wsh = wsh
         self.key = key
@@ -56,12 +52,12 @@ class Descriptor(DescriptorBase):
     @property
     def script_len(self):
         if self.taproot:
-            return 34 # OP_1 <32:xonly>
+            return 34  # OP_1 <32:xonly>
         if self.miniscript:
             return len(self.miniscript)
         if self.wpkh:
-            return 22 # 00 <20:pkh>
-        return 25 # OP_DUP OP_HASH160 <20:pkh> OP_EQUALVERIFY OP_CHECKSIG
+            return 22  # 00 <20:pkh>
+        return 25  # OP_DUP OP_HASH160 <20:pkh> OP_EQUALVERIFY OP_CHECKSIG
 
     @property
     def num_branches(self):
@@ -88,7 +84,6 @@ class Descriptor(DescriptorBase):
                 self.taptree.branch(branch_index),
             )
 
-
     @property
     def is_wildcard(self):
         return any([key.is_wildcard for key in self.keys])
@@ -104,7 +99,9 @@ class Descriptor(DescriptorBase):
     @property
     def is_segwit(self):
         # TODO: is taproot segwit?
-        return (self.wsh and self.miniscript) or (self.wpkh and self.key) or self.taproot
+        return (
+            (self.wsh and self.miniscript) or (self.wpkh and self.key) or self.taproot
+        )
 
     @property
     def is_pkh(self):
@@ -200,7 +197,6 @@ class Descriptor(DescriptorBase):
                 self.taptree.to_public(),
             )
 
-
     def owns(self, psbt_scope):
         """Checks if psbt input or output belongs to this descriptor"""
         # we can't check if we don't know script_pubkey
@@ -219,7 +215,7 @@ class Descriptor(DescriptorBase):
                     idx, branch_idx = res
                     sc = self.derive(idx, branch_index=branch_idx).script_pubkey()
                     # if derivation is found but scriptpubkey doesn't match - fail
-                    return (sc == psbt_scope.script_pubkey)
+                    return sc == psbt_scope.script_pubkey
         for pub, (leafs, der) in psbt_scope.taproot_bip32_derivations.items():
             # check of the fingerprints
             for k in self.keys:
@@ -230,7 +226,7 @@ class Descriptor(DescriptorBase):
                     idx, branch_idx = res
                     sc = self.derive(idx, branch_index=branch_idx).script_pubkey()
                     # if derivation is found but scriptpubkey doesn't match - fail
-                    return (sc == psbt_scope.script_pubkey)
+                    return sc == psbt_scope.script_pubkey
         return False
 
     def check_derivation(self, derivation_path):
@@ -359,7 +355,7 @@ class Descriptor(DescriptorBase):
             key=key,
             wpkh=wpkh,
             taproot=taproot,
-            taptree=taptree
+            taptree=taptree,
         )
 
     def to_string(self):

@@ -6,8 +6,7 @@ from ..script import Script
 
 
 class TapLeaf(DescriptorBase):
-
-    def __init__(self, miniscript=None, version = 0xc0):
+    def __init__(self, miniscript=None, version=0xC0):
         self.miniscript = miniscript
         self.version = version
 
@@ -22,7 +21,7 @@ class TapLeaf(DescriptorBase):
     def serialize(self):
         if self.miniscript is None:
             return b""
-        return bytes([self.version])+Script(self.miniscript.compile()).serialize()
+        return bytes([self.version]) + Script(self.miniscript.compile()).serialize()
 
     @property
     def keys(self):
@@ -52,6 +51,7 @@ class TapLeaf(DescriptorBase):
             self.version,
         )
 
+
 def _tweak_helper(tree):
     # https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
     if isinstance(tree, TapTree):
@@ -62,13 +62,13 @@ def _tweak_helper(tree):
         return ([(tree, b"")], h)
     left, left_h = _tweak_helper(tree[0])
     right, right_h = _tweak_helper(tree[1])
-    ret = (
-        [(leaf, c + right_h) for leaf, c in left] +
-        [(leaf, c + left_h) for leaf, c in right]
-    )
+    ret = [(leaf, c + right_h) for leaf, c in left] + [
+        (leaf, c + left_h) for leaf, c in right
+    ]
     if right_h < left_h:
         left_h, right_h = right_h, left_h
     return (ret, tagged_hash("TapBranch", left_h + right_h))
+
 
 class TapTree(DescriptorBase):
     def __init__(self, tree=None):
@@ -101,7 +101,7 @@ class TapTree(DescriptorBase):
         c = s.read(1)
         if len(c) == 0:
             return cls()
-        if c == b"{": # more than one miniscript
+        if c == b"{":  # more than one miniscript
             left = cls.read_from(s)
             c = s.read(1)
             if c == b"}":
@@ -138,8 +138,9 @@ class TapTree(DescriptorBase):
         if isinstance(self.tree, TapLeaf):
             return type(self)(self.tree.to_public(*args, **kwargs))
         left, right = self.tree
-        return type(self)((left.to_public(*args, **kwargs),
-                           right.to_public(*args, **kwargs)))
+        return type(self)(
+            (left.to_public(*args, **kwargs), right.to_public(*args, **kwargs))
+        )
 
     def __str__(self):
         if self.tree is None:

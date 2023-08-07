@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=42.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "embit"
+version = "0.7.0"
+description="A minimal bitcoin library for MicroPython and Python3 with a focus on embedded systems."
+readme = "README.md"
+authors = [
+    {name = "Stepan Snigirev", email = "snigirev.stepan@gmail.com"},
+]
+classifiers = [
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "requests", # for integration tests
+    "mypy",
+    "black",
+    "pre-commit",
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+embit = ["util/prebuilt/*"]
+
+
+[tool.pytest.ini_options]
+addopts = "--cov=embit"
+testpaths = [
+    "tests/tests",
+]
+
+[tool.coverage.run]
+omit = [
+    "*/liquid/*",
+]
+
+[tool.mypy]
+mypy_path = "src"
+namespace_packages = true
+check_untyped_defs = true
+disallow_any_generics = true
+ignore_missing_imports = true
+no_implicit_optional = true
+show_error_codes = true
+strict_equality = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_configs = true
+no_implicit_reexport = false
+

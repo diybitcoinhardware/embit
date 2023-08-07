@@ -4,7 +4,11 @@ class WordlistBase:
 
     def __getitem__(self, n):
         if isinstance(n, slice):
-            (start, stop, step) = (n.start or 0, n.stop if n.stop is not None else len(self), n.step or 1)
+            (start, stop, step) = (
+                n.start or 0,
+                n.stop if n.stop is not None else len(self),
+                n.step or 1,
+            )
             if start < 0:
                 start += len(self)
             if stop < 0:
@@ -26,4 +30,4 @@ class WordlistBase:
         return idx
 
     def __contains__(self, word):
-        return (self._mod.index(word) >= 0)
+        return self._mod.index(word) >= 0

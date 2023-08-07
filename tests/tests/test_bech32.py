@@ -88,7 +88,7 @@ INVALID_ADDRESS = [
     "bc1zw508d6qejxtdg4y5r3zarvaryvqyzf3du",
     "tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3pjxtptv",
     "bc1gmk9yu",
-    "bc1pw2knldczhudzzydsns4lree0fafdfn4j4nw0e5xx82lhpfvuxmtqwl4cdu", # should use bech32m, but uses bech32
+    "bc1pw2knldczhudzzydsns4lree0fafdfn4j4nw0e5xx82lhpfvuxmtqwl4cdu",  # should use bech32m, but uses bech32
 ]
 
 INVALID_ADDRESS_ENC = [
@@ -121,7 +121,7 @@ class Bech32Test(TestCase):
 
     def test_valid_address(self):
         """Test whether valid addresses decode to the correct output."""
-        for (address, hexscript) in VALID_ADDRESS:
+        for address, hexscript in VALID_ADDRESS:
             hrp = address.split("1")[0].lower()
             witver, witprog = segwit_addr.decode(hrp, address)
             self.assertIsNotNone(witver)

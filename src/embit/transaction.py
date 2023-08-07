@@ -1,20 +1,22 @@
 import hashlib
 from . import compact
-from .script import Script, Witness
 from . import hashes
 from .base import EmbitBase, EmbitError
+from .script import Script, Witness
+from .misc import const
 
 
 class TransactionError(EmbitError):
     pass
 
+
 # micropython doesn't support typing and Enum
 class SIGHASH:
-    DEFAULT = 0
-    ALL = 1
-    NONE = 2
-    SINGLE = 3
-    ANYONECANPAY = 0x80
+    DEFAULT = const(0)
+    ALL = const(1)
+    NONE = const(2)
+    SINGLE = const(3)
+    ANYONECANPAY = const(0x80)
 
     @classmethod
     def check(cls, sighash: int):
@@ -27,7 +29,9 @@ class SIGHASH:
             raise TransactionError("Invalid SIGHASH type")
         return sighash, anyonecanpay
 
+
 # util functions
+
 
 def hash_amounts(amounts):
     h = hashlib.sha256()
@@ -35,11 +39,13 @@ def hash_amounts(amounts):
         h.update(a.to_bytes(8, "little"))
     return h.digest()
 
+
 def hash_script_pubkeys(script_pubkeys):
     h = hashlib.sha256()
     for sc in script_pubkeys:
         h.update(sc.serialize())
     return h.digest()
+
 
 # API similar to bitcoin-cli decoderawtransaction
 
@@ -121,7 +127,9 @@ class Transaction(EmbitBase):
         num_vout = compact.read_from(stream)
         h.update(compact.to_bytes(num_vout))
         if idx >= num_vout or idx < 0:
-            raise TransactionError("Invalid vout index %d, max is %d" % (idx, num_vout-1))
+            raise TransactionError(
+                "Invalid vout index %d, max is %d" % (idx, num_vout - 1)
+            )
         res = None
         for i in range(num_vout):
             vout = TransactionOutput.read_from(stream)
@@ -193,16 +201,17 @@ class Transaction(EmbitBase):
             self._hash_script_pubkeys = hash_script_pubkeys(script_pubkeys)
         return self._hash_script_pubkeys
 
-    def sighash_taproot(self,
-                        input_index,
-                        script_pubkeys,
-                        values,
-                        sighash=SIGHASH.DEFAULT,
-                        ext_flag=0,
-                        annex=None,
-                        script=None,
-                        leaf_version=0xc0,
-                        codeseparator_pos=None,
+    def sighash_taproot(
+        self,
+        input_index,
+        script_pubkeys,
+        values,
+        sighash=SIGHASH.DEFAULT,
+        ext_flag=0,
+        annex=None,
+        script=None,
+        leaf_version=0xC0,
+        codeseparator_pos=None,
     ):
         """check out bip-341"""
         if input_index < 0 or input_index >= len(self.vin):
@@ -222,7 +231,7 @@ class Transaction(EmbitBase):
         if sh not in [SIGHASH.SINGLE, SIGHASH.NONE]:
             h.update(self.hash_outputs())
         # data about this input
-        h.update(bytes([2*ext_flag+int(annex is not None)]))
+        h.update(bytes([2 * ext_flag + int(annex is not None)]))
         if anyonecanpay:
             h.update(self.vin[input_index].serialize())
             h.update(values[input_index].to_bytes(8, "little"))
@@ -231,18 +240,20 @@ class Transaction(EmbitBase):
         else:
             h.update(input_index.to_bytes(4, "little"))
         if annex is not None:
-            h.update(hashes.sha256(compact.to_bytes(len(annex))+annex))
+            h.update(hashes.sha256(compact.to_bytes(len(annex)) + annex))
         if sh == SIGHASH.SINGLE:
             h.update(self.vout[input_index].serialize())
         if script is not None:
             h.update(
-                hashes.tagged_hash("TapLeaf", bytes([leaf_version])+script.serialize())
+                hashes.tagged_hash(
+                    "TapLeaf", bytes([leaf_version]) + script.serialize()
+                )
             )
             h.update(b"\x00")
             h.update(
                 b"\xff\xff\xff\xff"
                 if codeseparator_pos is None
-                else codeseparator_pos.to_bytes(4,'little')
+                else codeseparator_pos.to_bytes(4, "little")
             )
         return h.digest()
 
@@ -255,7 +266,7 @@ class Transaction(EmbitBase):
         if sh == SIGHASH.DEFAULT:
             sh = SIGHASH.ALL
         inp = self.vin[input_index]
-        zero = b"\x00"*32 # for sighashes
+        zero = b"\x00" * 32  # for sighashes
         h = hashlib.sha256()
         h.update(self.version.to_bytes(4, "little"))
         if anyonecanpay:
@@ -274,9 +285,11 @@ class Transaction(EmbitBase):
         if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
             h.update(hashlib.sha256(self.hash_outputs()).digest())
         elif sh == SIGHASH.SINGLE and input_index < len(self.vout):
-            h.update(hashlib.sha256(
-                hashlib.sha256(self.vout[input_index].serialize()).digest()
-            ).digest())
+            h.update(
+                hashlib.sha256(
+                    hashlib.sha256(self.vout[input_index].serialize()).digest()
+                ).digest()
+            )
         else:
             h.update(zero)
         h.update(self.locktime.to_bytes(4, "little"))
@@ -291,7 +304,7 @@ class Transaction(EmbitBase):
             sh = SIGHASH.ALL
         # no corresponding output for this input, we sign 00...01
         if sh == SIGHASH.SINGLE and input_index >= len(self.vout):
-            return b"\x00"*31+b"\x01"
+            return b"\x00" * 31 + b"\x01"
 
         h = hashlib.sha256()
         h.update(self.version.to_bytes(4, "little"))
@@ -311,7 +324,7 @@ class Transaction(EmbitBase):
             h.update(compact.to_bytes(0))
         # one output on the same index, others are empty
         elif sh == SIGHASH.SINGLE:
-            h.update(compact.to_bytes(input_index+1))
+            h.update(compact.to_bytes(input_index + 1))
             empty = TransactionOutput(0xFFFFFFFF, Script(b"")).serialize()
             # this way we commit to input index
             for i in range(input_index):

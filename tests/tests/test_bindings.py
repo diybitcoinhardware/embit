@@ -6,7 +6,7 @@ from embit.util import ctypes_secp256k1
 
 class BindingsTest(TestCase):
     def test_identity(self):
-        """ 1 * G """
+        """1 * G"""
         for secp256k1 in [py_secp256k1, ctypes_secp256k1]:
             answer = b"0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
             one = 1
@@ -32,8 +32,8 @@ class BindingsTest(TestCase):
         self.assertEqual(sig, py_secp256k1.ecdsa_sign(msg, secret))
 
         # check that extra data is handled in the same way
-        sig = ctypes_secp256k1.ecdsa_sign(msg, secret, None, b"1"*32)
-        self.assertEqual(sig, py_secp256k1.ecdsa_sign(msg, secret, None, b"1"*32))
+        sig = ctypes_secp256k1.ecdsa_sign(msg, secret, None, b"1" * 32)
+        self.assertEqual(sig, py_secp256k1.ecdsa_sign(msg, secret, None, b"1" * 32))
 
         compact = py_secp256k1.ecdsa_signature_serialize_compact(sig)
         der = py_secp256k1.ecdsa_signature_serialize_der(sig)
@@ -78,15 +78,15 @@ class BindingsTest(TestCase):
             self.assertEqual(pub, pub2)
 
     def test_schnorr(self):
-        for i in range(1,10):
-            secret = bytes([i]*32)
+        for i in range(1, 10):
+            secret = bytes([i] * 32)
             pub1 = ctypes_secp256k1.ec_pubkey_create(secret)
             pub2 = py_secp256k1.ec_pubkey_create(secret)
             self.assertEqual(pub1, pub2)
             pub1, par = ctypes_secp256k1.xonly_pubkey_from_pubkey(pub1)
             pub2, par = py_secp256k1.xonly_pubkey_from_pubkey(pub2)
             self.assertEqual(pub1, pub2)
-            msg = b"q"*32
+            msg = b"q" * 32
 
             # without aux data
             sig1 = ctypes_secp256k1.schnorrsig_sign(msg, secret)
@@ -94,8 +94,8 @@ class BindingsTest(TestCase):
             self.assertEqual(sig1, sig2)
 
             # with aux data
-            sig1 = ctypes_secp256k1.schnorrsig_sign(msg, secret, None, b"4"*32)
-            sig2 = py_secp256k1.schnorrsig_sign(msg, secret, None, b"4"*32)
+            sig1 = ctypes_secp256k1.schnorrsig_sign(msg, secret, None, b"4" * 32)
+            sig2 = py_secp256k1.schnorrsig_sign(msg, secret, None, b"4" * 32)
             self.assertEqual(sig1, sig2)
 
             self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig1, msg, pub1))
@@ -103,9 +103,12 @@ class BindingsTest(TestCase):
             self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig2, msg, pub1))
             self.assertTrue(py_secp256k1.schnorrsig_verify(sig1, msg, pub2))
 
-            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig1, b"w"*32, pub1))
-            self.assertFalse(py_secp256k1.schnorrsig_verify(sig2, b"w"*32, pub2))
-            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig2, b"w"*32, pub1))
-            self.assertFalse(py_secp256k1.schnorrsig_verify(sig1, b"w"*32, pub2))
+            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig1, b"w" * 32, pub1))
+            self.assertFalse(py_secp256k1.schnorrsig_verify(sig2, b"w" * 32, pub2))
+            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig2, b"w" * 32, pub1))
+            self.assertFalse(py_secp256k1.schnorrsig_verify(sig1, b"w" * 32, pub2))
 
-            self.assertEqual(ctypes_secp256k1.keypair_create(secret), py_secp256k1.keypair_create(secret))
+            self.assertEqual(
+                ctypes_secp256k1.keypair_create(secret),
+                py_secp256k1.keypair_create(secret),
+            )

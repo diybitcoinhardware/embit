@@ -1,5 +1,6 @@
+from ..misc import read_until
 from .errors import MiniscriptError
-from .base import DescriptorBase, read_until
+from .base import DescriptorBase
 from .arguments import Key, KeyHash, Number, Raw32, Raw20
 
 
@@ -32,8 +33,7 @@ class Miniscript(DescriptorBase):
 
     def to_public(self):
         args = [
-            arg.to_public() if hasattr(arg, "to_public") else arg
-            for arg in self.args
+            arg.to_public() if hasattr(arg, "to_public") else arg for arg in self.args
         ]
         return type(self)(*args)
 
@@ -115,11 +115,13 @@ class Miniscript(DescriptorBase):
     def len_args(self):
         return sum([len(arg) for arg in self.args])
 
+
 ########### Known fragments (miniscript operators) ##############
 
 
 class OneArg(Miniscript):
     NARGS = 1
+
     # small handy functions
     @property
     def arg(self):
@@ -157,6 +159,7 @@ class PkH(OneArg):
     def __len__(self):
         return self.len_args() + 3
 
+
 class Older(OneArg):
     # <n> CHECKSEQUENCEVERIFY
     NAME = "older"
@@ -176,6 +179,7 @@ class Older(OneArg):
 
     def __len__(self):
         return self.len_args() + 1
+
 
 class After(Older):
     # <n> CHECKLOCKTIMEVERIFY
@@ -197,6 +201,7 @@ class Sha256(OneArg):
 
     def __len__(self):
         return self.len_args() + 6
+
 
 class Hash256(Sha256):
     # SIZE <32> EQUALVERIFY HASH256 <h> EQUAL
@@ -231,7 +236,7 @@ class AndOr(Miniscript):
 
     @property
     def type(self):
-        # type: same as Y/Z
+        # same as Y/Z
         return self.args[1].type
 
     def verify(self):
@@ -276,6 +281,7 @@ class AndOr(Miniscript):
 
     def __len__(self):
         return self.len_args() + 3
+
 
 class AndV(Miniscript):
     # [X] [Y]
@@ -378,7 +384,7 @@ class AndN(Miniscript):
 
     @property
     def type(self):
-        # type: same as Y/Z
+        # same as Y/Z
         return self.args[1].type
 
     def verify(self):
@@ -579,7 +585,7 @@ class Thresh(Miniscript):
     def inner_compile(self):
         return (
             self.args[1].compile()
-            + b"".join([arg.compile()+b"\x93" for arg in self.args[2:]])
+            + b"".join([arg.compile() + b"\x93" for arg in self.args[2:]])
             + self.args[0].compile()
             + b"\x87"
         )
@@ -660,13 +666,16 @@ class Sortedmulti(Multi):
             + b"\xae"
         )
 
+
 class MultiA(Multi):
     # <key1> CHECKSIG <key2> CHECKSIGADD ... <keyN> CHECKSIGNADD <k> NUMEQUAL
     NAME = "multi_a"
 
     def inner_compile(self):
-        return (self.args[1].compile()+b"\xac"+
-            b"".join([arg.compile()+b"\xba" for arg in self.args[2:]])
+        return (
+            self.args[1].compile()
+            + b"\xac"
+            + b"".join([arg.compile() + b"\xba" for arg in self.args[2:]])
             + self.args[0].compile()
             + b"\x9c"
         )
@@ -674,17 +683,21 @@ class MultiA(Multi):
     def __len__(self):
         return self.len_args() + len(self.args)
 
+
 class SortedmultiA(MultiA):
     # <key1> CHECKSIG <key2> CHECKSIGADD ... <keyN> CHECKSIGNADD <k> NUMEQUAL
     NAME = "sortedmulti_a"
 
     def inner_compile(self):
         keys = list(sorted([k.compile() for k in self.args[1:]]))
-        return (keys[0]+b"\xac"+
-            b"".join([k+b"\xba" for k in keys[1:]])
+        return (
+            keys[0]
+            + b"\xac"
+            + b"".join([k + b"\xba" for k in keys[1:]])
             + self.args[0].compile()
             + b"\x9c"
         )
+
 
 class Pk(OneArg):
     # <key> CHECKSIG

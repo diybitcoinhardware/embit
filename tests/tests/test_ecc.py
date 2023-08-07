@@ -6,7 +6,7 @@ from io import BytesIO
 
 class ECCTest(TestCase):
     def test_identity(self):
-        """ 1 * G """
+        """1 * G"""
         answer = b"0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
         one = 1
         bone = one.to_bytes(32, "big")
@@ -16,13 +16,13 @@ class ECCTest(TestCase):
         self.assertEqual(answer, g_hex)
 
     def test_grind(self):
-        pk = PrivateKey(b"1"*32)
-        msgs = [ bytes([i]*32) for i in range(255) ]
+        pk = PrivateKey(b"1" * 32)
+        msgs = [bytes([i] * 32) for i in range(255)]
         for msg in msgs:
             sig = pk.sign(msg)
             der = sig.serialize()
             # low R is grinded
-            self.assertTrue(len(der)<=70)
+            self.assertTrue(len(der) <= 70)
 
     def test_pubkeys(self):
         valid_keys = [

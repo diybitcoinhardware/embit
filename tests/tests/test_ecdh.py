@@ -2,12 +2,13 @@ from unittest import TestCase
 from embit.ec import PublicKey, PrivateKey
 import hashlib
 
+
 class ECDHTest(TestCase):
     def test_one(self):
         """ECDH of privkey=1 and any pubkey should give sha256(pubkey)"""
-        one = PrivateKey((1).to_bytes(32, 'big'))
+        one = PrivateKey((1).to_bytes(32, "big"))
         G = one.get_public_key()
-        pk = PrivateKey(b"q"*32)
+        pk = PrivateKey(b"q" * 32)
         pub = pk.get_public_key()
         s1 = pk.ecdh(G)
         s2 = one.ecdh(pub)
@@ -17,9 +18,9 @@ class ECDHTest(TestCase):
 
     def test_two(self):
         """Check that both parties get the same secret"""
-        pk1 = PrivateKey(b"a"*32)
+        pk1 = PrivateKey(b"a" * 32)
         pub1 = pk1.get_public_key()
-        pk2 = PrivateKey(b"b"*32)
+        pk2 = PrivateKey(b"b" * 32)
         pub2 = pk2.get_public_key()
         self.assertEqual(pk1.ecdh(pub2), pk2.ecdh(pub1))
 
@@ -28,9 +29,9 @@ class ECDHTest(TestCase):
         Custom hash function that returns x coordinate
         instead of using sha256
         """
-        one = PrivateKey((1).to_bytes(32, 'big'))
+        one = PrivateKey((1).to_bytes(32, "big"))
         G = one.get_public_key()
-        pk = PrivateKey(b"b"*32)
+        pk = PrivateKey(b"b" * 32)
         pub = pk.get_public_key()
 
         def hashfn(x, y, data=None):
@@ -46,9 +47,9 @@ class ECDHTest(TestCase):
         """
         Custom hash function that hashes x and data if provided
         """
-        one = PrivateKey((1).to_bytes(32, 'big'))
+        one = PrivateKey((1).to_bytes(32, "big"))
         G = one.get_public_key()
-        pk = PrivateKey(b"b"*32)
+        pk = PrivateKey(b"b" * 32)
         pub = pk.get_public_key()
 
         def hashfn(x, y, data=None):
@@ -62,7 +63,7 @@ class ECDHTest(TestCase):
         self.assertEqual(s1, expected1)
 
         s2 = one.ecdh(pub, hashfn, data=b"123")
-        expected2 = hashlib.sha256(pub.xonly()+b"123").digest()
+        expected2 = hashlib.sha256(pub.xonly() + b"123").digest()
         self.assertEqual(s2, expected2)
 
     def test_raising_hashfn(self):
@@ -70,9 +71,9 @@ class ECDHTest(TestCase):
         Custom hash function that returns x coordinate
         instead of using sha256
         """
-        one = PrivateKey((1).to_bytes(32, 'big'))
+        one = PrivateKey((1).to_bytes(32, "big"))
         G = one.get_public_key()
-        pk = PrivateKey(b"b"*32)
+        pk = PrivateKey(b"b" * 32)
         pub = pk.get_public_key()
 
         def hashfn(x, y, data=None):

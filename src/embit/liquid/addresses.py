@@ -2,7 +2,8 @@ from .. import bech32, ec, script, base58
 from . import blech32
 from .networks import NETWORKS
 
-def address(script, blinding_key=None, network=NETWORKS['liquidv1']):
+
+def address(script, blinding_key=None, network=NETWORKS["liquidv1"]):
     """
     Returns liquid address from scriptpubkey and blinding key.
     Confidential if blinding key is set, unconfidential otherwise.
@@ -12,9 +13,9 @@ def address(script, blinding_key=None, network=NETWORKS['liquidv1']):
     if script.script_type() == "p2sh":
         data = script.data[2:-1]
         if blinding_key is None:
-            return base58.encode_check(network["p2sh"]+data)
+            return base58.encode_check(network["p2sh"] + data)
         else:
-            return base58.encode_check(network["bp2sh"]+blinding_key.sec()+data)
+            return base58.encode_check(network["bp2sh"] + blinding_key.sec() + data)
     else:
         data = script.data
         ver = data[0]
@@ -24,7 +25,10 @@ def address(script, blinding_key=None, network=NETWORKS['liquidv1']):
         if blinding_key is None:
             return bech32.encode(network["bech32"], ver, data[2:])
         else:
-            return blech32.encode(network["blech32"], ver, blinding_key.sec() + data[2:])
+            return blech32.encode(
+                network["blech32"], ver, blinding_key.sec() + data[2:]
+            )
+
 
 def addr_decode(addr):
     """
@@ -41,23 +45,24 @@ def addr_decode(addr):
         data = bytes(data)
         pub = ec.PublicKey.parse(data[:33])
         pubhash = data[33:]
-        sc = script.Script(b"\x00"+bytes([len(pubhash)])+pubhash)
+        sc = script.Script(b"\x00" + bytes([len(pubhash)]) + pubhash)
     elif addr.split("1")[0].lower() in [net.get("bech32") for net in NETWORKS.values()]:
         hrp = addr.split("1")[0]
         ver, data = bech32.decode(hrp, addr)
         pub = None
-        sc = script.Script(b"\x00"+bytes([len(data)])+bytes(data))
+        sc = script.Script(b"\x00" + bytes([len(data)]) + bytes(data))
     else:
         data = base58.decode_check(addr)
         if data[:2] in [net.get("bp2sh") for net in NETWORKS.values()]:
             pub = ec.PublicKey.parse(data[2:35])
-            sc = script.Script(b"\xa9\x14"+data[35:]+b"\x87")
+            sc = script.Script(b"\xa9\x14" + data[35:] + b"\x87")
         elif data[:1] in [net.get("p2sh") for net in NETWORKS.values()]:
             pub = None
-            sc = script.Script(b"\xa9\x14"+data[1:]+b"\x87")
+            sc = script.Script(b"\xa9\x14" + data[1:] + b"\x87")
         else:
             raise RuntimeError("Invalid address")
     return sc, pub
+
 
 def detect_network(addr):
     """Detects what networks the address belongs to"""
@@ -72,6 +77,7 @@ def detect_network(addr):
     for net in NETWORKS.values():
         if data[:2] in [net.get("bp2sh"), net.get("p2sh")]:
             return net
+
 
 def to_unconfidential(addr):
     """

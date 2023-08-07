@@ -9,18 +9,18 @@ from . import hashes
 B58_DIGITS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 
-def encode(b):
+def encode(b: bytes) -> str:
     """Encode bytes to a base58-encoded string"""
 
     # Convert big-endian bytes to integer
     n = int("0x0" + binascii.hexlify(b).decode("utf8"), 16)
 
     # Divide that integer into bas58
-    res = []
+    chars = []
     while n > 0:
         n, r = divmod(n, 58)
-        res.append(B58_DIGITS[r])
-    res = "".join(res[::-1])
+        chars.append(B58_DIGITS[r])
+    result = "".join(chars[::-1])
 
     pad = 0
     for c in b:
@@ -28,10 +28,10 @@ def encode(b):
             pad += 1
         else:
             break
-    return B58_DIGITS[0] * pad + res
+    return B58_DIGITS[0] * pad + result
 
 
-def decode(s):
+def decode(s: str) -> bytes:
     """Decode a base58-encoding string, returning bytes"""
     if not s:
         return b""
@@ -61,12 +61,12 @@ def decode(s):
     return b"\x00" * pad + res
 
 
-def encode_check(b):
+def encode_check(b: bytes) -> str:
     """Encode bytes to a base58-encoded string with a checksum"""
     return encode(b + hashes.double_sha256(b)[0:4])
 
 
-def decode_check(s):
+def decode_check(s: str) -> bytes:
     """Decode a base58-encoding string with checksum check.
     Returns bytes without checksum
     """

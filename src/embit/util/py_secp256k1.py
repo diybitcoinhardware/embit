@@ -202,7 +202,7 @@ def ec_pubkey_negate(pubkey, context=None):
     if len(pubkey) != 64:
         raise ValueError("Pubkey should be a 64-byte structure")
     sec = ec_pubkey_serialize(pubkey)
-    return ec_pubkey_parse(bytes([0x05-sec[0]]) + sec[1:])
+    return ec_pubkey_parse(bytes([0x05 - sec[0]]) + sec[1:])
 
 
 def ec_privkey_tweak_add(secret, tweak, context=None):
@@ -272,13 +272,15 @@ def ec_pubkey_add(pub, tweak, context=None):
 
 # schnorrsig
 
+
 def xonly_pubkey_from_pubkey(pubkey, context=None):
-    if len(pubkey)!=64:
+    if len(pubkey) != 64:
         raise ValueError("Pubkey should be 64 bytes long")
     sec = ec_pubkey_serialize(pubkey)
-    parity = (sec[0] == 0x03)
-    pub = ec_pubkey_parse(b"\x02"+sec[1:33])
+    parity = sec[0] == 0x03
+    pub = ec_pubkey_parse(b"\x02" + sec[1:33])
     return pub, parity
+
 
 def schnorrsig_verify(sig, msg, pubkey, context=None):
     assert len(sig) == 64
@@ -287,11 +289,13 @@ def schnorrsig_verify(sig, msg, pubkey, context=None):
     sec = ec_pubkey_serialize(pubkey)
     return _key.verify_schnorr(sec[1:33], sig, msg)
 
+
 def keypair_create(secret, context=None):
     pub = ec_pubkey_create(secret)
     pub2, parity = xonly_pubkey_from_pubkey(pub)
     keypair = secret + pub
     return keypair
+
 
 def schnorrsig_sign(msg, keypair, nonce_function=None, extra_data=None, context=None):
     assert len(msg) == 32
@@ -300,7 +304,9 @@ def schnorrsig_sign(msg, keypair, nonce_function=None, extra_data=None, context=
     assert len(keypair) == 96
     return _key.sign_schnorr(keypair[:32], msg, extra_data)
 
+
 # recoverable
+
 
 def ecdsa_sign_recoverable(msg, secret, context=None):
     sig = ecdsa_sign(msg, secret)

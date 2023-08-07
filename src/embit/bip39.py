@@ -1,18 +1,13 @@
 # Mnemonic convertion to seed and to/from bytes
-import sys
 import hashlib
-
-if sys.implementation.name == "micropython":
-    from micropython import const
-else:
-    from .util import const
+from .misc import const
 
 from .wordlists.bip39 import WORDLIST
 
 PBKDF2_ROUNDS = const(2048)
 
 
-def mnemonic_to_bytes(mnemonic: str, ignore_checksum=False, wordlist=WORDLIST):
+def mnemonic_to_bytes(mnemonic: str, ignore_checksum: bool = False, wordlist=WORDLIST):
     # this function is copied from Jimmy Song's HDPrivateKey.from_mnemonic() method
 
     words = mnemonic.strip().split()

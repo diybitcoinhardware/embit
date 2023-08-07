@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 RPC_PORTS = {"test": 18332, "regtest": 18443, "main": 8332, "signet": 38332}
 
+
 # detects regtest, makes sure default wallet exists and gets some funds there
 def prepare_rpc():
     # r = BitcoinRPC("bitcoin","secret",port=18778)
@@ -41,10 +42,13 @@ def prepare_rpc():
     addr = w.getnewaddress()
     if b < 0.1:
         w.generatetoaddress(101, addr)
+
     def mine(n=1):
         rpc.generatetoaddress(n, addr)
+
     rpc.mine = mine
     return rpc
+
 
 def get_default_datadir():
     """Get default Bitcoin directory depending on the system"""
@@ -308,7 +312,7 @@ class BitcoinRPC:
         self._create_session()
 
     def test_connection(self):
-        """ returns a boolean depending on whether getblockchaininfo() succeeds """
+        """returns a boolean depending on whether getblockchaininfo() succeeds"""
         try:
             self.getblockchaininfo()
             return True
@@ -378,7 +382,6 @@ class BitcoinRPC:
 
 
 if __name__ == "__main__":
-
     rpc = BitcoinRPC(
         "bitcoinrpc", "foi3uf092ury97iufhjf30982hf928uew9jd209j", port=18443
     )

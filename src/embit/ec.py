@@ -1,11 +1,6 @@
-import sys
-
-if sys.implementation.name == "micropython":
-    import secp256k1
-else:
-    from .util import secp256k1
 from . import base58
 from . import hashes
+from .misc import secp256k1
 from .networks import NETWORKS
 from .base import EmbitBase, EmbitError, EmbitKey
 from binascii import hexlify, unhexlify
@@ -13,6 +8,7 @@ from binascii import hexlify, unhexlify
 
 class ECError(EmbitError):
     pass
+
 
 class Signature(EmbitBase):
     def __init__(self, sig):
@@ -27,6 +23,7 @@ class Signature(EmbitBase):
         der += stream.read(der[1])
         return cls(secp256k1.ecdsa_signature_parse_der(der))
 
+
 class SchnorrSig(EmbitBase):
     def __init__(self, sig):
         assert len(sig) == 64
@@ -38,6 +35,7 @@ class SchnorrSig(EmbitBase):
     @classmethod
     def read_from(cls, stream):
         return cls(stream.read(64))
+
 
 class PublicKey(EmbitKey):
     def __init__(self, point: bytes, compressed: bool = True):
@@ -94,9 +92,9 @@ class PublicKey(EmbitKey):
         return pub
 
     @classmethod
-    def from_xonly(cls, data:bytes):
+    def from_xonly(cls, data: bytes):
         assert len(data) == 32
-        return cls.parse(b"\x02"+data)
+        return cls.parse(b"\x02" + data)
 
     def schnorr_verify(self, sig, msg_hash) -> bool:
         return bool(secp256k1.schnorrsig_verify(sig._sig, msg_hash, self._xonly()))
@@ -165,7 +163,7 @@ class PrivateKey(EmbitKey):
     def taproot_tweak(self, h=b""):
         """Returns a tweaked private key"""
         sec = self.sec()
-        negate = (sec[0] != 0x02)
+        negate = sec[0] != 0x02
         x = sec[1:33]
         tweak = hashes.tagged_hash("TapTweak", x + h)
         if not secp256k1.ec_seckey_verify(tweak):
@@ -208,25 +206,29 @@ class PrivateKey(EmbitKey):
     def from_base58(cls, s):
         return cls.from_wif(s)
 
-    def get_public_key(self):
+    def get_public_key(self) -> PublicKey:
         return PublicKey(secp256k1.ec_pubkey_create(self._secret), self.compressed)
 
-    def sign(self, msg_hash, grind=True):
+    def sign(self, msg_hash, grind=True) -> Signature:
         sig = Signature(secp256k1.ecdsa_sign(msg_hash, self._secret))
         if grind:
             counter = 1
             while len(sig.serialize()) > 70:
-                sig = Signature(secp256k1.ecdsa_sign(msg_hash, self._secret, None, counter.to_bytes(32, 'little')))
+                sig = Signature(
+                    secp256k1.ecdsa_sign(
+                        msg_hash, self._secret, None, counter.to_bytes(32, "little")
+                    )
+                )
                 counter += 1
                 # just in case we get in infinite loop for some reason
                 if counter > 200:
                     break
         return sig
 
-    def schnorr_sign(self, msg_hash):
+    def schnorr_sign(self, msg_hash) -> SchnorrSig:
         return SchnorrSig(secp256k1.schnorrsig_sign(msg_hash, self._secret))
 
-    def verify(self, sig, msg_hash):
+    def verify(self, sig, msg_hash) -> bool:
         return self.get_public_key().verify(sig, msg_hash)
 
     def schnorr_verify(self, sig, msg_hash) -> bool:

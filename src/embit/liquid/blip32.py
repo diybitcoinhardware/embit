@@ -4,6 +4,7 @@ from .. import bip32, ec
 from .networks import NETWORKS
 import hmac
 
+
 class BlindingHDKey(bip32.HDKey):
     @classmethod
     def from_seed(cls, seed: bytes, version=NETWORKS["liquidv1"]["xprv"]):
