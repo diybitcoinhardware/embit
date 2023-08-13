@@ -3,7 +3,7 @@ from .. import script
 from ..networks import NETWORKS
 from .errors import DescriptorError
 from .base import DescriptorBase
-from .miniscript import Miniscript
+from .miniscript import Miniscript, Multi, Sortedmulti, SortedmultiA
 from .arguments import Key
 from .taptree import TapTree
 
@@ -113,11 +113,15 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_basic_multisig(self):
-        return self.miniscript and self.miniscript.NAME in ["multi", "sortedmulti"]
+        # all Multi, Sortedmulti, MultiA, SortedmultiA inherit from Multi
+        return self.miniscript and isinstance(self.miniscript, Multi)
 
     @property
     def is_sorted(self):
-        return self.is_basic_multisig and self.miniscript.NAME == "sortedmulti"
+        return self.is_basic_multisig and (
+            isinstance(self.miniscript, Sortedmulti)
+            or isinstance(self.miniscript, SortedmultiA)
+        )
 
     def scriptpubkey_type(self):
         if self.is_taproot:
