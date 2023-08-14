@@ -3,7 +3,7 @@ from .. import script
 from ..networks import NETWORKS
 from .errors import DescriptorError
 from .base import DescriptorBase
-from .miniscript import Miniscript, Multi, Sortedmulti, SortedmultiA
+from .miniscript import Miniscript, Multi, Sortedmulti
 from .arguments import Key
 from .taptree import TapTree
 
