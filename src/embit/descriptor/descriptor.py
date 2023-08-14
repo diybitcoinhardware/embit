@@ -3,7 +3,7 @@ from .. import script
 from ..networks import NETWORKS
 from .errors import DescriptorError
 from .base import DescriptorBase
-from .miniscript import Miniscript
+from .miniscript import Miniscript, Multi, Sortedmulti
 from .arguments import Key
 from .taptree import TapTree
 
@@ -98,7 +98,6 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_segwit(self):
-        # TODO: is taproot segwit?
         return (
             (self.wsh and self.miniscript) or (self.wpkh and self.key) or self.taproot
         )
@@ -112,12 +111,14 @@ class Descriptor(DescriptorBase):
         return self.taproot
 
     @property
-    def is_basic_multisig(self):
-        return self.miniscript and self.miniscript.NAME in ["multi", "sortedmulti"]
+    def is_basic_multisig(self) -> bool:
+        # TODO: should be true for taproot basic multisig with NUMS as internal key
+        # Sortedmulti is subclass of Multi
+        return bool(self.miniscript and isinstance(self.miniscript, Multi))
 
     @property
-    def is_sorted(self):
-        return self.is_basic_multisig and self.miniscript.NAME == "sortedmulti"
+    def is_sorted(self) -> bool:
+        return bool(self.is_basic_multisig and isinstance(self.miniscript, Sortedmulti))
 
     def scriptpubkey_type(self):
         if self.is_taproot:

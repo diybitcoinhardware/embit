@@ -4,6 +4,7 @@ from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
 from embit.descriptor.miniscript import OPERATORS, WRAPPERS
 from embit.descriptor.checksum import add_checksum, DescriptorError
+from embit import ec
 
 
 class DescriptorTest(TestCase):
@@ -208,6 +209,41 @@ class DescriptorTest(TestCase):
         for wr in WRAPPERS:
             w = wr(o)
             self.assertEqual(len(w), len(w.compile()))
+
+    def test_multisig(self):
+        keys = tuple([ec.PrivateKey(bytes([i + 1] * 32)).to_public() for i in range(4)])
+        descriptors = [
+            # descriptor: str, is_basic_multisig: bool, is_sorted: bool
+            (
+                "wsh(c:andor(multi(1,%s,%s),pk_k(%s),pk_k(%s)))" % keys,
+                False,
+                False,
+            ),
+            (
+                "wsh(multi(2,%s,%s,%s,%s))" % keys,
+                True,
+                False,
+            ),
+            (
+                "wsh(sortedmulti(2,%s,%s,%s,%s))" % keys,
+                True,
+                True,
+            ),
+            (
+                "tr(%s,multi_a(2,%s,%s,%s))" % keys,
+                False,
+                False,
+            ),
+            (
+                "tr(%s,sortedmulti_a(2,%s,%s,%s))" % keys,
+                False,
+                False,
+            ),
+        ]
+        for dstr, is_basic, is_sorted in descriptors:
+            d = Descriptor.from_string(dstr)
+            self.assertEqual(d.is_basic_multisig, is_basic)
+            self.assertEqual(d.is_sorted, is_sorted)
 
 
 # test that:
