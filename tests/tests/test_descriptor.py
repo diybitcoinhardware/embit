@@ -2,7 +2,7 @@ from unittest import TestCase
 from binascii import hexlify
 from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
-from embit.descriptor.miniscript import OPERATORS, WRAPPERS, Miniscript
+from embit.descriptor.miniscript import OPERATORS, WRAPPERS
 from embit.descriptor.checksum import add_checksum, DescriptorError
 from embit import ec
 
