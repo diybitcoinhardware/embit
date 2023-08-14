@@ -29,20 +29,20 @@ class Miniscript(DescriptorBase):
             arg.derive(idx, branch_index) if hasattr(arg, "derive") else arg
             for arg in self.args
         ]
-        return type(self)(*args)
+        return type(self)(*args, taproot=self.taproot)
 
     def to_public(self):
         args = [
             arg.to_public() if hasattr(arg, "to_public") else arg for arg in self.args
         ]
-        return type(self)(*args)
+        return type(self)(*args, taproot=self.taproot)
 
     def branch(self, branch_index):
         args = [
             arg.branch(branch_index) if hasattr(arg, "branch") else arg
             for arg in self.args
         ]
-        return type(self)(*args)
+        return type(self)(*args, taproot=self.taproot)
 
     @property
     def properties(self):
@@ -635,6 +635,14 @@ class Multi(Miniscript):
     ARGCLS = (Number, Key)
     TYPE = "B"
     PROPS = "ndu"
+    _expected_taproot = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.taproot is not self._expected_taproot:
+            raise MiniscriptError(
+                "%s can't be used if taproot is %s" % (self.NAME, self.taproot)
+            )
 
     def inner_compile(self):
         return (
@@ -670,6 +678,7 @@ class Sortedmulti(Multi):
 class MultiA(Multi):
     # <key1> CHECKSIG <key2> CHECKSIGADD ... <keyN> CHECKSIGNADD <k> NUMEQUAL
     NAME = "multi_a"
+    _expected_taproot = True
 
     def inner_compile(self):
         return (

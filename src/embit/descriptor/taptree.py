@@ -15,7 +15,7 @@ class TapLeaf(DescriptorBase):
 
     @classmethod
     def read_from(cls, s):
-        ms = Miniscript.read_from(s)
+        ms = Miniscript.read_from(s, taproot=True)
         return cls(ms)
 
     def serialize(self):

@@ -3,6 +3,7 @@ from binascii import hexlify
 from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
 from embit.descriptor.miniscript import OPERATORS, WRAPPERS
+from embit.descriptor.errors import MiniscriptError
 from embit.descriptor.checksum import add_checksum, DescriptorError
 from embit import ec
 
@@ -204,7 +205,10 @@ class DescriptorTest(TestCase):
             nargs = op.NARGS
             if nargs is None:
                 nargs = 3
-            o = op(*[Number(55) for i in range(nargs)])
+            try:  # multi_a will raise if taproot is False, so we try both
+                o = op(*[Number(55) for i in range(nargs)])
+            except MiniscriptError:
+                o = op(*[Number(55) for i in range(nargs)], taproot=True)
             self.assertEqual(len(o), len(o.compile()))
         for wr in WRAPPERS:
             w = wr(o)

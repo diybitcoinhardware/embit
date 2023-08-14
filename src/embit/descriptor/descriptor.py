@@ -25,6 +25,7 @@ class Descriptor(DescriptorBase):
         # - accept key without taptree
         # - raise if miniscript is not None, but taproot=True
         # - raise if taptree is not None, but taproot=False
+        # - verify all taproot miniscripts
         if key is None and miniscript is None and taptree is None:
             raise DescriptorError("Provide a key, miniscript or taptree")
         if miniscript is not None:
@@ -326,8 +327,8 @@ class Descriptor(DescriptorBase):
         # taproot always has a key, and may have taptree miniscript
         if taproot:
             miniscript = None
-            key = Key.read_from(s, taproot=taproot)
-            nbrackets = 1 + int(sh)
+            key = Key.read_from(s, taproot=True)
+            nbrackets = 1
             c = s.read(1)
             # TODO: should it be ok to pass just taptree without a key?
             # check if we have taptree after the key
