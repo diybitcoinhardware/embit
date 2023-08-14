@@ -209,6 +209,10 @@ class PrivateKey(EmbitKey):
     def get_public_key(self) -> PublicKey:
         return PublicKey(secp256k1.ec_pubkey_create(self._secret), self.compressed)
 
+    def to_public(self) -> PublicKey:
+        """Alias to get_public_key for API consistency"""
+        return self.get_public_key()
+
     def sign(self, msg_hash, grind=True) -> Signature:
         sig = Signature(secp256k1.ecdsa_sign(msg_hash, self._secret))
         if grind:
