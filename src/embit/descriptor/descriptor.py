@@ -98,7 +98,6 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_segwit(self):
-        # TODO: is taproot segwit?
         return (
             (self.wsh and self.miniscript) or (self.wpkh and self.key) or self.taproot
         )
@@ -112,16 +111,14 @@ class Descriptor(DescriptorBase):
         return self.taproot
 
     @property
-    def is_basic_multisig(self):
-        # all Multi, Sortedmulti, MultiA, SortedmultiA inherit from Multi
-        return self.miniscript and isinstance(self.miniscript, Multi)
+    def is_basic_multisig(self) -> bool:
+        # TODO: should be true for taproot basic multisig with NUMS as internal key
+        # Sortedmulti is subclass of Multi
+        return bool(self.miniscript and isinstance(self.miniscript, Multi))
 
     @property
-    def is_sorted(self):
-        return self.is_basic_multisig and (
-            isinstance(self.miniscript, Sortedmulti)
-            or isinstance(self.miniscript, SortedmultiA)
-        )
+    def is_sorted(self) -> bool:
+        return bool(self.is_basic_multisig and isinstance(self.miniscript, Sortedmulti))
 
     def scriptpubkey_type(self):
         if self.is_taproot:

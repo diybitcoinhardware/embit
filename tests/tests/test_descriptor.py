@@ -212,36 +212,36 @@ class DescriptorTest(TestCase):
 
     def test_multisig(self):
         keys = tuple([ec.PrivateKey(bytes([i + 1] * 32)).to_public() for i in range(4)])
-        miniscripts = [
+        descriptors = [
             # descriptor: str, is_basic_multisig: bool, is_sorted: bool
             (
-                "c:andor(multi(1,%s,%s),pk_k(%s),pk_k(%s))" % keys,
+                "wsh(c:andor(multi(1,%s,%s),pk_k(%s),pk_k(%s)))" % keys,
                 False,
                 False,
             ),
             (
-                "multi(2,%s,%s,%s,%s)" % keys,
+                "wsh(multi(2,%s,%s,%s,%s))" % keys,
                 True,
                 False,
             ),
             (
-                "multi_a(2,%s,%s,%s,%s)" % keys,
+                "wsh(sortedmulti(2,%s,%s,%s,%s))" % keys,
                 True,
+                True,
+            ),
+            (
+                "tr(%s,multi_a(2,%s,%s,%s))" % keys,
+                False,
                 False,
             ),
             (
-                "sortedmulti(2,%s,%s,%s,%s)" % keys,
-                True,
-                True,
-            ),
-            (
-                "sortedmulti_a(2,%s,%s,%s,%s)" % keys,
-                True,
-                True,
+                "tr(%s,sortedmulti_a(2,%s,%s,%s))" % keys,
+                False,
+                False,
             ),
         ]
-        for m, is_basic, is_sorted in miniscripts:
-            d = Descriptor.from_string("wsh(%s)" % m)
+        for dstr, is_basic, is_sorted in descriptors:
+            d = Descriptor.from_string(dstr)
             self.assertEqual(d.is_basic_multisig, is_basic)
             self.assertEqual(d.is_sorted, is_sorted)
 
