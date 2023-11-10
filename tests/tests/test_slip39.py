@@ -1,5 +1,6 @@
-# BIP32 test vectors adapted from the reference implementation:
-# https://github.com/trezor/python-mnemonic/blob/master/test_mnemonic.py
+# SLIP-0039 test vectors adapted from the reference implementation:
+# https://github.com/trezor/python-shamir-mnemonic/blob/master/test_shamir.py
+# https://github.com/trezor/python-shamir-mnemonic/blob/master/vectors.json
 
 from binascii import hexlify, unhexlify
 from embit.bip32 import HDKey
