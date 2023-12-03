@@ -135,6 +135,8 @@ class Descriptor(DescriptorBase):
 
     @property
     def brief_policy(self):
+        if self.taptree:
+            return "taptree"
         if self.key:
             return "single key"
         if self.is_basic_multisig:
@@ -149,9 +151,9 @@ class Descriptor(DescriptorBase):
 
     @property
     def full_policy(self):
-        if self.key or self.is_basic_multisig:
+        if (self.key and not self.taptree) or self.is_basic_multisig:
             return self.brief_policy
-        s = str(self.miniscript)
+        s = str(self.miniscript or self)
         for i, k in enumerate(self.keys):
             s = s.replace(str(k), chr(65 + i))
         return s
@@ -272,7 +274,11 @@ class Descriptor(DescriptorBase):
 
     @property
     def keys(self):
-        if self.key:
+        if self.taptree and self.key:
+            return [self.key] + self.taptree.keys
+        elif self.taptree:
+            return self.taptree.keys
+        elif self.key:
             return [self.key]
         return self.miniscript.keys
 
@@ -326,8 +332,8 @@ class Descriptor(DescriptorBase):
         # taproot always has a key, and may have taptree miniscript
         if taproot:
             miniscript = None
-            key = Key.read_from(s, taproot=taproot)
-            nbrackets = 1 + int(sh)
+            key = Key.read_from(s, taproot=True)
+            nbrackets = 1
             c = s.read(1)
             # TODO: should it be ok to pass just taptree without a key?
             # check if we have taptree after the key

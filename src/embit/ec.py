@@ -254,3 +254,10 @@ class PrivateKey(EmbitKey):
     @property
     def is_private(self) -> bool:
         return True
+
+
+# Nothing up my sleeve point for no-internal-key taproot
+# see https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
+NUMS_PUBKEY = PublicKey.from_string(
+    "0250929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
+)

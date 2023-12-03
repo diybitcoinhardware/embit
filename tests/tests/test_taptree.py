@@ -1,6 +1,7 @@
 from unittest import TestCase
 from embit.descriptor import Descriptor
 from embit.networks import NETWORKS
+from embit.descriptor.errors import MiniscriptError
 
 NETWORK = NETWORKS["test"]
 
@@ -113,8 +114,6 @@ ADDRESSES = [
 # - xonly pubkey can be only used in taproot descriptors
 # - sec pubkeys or xpubs can be used in taproot as root key
 # - p2tr accepts empty pubkey if taptree is set
-# - multi and sortedmulti can't be used in taproot
-# - multi_a can't be used outside of taproot
 
 
 class TapTreeTest(TestCase):
@@ -125,3 +124,23 @@ class TapTreeTest(TestCase):
             self.assertEqual(str(desc), d)
             # check address if provided in test case
             self.assertEqual(desc.derive(0).address(NETWORK), addr)
+
+    def test_multi_variants(self):
+        """
+        Test that [sorted]multi can't be used in tr
+        and [sorted]multi_a can't be used in wsh
+        """
+        keys = tuple(PUBKEYS[:3])
+        with self.assertRaises(MiniscriptError):
+            Descriptor.from_string("tr(%s,multi(1,%s,%s))" % keys)
+        with self.assertRaises(MiniscriptError):
+            Descriptor.from_string("tr(%s,sortedmulti(1,%s,%s))" % keys)
+        with self.assertRaises(MiniscriptError):
+            Descriptor.from_string("wsh(multi_a(1,%s,%s,%s))" % keys)
+        with self.assertRaises(MiniscriptError):
+            Descriptor.from_string("wsh(sortedmulti_a(1,%s,%s,%s))" % keys)
+
+        Descriptor.from_string("wsh(multi(1,%s,%s,%s))" % keys)
+        Descriptor.from_string("wsh(sortedmulti(1,%s,%s,%s))" % keys)
+        Descriptor.from_string("tr(%s,multi_a(1,%s,%s))" % keys)
+        Descriptor.from_string("tr(%s,sortedmulti_a(1,%s,%s))" % keys)
