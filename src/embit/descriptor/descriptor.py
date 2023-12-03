@@ -25,7 +25,6 @@ class Descriptor(DescriptorBase):
         # - accept key without taptree
         # - raise if miniscript is not None, but taproot=True
         # - raise if taptree is not None, but taproot=False
-        # - verify all taproot miniscripts
         if key is None and miniscript is None and taptree is None:
             raise DescriptorError("Provide a key, miniscript or taptree")
         if miniscript is not None:
@@ -136,6 +135,8 @@ class Descriptor(DescriptorBase):
 
     @property
     def brief_policy(self):
+        if self.taptree:
+            return "taptree"
         if self.key:
             return "single key"
         if self.is_basic_multisig:
@@ -150,9 +151,9 @@ class Descriptor(DescriptorBase):
 
     @property
     def full_policy(self):
-        if self.key or self.is_basic_multisig:
+        if (self.key and not self.taptree) or self.is_basic_multisig:
             return self.brief_policy
-        s = str(self.miniscript)
+        s = str(self.miniscript or self)
         for i, k in enumerate(self.keys):
             s = s.replace(str(k), chr(65 + i))
         return s
@@ -273,7 +274,11 @@ class Descriptor(DescriptorBase):
 
     @property
     def keys(self):
-        if self.key:
+        if self.taptree and self.key:
+            return [self.key] + self.taptree.keys
+        elif self.taptree:
+            return self.taptree.keys
+        elif self.key:
             return [self.key]
         return self.miniscript.keys
 
