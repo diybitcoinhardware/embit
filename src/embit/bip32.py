@@ -133,6 +133,10 @@ class HDKey(EmbitKey):
         subver = hd.to_base58()[1:4]
         if subver != "prv" and subver != "pub":
             raise HDError("Invalid version")
+        if depth == 0 and child_number != 0:
+            raise HDError("zero depth with non-zero index")
+        if depth == 0 and fingerprint != b"\x00\x00\x00\x00":
+            raise HDError("zero depth with non-zero parent")
         return hd
 
     def to_public(self, version=None):
