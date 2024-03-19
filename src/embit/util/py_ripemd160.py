@@ -396,12 +396,14 @@ def ripemd160(data):
     state = (0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0)
     # Process full 64-byte blocks in the input.
     for b in range(len(data) >> 6):
-        state = compress(*state, data[64 * b : 64 * (b + 1)])
+        a, b, c, d, e = state  # Unpack state into individual variables
+        state = compress(a, b, c, d, e, data[64 * b : 64 * (b + 1)])
     # Construct final blocks (with padding and size).
     pad = b"\x80" + b"\x00" * ((119 - len(data)) & 63)
     fin = data[len(data) & ~63 :] + pad + (8 * len(data)).to_bytes(8, "little")
     # Process final blocks.
     for b in range(len(fin) >> 6):
-        state = compress(*state, fin[64 * b : 64 * (b + 1)])
+        a, b, c, d, e = state  # Unpack state into individual variables
+        state = compress(a, b, c, d, e, fin[64 * b : 64 * (b + 1)])
     # Produce output.
     return b"".join((h & 0xFFFFFFFF).to_bytes(4, "little") for h in state)

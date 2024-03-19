@@ -891,7 +891,7 @@ def pedersen_commit(vbf, value, gen, context=_secp.ctx):
     if len(gen) != 64:
         raise ValueError("Generator should be 64 bytes long")
     if len(vbf) != 32:
-        raise ValueError(f"Blinding factor should be 32 bytes long, not {len(vbf)}")
+        raise ValueError("Blinding factor should be 32 bytes long, not {}".format(len(vbf)))
     commit = bytes(64)
     r = _secp.secp256k1_pedersen_commit(context, commit, vbf, value, gen)
     if r == 0:
@@ -908,7 +908,7 @@ def pedersen_blind_generator_blind_sum(
     p = c_char_p(vbf)  # obtain a pointer of various types
     address = cast(p, c_void_p).value
 
-    vbfs_joined = (c_char_p * len(vbfs))(*vbfs[:-1], address)
+    vbfs_joined = (c_char_p * len(vbfs))(*(vbfs[:-1] + [address]))
     gens_joined = (c_char_p * len(gens))(*gens)
     res = _secp.secp256k1_pedersen_blind_generator_blind_sum(
         context, vals, gens_joined, vbfs_joined, len(values), num_inputs
