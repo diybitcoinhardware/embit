@@ -315,7 +315,7 @@ class Descriptor(DescriptorBase):
             is_miniscript = False
             sh = True
             wpkh = True
-            assert s.read(1) == b"("
+            s.seek(1, 1)
         elif start.startswith(b"wpkh("):
             is_miniscript = False
             wpkh = True
