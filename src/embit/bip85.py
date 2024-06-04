@@ -17,7 +17,8 @@ def derive_entropy(root, app_index, path):
     """
     Derive app-specific bip85 entropy using path m/83696968'/app_index'/...path'
     """
-    assert max(path) < HARDENED_INDEX
+    if max(path) >= HARDENED_INDEX:
+        raise ValueError("Path elements must be less than 2^31")
     derivation = [HARDENED_INDEX + 83696968, HARDENED_INDEX + app_index] + [
         p + HARDENED_INDEX for p in path
     ]
@@ -27,7 +28,8 @@ def derive_entropy(root, app_index, path):
 
 def derive_mnemonic(root, num_words=12, index=0, language=LANGUAGES.ENGLISH):
     """Derive a new mnemonic with num_words using language (code, wordlist)"""
-    assert num_words in [12, 18, 24]
+    if num_words not in [12, 18, 24]:
+        raise ValueError("Number of words must be 12, 18 or 24")
     langcode, wordlist = language
     path = [langcode, num_words, index]
     entropy = derive_entropy(root, 39, path)
@@ -49,7 +51,9 @@ def derive_xprv(root, index=0):
 
 def derive_hex(root, num_bytes=32, index=0):
     """Derive raw entropy from 16 to 64 bytes long"""
-    assert num_bytes <= 64
-    assert num_bytes >= 16
+    if num_bytes > 64:
+        raise ValueError("Number of bytes must be less than 64")
+    if num_bytes < 16:
+        raise ValueError("Number of bytes must be at least 16")
     entropy = derive_entropy(root, 128169, [num_bytes, index])
     return entropy[:num_bytes]

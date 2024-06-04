@@ -40,16 +40,19 @@ class LTransactionError(TransactionError):
 
 def read_commitment(stream):
     c = stream.read(1)
-    assert len(c) == 1
+    if len(c) != 1:
+        raise TransactionError("Invalid commitment")
     if c == b"\x00":  # None
         return None
     if c == b"\x01":  # unconfidential
         r = stream.read(8)
-        assert len(r) == 8
+        if len(r) != 8:
+            raise TransactionError("Invalid commitment")
         return int.from_bytes(r, "big")
     # confidential
     r = stream.read(32)
-    assert len(r) == 32
+    if len(r) != 32:
+        raise TransactionError("Invalid commitment")
     return c + r
 
 
@@ -71,10 +74,14 @@ def unblind(
     message_length=64,
 ) -> tuple:
     """Unblinds a range proof and returns value, asset, value blinding factor, asset blinding factor, extra data, min and max values"""
-    assert len(pubkey) in [33, 65]
-    assert len(blinding_key) == 32
-    assert len(value_commitment) == 33
-    assert len(asset_commitment) == 33
+    if len(pubkey) not in [33, 65]:
+        raise TransactionError("Invalid pubkey length")
+    if len(blinding_key) != 32:
+        raise TransactionError("Invalid blinding key length")
+    if len(value_commitment) != 33:
+        raise TransactionError("Invalid value commitment length")
+    if len(asset_commitment) != 33:
+        raise TransactionError("Invalid asset commitment length")
     pub = secp256k1.ec_pubkey_parse(pubkey)
     secp256k1.ec_pubkey_tweak_mul(pub, blinding_key)
     sec = secp256k1.ec_pubkey_serialize(pub)
@@ -397,9 +404,11 @@ class AssetIssuance(EmbitBase):
     @classmethod
     def read_from(cls, stream):
         nonce = stream.read(32)
-        assert len(nonce) == 32
+        if len(nonce) != 32:
+            raise TransactionError("Invalid nonce")
         entropy = stream.read(32)
-        assert len(entropy) == 32
+        if len(entropy) != 32:
+            raise TransactionError("Invalid entropy")
         amount_commitment = read_commitment(stream)
         token_commitment = read_commitment(stream)
         return cls(nonce, entropy, amount_commitment, token_commitment)

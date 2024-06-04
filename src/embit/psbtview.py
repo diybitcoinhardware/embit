@@ -240,8 +240,10 @@ class PSBTView:
                     num_outputs = compact.from_bytes(value)
             elif key == b"\x00":
                 # we found global transaction
-                assert version != 2
-                assert (num_inputs is None) and (num_outputs is None)
+                if version == 2:
+                    raise PSBTError("Global transaction with version 2 PSBT")
+                if (num_inputs is not None) or (num_outputs is not None):
+                    raise PSBTError("Invalid global transaction")
                 tx_len = compact.read_from(stream)
                 cur += len(compact.to_bytes(tx_len))
                 tx_offset = cur

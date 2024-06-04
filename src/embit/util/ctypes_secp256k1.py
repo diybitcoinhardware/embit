@@ -761,16 +761,20 @@ def xonly_pubkey_from_pubkey(pubkey, context=_secp.ctx):
 
 @locked
 def schnorrsig_verify(sig, msg, pubkey, context=_secp.ctx):
-    assert len(sig) == 64
-    assert len(msg) == 32
-    assert len(pubkey) == 64
+    if len(sig) != 64:
+        raise ValueError("Signature should be 64 bytes long")
+    if len(msg) != 32:
+        raise ValueError("Message should be 32 bytes long")
+    if len(pubkey) != 64:
+        raise ValueError("Public key should be 64 bytes long")
     res = _secp.secp256k1_schnorrsig_verify(context, sig, msg, pubkey)
     return bool(res)
 
 
 @locked
 def keypair_create(secret, context=_secp.ctx):
-    assert len(secret) == 32
+    if len(secret) != 32:
+        raise ValueError("Secret key should be 32 bytes long")
     keypair = bytes(96)
     r = _secp.secp256k1_keypair_create(context, keypair, secret)
     if r == 0:
@@ -782,11 +786,13 @@ def keypair_create(secret, context=_secp.ctx):
 def schnorrsig_sign(
     msg, keypair, nonce_function=None, extra_data=None, context=_secp.ctx
 ):
-    assert len(msg) == 32
+    if len(msg) != 32:
+        raise ValueError("Message should be 32 bytes long")
     if len(keypair) == 32:
         keypair = keypair_create(keypair, context=context)
     with _lock:
-        assert len(keypair) == 96
+        if len(keypair) != 96:
+            raise ValueError("Keypair should be 96 bytes long")
         sig = bytes(64)
         r = _secp.secp256k1_schnorrsig_sign(
             context, sig, msg, keypair, nonce_function, extra_data
@@ -916,7 +922,8 @@ def pedersen_blind_generator_blind_sum(
     if res == 0:
         raise ValueError("Failed to get the last blinding factor.")
     res = (c_char * 32).from_address(address).raw
-    assert len(res) == 32
+    if len(res) != 32:
+        raise ValueError("Blinding factor should be 32 bytes long")
     return res
 
 

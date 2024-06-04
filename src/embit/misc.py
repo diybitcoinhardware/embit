@@ -35,7 +35,8 @@ def secure_randint(vmin: int, vmax: int) -> int:
     """
     import math
 
-    assert vmax > vmin
+    if vmax <= vmin:
+        raise ValueError("vmax must be greater than vmin")
     delta = vmax - vmin
     nbits = math.ceil(math.log2(delta + 1))
     randn = getrandbits(nbits)

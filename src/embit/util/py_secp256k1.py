@@ -283,9 +283,12 @@ def xonly_pubkey_from_pubkey(pubkey, context=None):
 
 
 def schnorrsig_verify(sig, msg, pubkey, context=None):
-    assert len(sig) == 64
-    assert len(msg) == 32
-    assert len(pubkey) == 64
+    if len(sig) != 64:
+        raise ValueError("Signature should be 64 bytes long")
+    if len(msg) != 32:
+        raise ValueError("Message should be 32 bytes long")
+    if len(pubkey) != 64:
+        raise ValueError("Public key should be 64 bytes long")
     sec = ec_pubkey_serialize(pubkey)
     return _key.verify_schnorr(sec[1:33], sig, msg)
 
@@ -298,10 +301,12 @@ def keypair_create(secret, context=None):
 
 
 def schnorrsig_sign(msg, keypair, nonce_function=None, extra_data=None, context=None):
-    assert len(msg) == 32
+    if len(msg) != 32:
+        raise ValueError("Message should be 32 bytes long")
     if len(keypair) == 32:
         keypair = keypair_create(keypair, context=context)
-    assert len(keypair) == 96
+    if len(keypair) != 96:
+        raise ValueError("Keypair should be 96 bytes long")
     return _key.sign_schnorr(keypair[:32], msg, extra_data)
 
 

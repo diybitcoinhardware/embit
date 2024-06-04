@@ -359,7 +359,7 @@ def fi(x, y, z, i):
     elif i == 4:
         return x ^ (y | ~z)
     else:
-        assert False
+        raise ValueError("Invalid function index")
 
 
 def rol(x, i):

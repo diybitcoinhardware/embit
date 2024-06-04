@@ -5,7 +5,8 @@ import hashlib
 
 def skip_commitment(stream):
     c = stream.read(1)
-    assert len(c) == 1
+    if len(c) != 1:
+        raise PSBTError("Unexpected end of stream")
     if c == b"\x00":  # None
         return 1
     if c == b"\x01":  # unconfidential

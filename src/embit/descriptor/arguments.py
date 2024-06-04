@@ -15,7 +15,8 @@ class KeyOrigin:
     def from_string(cls, s: str):
         arr = s.split("/")
         mfp = unhexlify(arr[0])
-        assert len(mfp) == 4
+        if len(mfp) != 4:
+            raise ArgumentError("Invalid fingerprint length")
         arr[0] = "m"
         path = "/".join(arr)
         derivation = bip32.parse_path(path)
@@ -315,7 +316,8 @@ class Key(DescriptorBase):
         return self.key.xonly()
 
     def taproot_tweak(self, h=b""):
-        assert self.taproot
+        if not self.taproot:
+            raise ArgumentError("Key is not taproot")
         return self.key.taproot_tweak(h)
 
     def serialize(self):

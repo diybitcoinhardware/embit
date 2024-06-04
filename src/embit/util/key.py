@@ -43,7 +43,8 @@ def jacobi_symbol(n, k):
 
     For our application k is always prime, so this is the same as the Legendre symbol.
     """
-    assert k > 0 and k & 1, "jacobi symbol is only defined for positive odd k"
+    if k <= 0 or k % 2 == 0:
+        raise ValueError("jacobi symbol is only defined for positive odd k")
     n %= k
     t = 0
     while n != 0:
@@ -165,7 +166,8 @@ class EllipticCurve:
         """
         x1, y1, z1 = p1
         x2, y2, z2 = p2
-        assert z2 == 1
+        if z2 != 1:
+            raise ValueError("p2 must be an affine point")
         # Adding to the point at infinity is a no-op
         if z1 == 0:
             return p2
@@ -299,7 +301,8 @@ class ECPubKey:
         return self.valid
 
     def get_bytes(self):
-        assert self.valid
+        if not self.valid:
+            raise ValueError("Invalid public key")
         p = SECP256K1.affine(self.p)
         if p is None:
             return None
@@ -313,7 +316,8 @@ class ECPubKey:
 
         See https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm for the
         ECDSA verifier algorithm"""
-        assert self.valid
+        if not self.valid:
+            raise ValueError("Invalid public key")
 
         # Extract r and s from the DER formatted signature. Return false for
         # any DER encoding errors.
@@ -378,7 +382,8 @@ class ECKey:
 
     def set(self, secret, compressed):
         """Construct a private key object with given 32-byte secret and compressed flag."""
-        assert len(secret) == 32
+        if len(secret) != 32:
+            raise ValueError("Invalid secret key length")
         secret = int.from_bytes(secret, "big")
         self.valid = secret > 0 and secret < SECP256K1_ORDER
         if self.valid:
@@ -391,7 +396,8 @@ class ECKey:
 
     def get_bytes(self):
         """Retrieve the 32-byte representation of this key."""
-        assert self.valid
+        if not self.valid:
+            raise ValueError("Invalid private key")
         return self.secret.to_bytes(32, "big")
 
     @property
@@ -404,7 +410,8 @@ class ECKey:
 
     def get_pubkey(self):
         """Compute an ECPubKey object for this secret key."""
-        assert self.valid
+        if not self.valid:
+            raise ValueError("Invalid private key")
         ret = ECPubKey()
         p = SECP256K1.mul([(SECP256K1_G, self.secret)])
         ret.p = p
@@ -417,7 +424,8 @@ class ECKey:
 
         See https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm for the
         ECDSA signer algorithm."""
-        assert self.valid
+        if not self.valid:
+            raise ValueError("Invalid private key")
         z = int.from_bytes(msg, "big")
         if nonce_function is None:
             nonce_function = deterministic_k
@@ -470,7 +478,8 @@ def compute_xonly_pubkey(key):
     This also returns whether the resulting public key was negated.
     """
 
-    assert len(key) == 32
+    if len(key) != 32:
+        raise ValueError("Invalid private key length")
     x = int.from_bytes(key, "big")
     if x == 0 or x >= SECP256K1_ORDER:
         return (None, None)
@@ -481,8 +490,10 @@ def compute_xonly_pubkey(key):
 def tweak_add_privkey(key, tweak):
     """Tweak a private key (after negating it if needed)."""
 
-    assert len(key) == 32
-    assert len(tweak) == 32
+    if len(key) != 32:
+        raise ValueError("Invalid private key length")
+    if len(tweak) != 32:
+        raise ValueError("Invalid tweak length")
 
     x = int.from_bytes(key, "big")
     if x == 0 or x >= SECP256K1_ORDER:
@@ -501,8 +512,10 @@ def tweak_add_privkey(key, tweak):
 def tweak_add_pubkey(key, tweak):
     """Tweak a public key and return whether the result had to be negated."""
 
-    assert len(key) == 32
-    assert len(tweak) == 32
+    if len(key) != 32:
+        raise ValueError("Invalid public key length")
+    if len(tweak) != 32:
+        raise ValueError("Invalid tweak length")
 
     x_coord = int.from_bytes(key, "big")
     if x_coord >= SECP256K1_FIELD_SIZE:
@@ -525,9 +538,12 @@ def verify_schnorr(key, sig, msg):
     - sig is a 64-byte Schnorr signature
     - msg is a 32-byte message
     """
-    assert len(key) == 32
-    assert len(msg) == 32
-    assert len(sig) == 64
+    if len(key) != 32:
+        raise ValueError("Invalid public key length")
+    if len(msg) != 32:
+        raise ValueError("Invalid message length")
+    if len(sig) != 64:
+        raise ValueError("Invalid signature length")
 
     x_coord = int.from_bytes(key, "big")
     if x_coord == 0 or x_coord >= SECP256K1_FIELD_SIZE:
@@ -556,10 +572,13 @@ def verify_schnorr(key, sig, msg):
 def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
     """Create a Schnorr signature (see BIP 340)."""
 
-    assert len(key) == 32
-    assert len(msg) == 32
+    if len(key) != 32:
+        raise ValueError("Invalid private key length")
+    if len(msg) != 32:
+        raise ValueError("Invalid message length")
     if aux is not None:
-        assert len(aux) == 32
+        if len(aux) != 32:
+            raise ValueError("Invalid aux length")
 
     sec = int.from_bytes(key, "big")
     if sec == 0 or sec >= SECP256K1_ORDER:
@@ -579,7 +598,8 @@ def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
         )
         % SECP256K1_ORDER
     )
-    assert kp != 0
+    if kp == 0:
+        raise ValueError("k is zero")
     R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, kp)]))
     k = kp if SECP256K1.has_even_y(R) != flip_r else SECP256K1_ORDER - kp
     e = (

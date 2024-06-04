@@ -26,7 +26,8 @@ class Signature(EmbitBase):
 
 class SchnorrSig(EmbitBase):
     def __init__(self, sig):
-        assert len(sig) == 64
+        if len(sig) != 64:
+            raise ECError("Invalid schnorr signature")
         self._sig = sig
 
     def write_to(self, stream) -> int:
@@ -93,7 +94,8 @@ class PublicKey(EmbitKey):
 
     @classmethod
     def from_xonly(cls, data: bytes):
-        assert len(data) == 32
+        if len(data) != 32:
+            raise ECError("Invalid xonly pubkey")
         return cls.parse(b"\x02" + data)
 
     def schnorr_verify(self, sig, msg_hash) -> bool:
