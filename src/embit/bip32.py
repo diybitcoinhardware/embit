@@ -184,7 +184,7 @@ class HDKey(EmbitKey):
     def child(self, index: int, hardened: bool = False):
         """Derives a child HDKey"""
         if index > 0xFFFFFFFF:
-            raise HDError("Index should be less then 2^32")
+            raise HDError("Index should be less than 2^32")
         if hardened and index < HARDENED_INDEX:
             index += HARDENED_INDEX
         if index >= HARDENED_INDEX:
