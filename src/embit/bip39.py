@@ -11,7 +11,7 @@ def mnemonic_to_bytes(mnemonic: str, ignore_checksum: bool = False, wordlist=WOR
     # this function is copied from Jimmy Song's HDPrivateKey.from_mnemonic() method
 
     words = mnemonic.strip().split()
-    if len(words) % 3 != 0 or len(words) < 12:
+    if len(words) % 3 != 0 or not 12 <= len(words) <= 24:
         raise ValueError("Invalid recovery phrase")
 
     binary_seed = bytearray()
@@ -97,7 +97,7 @@ def _extract_index(bits, b, n):
 
 
 def mnemonic_from_bytes(entropy, wordlist=WORDLIST):
-    if len(entropy) % 4 != 0:
+    if len(entropy) % 4 != 0 or not 16 <= len(entropy) <= 32:
         raise ValueError("Byte array should be multiple of 4 long (16, 20, ..., 32)")
     total_bits = len(entropy) * 8
     checksum_bits = total_bits // 32
