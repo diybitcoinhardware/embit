@@ -173,8 +173,24 @@ class Bip39Test(TestCase):
             self.assertEqual(act_xkey.to_base58(), xprv)
 
     def test_invalid_length(self):
-        words = "panel trumpet seek bridge income piano history car flower aim loan accident embark canoe"
-        self.assertFalse(mnemonic_is_valid(words))
+        invalid_length = [
+            # not divisible by 3, too short, too long
+            "panel trumpet seek bridge income piano history car flower aim loan accident embark canoe",
+            "zoo " * 8 + "zebra",
+            "zoo " * 26 + "valley",
+        ]
+        for words in invalid_length:
+            self.assertFalse(mnemonic_is_valid(words))
+            self.assertRaises(ValueError, mnemonic_to_bytes, words)
+
+        invalid_length = [
+            # not divisible by 4, too short, too long
+            b"\x00" * 19,
+            b"\x00" * 12,
+            b"\x00" * 36,
+        ]
+        for entropy in invalid_length:
+            self.assertRaises(ValueError, mnemonic_from_bytes, entropy)
 
     def test_invalid_word(self):
         words = "fljsafk minute glow ride mask ceiling old limb rookie discover cotton biology"
