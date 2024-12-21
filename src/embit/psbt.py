@@ -142,6 +142,7 @@ class InputScope(PSBTScope):
         self.taproot_bip32_derivations = OrderedDict()
         self.taproot_internal_key = None
         self.taproot_merkle_root = None
+        self.taproot_key_sig = None
         self.taproot_sigs = OrderedDict()
         self.taproot_scripts = OrderedDict()
 
@@ -433,6 +434,9 @@ class InputScope(PSBTScope):
             if self.sequence is not None:
                 r += ser_string(stream, b"\x10")
                 r += ser_string(stream, self.sequence.to_bytes(4, "little"))
+
+        # PSBT_IN_TAP_KEY_SIG
+        r += ser_string(stream, b"\x13" + self.taproot_key_sig.serialize())
 
         # PSBT_IN_TAP_SCRIPT_SIG
         for pub, leaf in self.taproot_sigs:
@@ -884,7 +888,7 @@ class PSBT(EmbitBase):
             wit = sig.serialize()
             if sighash != SIGHASH.DEFAULT:
                 wit += bytes([sighash])
-            # TODO: maybe better to put into internal key sig field
+            inp.taproot_key_sig = sig
             inp.final_scriptwitness = Witness([wit])
             # no need to sign anything else
             return 1
