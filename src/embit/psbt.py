@@ -188,6 +188,7 @@ class InputScope(PSBTScope):
         self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
         self.taproot_internal_key = other.taproot_internal_key
         self.taproot_merkle_root = other.taproot_merkle_root or self.taproot_merkle_root
+        self.taproot_key_sig = other.taproot_key_sig or self.taproot_key_sig
         self.taproot_sigs.update(other.taproot_sigs)
         self.taproot_scripts.update(other.taproot_scripts)
         self.final_scriptsig = other.final_scriptsig or self.final_scriptsig
@@ -436,8 +437,10 @@ class InputScope(PSBTScope):
                 r += ser_string(stream, self.sequence.to_bytes(4, "little"))
 
         # PSBT_IN_TAP_KEY_SIG
-        r += ser_string(stream, b"\x13" + self.taproot_key_sig.serialize())
-
+        if self.taproot_key_sig is not None:
+            r += ser_string(stream, b"\x13")
+            r += ser_string(stream, self.taproot_key_sig)
+        
         # PSBT_IN_TAP_SCRIPT_SIG
         for pub, leaf in self.taproot_sigs:
             r += ser_string(stream, b"\x14" + pub.xonly() + leaf)
@@ -885,11 +888,11 @@ class PSBT(EmbitBase):
                 sighash=sighash,
             )
             sig = pk.schnorr_sign(h)
-            wit = sig.serialize()
+            sigdata = sig.serialize()
             if sighash != SIGHASH.DEFAULT:
-                wit += bytes([sighash])
-            inp.taproot_key_sig = sig
-            inp.final_scriptwitness = Witness([wit])
+                sigdata += bytes([sighash])
+            inp.taproot_key_sig = sigdata
+            inp.final_scriptwitness = Witness([sigdata])
             # no need to sign anything else
             return 1
         counter = 0
