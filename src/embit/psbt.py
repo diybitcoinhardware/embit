@@ -440,7 +440,7 @@ class InputScope(PSBTScope):
         if self.taproot_key_sig is not None:
             r += ser_string(stream, b"\x13")
             r += ser_string(stream, self.taproot_key_sig)
-        
+
         # PSBT_IN_TAP_SCRIPT_SIG
         for pub, leaf in self.taproot_sigs:
             r += ser_string(stream, b"\x14" + pub.xonly() + leaf)
@@ -984,22 +984,25 @@ class PSBT(EmbitBase):
                     continue
 
             # get all possible derivations with matching fingerprint
-            bip32_derivations = set()
+            bip32_derivations = OrderedDict()  # OrderedDict to keep order
             if fingerprint:
                 # if taproot derivations are present add them
                 for pub in inp.taproot_bip32_derivations:
                     (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
                     if derivation.fingerprint == fingerprint:
-                        bip32_derivations.add((pub, derivation))
+                        # Add only if not already present
+                        if (pub, derivation) not in bip32_derivations:
+                            bip32_derivations[(pub, derivation)] = True
 
                 # segwit and legacy derivations
                 for pub in inp.bip32_derivations:
                     derivation = inp.bip32_derivations[pub]
                     if derivation.fingerprint == fingerprint:
-                        bip32_derivations.add((pub, derivation))
+                        if (pub, derivation) not in bip32_derivations:
+                            bip32_derivations[(pub, derivation)] = True
 
             # get derived keys for signing
-            derived_keypairs = set()  # (prv, pub)
+            derived_keypairs = OrderedDict()  # (prv, pub)
             for pub, derivation in bip32_derivations:
                 der = derivation.derivation
                 # descriptor key has origin derivation that we take into account
@@ -1015,7 +1018,9 @@ class PSBT(EmbitBase):
 
                 if hdkey.xonly() != pub.xonly():
                     raise PSBTError("Derivation path doesn't look right")
-                derived_keypairs.add((hdkey.key, pub))
+                # Insert into derived_keypairs if not present
+                if (hdkey.key, pub) not in derived_keypairs:
+                    derived_keypairs[(hdkey.key, pub)] = True
 
             # sign with taproot key
             if inp.is_taproot:
