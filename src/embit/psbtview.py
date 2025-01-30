@@ -14,6 +14,7 @@ where SD card MCU can trick you to sign a wrong transactions.
 Makes sense to run gc.collect() after processing of each scope to free memory.
 """
 # TODO: refactor, a lot of code is duplicated here from transaction.py
+from collections import OrderedDict
 import hashlib
 from . import compact
 from . import ec
@@ -742,22 +743,25 @@ class PSBTView:
                 return 0
 
         # get all possible derivations with matching fingerprint
-        bip32_derivations = set()
+        bip32_derivations = OrderedDict()
         if fingerprint:
             # if taproot derivations are present add them
             for pub in inp.taproot_bip32_derivations:
                 (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
                 if derivation.fingerprint == fingerprint:
-                    bip32_derivations.add((pub, derivation))
+                    # Add only if not already present
+                    if (pub, derivation) not in bip32_derivations:
+                        bip32_derivations[(pub, derivation)] = True
 
             # segwit and legacy derivations
             for pub in inp.bip32_derivations:
                 derivation = inp.bip32_derivations[pub]
                 if derivation.fingerprint == fingerprint:
-                    bip32_derivations.add((pub, derivation))
+                    if (pub, derivation) not in bip32_derivations:
+                        bip32_derivations[(pub, derivation)] = True
 
         # get derived keys for signing
-        derived_keypairs = set()  # (prv, pub)
+        derived_keypairs = OrderedDict()  # (prv, pub)
         for pub, derivation in bip32_derivations:
             der = derivation.derivation
             # descriptor key has origin derivation that we take into account
@@ -773,7 +777,9 @@ class PSBTView:
 
             if hdkey.xonly() != pub.xonly():
                 raise PSBTError("Derivation path doesn't look right")
-            derived_keypairs.add((hdkey.key, pub))
+            # Insert into derived_keypairs if not present
+            if (hdkey.key, pub) not in derived_keypairs:
+                derived_keypairs[(hdkey.key, pub)] = True
 
         counter = 0
         # sign with taproot key
