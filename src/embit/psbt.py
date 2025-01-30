@@ -352,7 +352,15 @@ class InputScope(PSBTScope):
         elif k == b"\x10":
             self.sequence = int.from_bytes(v, "little")
 
-        # TODO: 0x13 - tap key signature
+        # PSBT_IN_TAP_KEY_SIG
+        elif k[0] == 0x13:
+            # read the taproot key sig
+            if len(k) != 1:
+                raise PSBTError("Invalid taproot key signature key")
+            if self.taproot_key_sig is not None:
+                raise PSBTError("Duplicated taproot key signature")
+            self.taproot_key_sig = v
+
         # PSBT_IN_TAP_SCRIPT_SIG
         elif k[0] == 0x14:
             if len(k) != 65:
