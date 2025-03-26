@@ -870,6 +870,11 @@ class T(Wrapper):
 
     def __len__(self):
         return len(self.arg) + 1
+    
+    def verify(self):
+        super().verify()
+        if self.arg.type != "V":
+            raise MiniscriptError("t: X must be of type V")
 
     @property
     def properties(self):
