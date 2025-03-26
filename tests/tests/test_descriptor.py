@@ -295,6 +295,14 @@ class DescriptorTest(TestCase):
         for desc in generalistic_descs:
             Descriptor.from_string(desc)
 
+    def test_invalid_miniscript(self):
+        """Ensure an error is raised when parsing invalid miniscript"""
+        invalid_descs = [
+            "wsh(ttvtvtvtvtvtvtv:after(230775))",
+        ]
+        for desc in invalid_descs:
+            self.assertRaises(MiniscriptError, Descriptor.from_string, desc)
+    
     def test_len(self):
         """Checks that len(miniscript) returns correct length"""
         for op in OPERATORS:
