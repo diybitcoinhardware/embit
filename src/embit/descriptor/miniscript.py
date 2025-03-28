@@ -54,11 +54,25 @@ class Miniscript(DescriptorBase):
 
     @classmethod
     def read_from(cls, s, taproot=False):
-        op, char = read_until(s, b"(")
+        def wrapped(m_script):
+            for w in reversed(wrappers):
+                if w not in WRAPPER_NAMES:
+                    raise MiniscriptError("Unknown wrapper")
+                WrapperCls = WRAPPERS[WRAPPER_NAMES.index(w)]
+                m_script = WrapperCls(m_script, taproot=taproot)
+            return m_script
+
+        op, char = read_until(s, b"(,)")
+        if char in (b",", b")"):
+            s.seek(-1, 1)
         op = op.decode()
         wrappers = ""
         if ":" in op:
             wrappers, op = op.split(":")
+        # handle boolean literals: 0 or 1
+        if op in ("0", "1"):
+            miniscript = JustOne() if op == "1" else JustZero()
+            return wrapped(miniscript)
         if char != b"(":
             raise MiniscriptError("Missing operator")
         if op not in OPERATOR_NAMES:
@@ -67,12 +81,7 @@ class Miniscript(DescriptorBase):
         MiniscriptCls = OPERATORS[OPERATOR_NAMES.index(op)]
         args = MiniscriptCls.read_arguments(s, taproot=taproot)
         miniscript = MiniscriptCls(*args, taproot=taproot)
-        for w in reversed(wrappers):
-            if w not in WRAPPER_NAMES:
-                raise MiniscriptError("Unknown wrapper")
-            WrapperCls = WRAPPERS[WRAPPER_NAMES.index(w)]
-            miniscript = WrapperCls(miniscript, taproot=taproot)
-        return miniscript
+        return wrapped(miniscript)
 
     @classmethod
     def read_arguments(cls, s, taproot=False):
@@ -117,6 +126,28 @@ class Miniscript(DescriptorBase):
 
 
 ########### Known fragments (miniscript operators) ##############
+
+
+class JustZero(Miniscript):
+    TYPE = "B"
+    PROPS = "zud"
+
+    def inner_compile(self):
+        return Number(0).compile()
+
+    def __str__(self):
+        return "0"
+
+
+class JustOne(Miniscript):
+    TYPE = "B"
+    PROPS = "zu"
+
+    def inner_compile(self):
+        return Number(1).compile()
+
+    def __str__(self):
+        return "1"
 
 
 class OneArg(Miniscript):

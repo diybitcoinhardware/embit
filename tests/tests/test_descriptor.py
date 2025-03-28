@@ -5,6 +5,7 @@ from embit.descriptor.arguments import KeyHash, Number
 from embit.descriptor.miniscript import OPERATORS, WRAPPERS
 from embit.descriptor.errors import MiniscriptError
 from embit.descriptor.checksum import add_checksum, DescriptorError
+from embit.networks import NETWORKS
 from embit import ec
 
 
@@ -290,10 +291,13 @@ class DescriptorTest(TestCase):
             "wsh(andor(thresh(1,pk(xpub6BaZSKgpaVvibu2k78QsqeDWXp92xLHZxiu1WoqLB9hKhsBf3miBUDX7PJLgSPvkj66ThVHTqdnbXpeu8crXFmDUd4HeM4s4miQS2xsv3Qb/*)),and_v(v:multi(2,03b506a1dbe57b4bf48c95e0c7d417b87dd3b4349d290d2e7e9ba72c912652d80a,0295e7f5d12a2061f1fd2286cefec592dff656a19f55f4f01305d6aa56630880ce),older(6)),thresh(2,pkh(xpub6AHA9hZDN11k2ijHMeS5QqHx2KP9aMBRhTDqANMnwVtdyw2TDYRmF8PjpvwUFcL1Et8Hj59S3gTSMcUQ5gAqTz3Wd8EsMTmF3DChhqPQBnU/*),a:pkh(xpub6AaffFGfH6WXfm6pwWzmUMuECQnoLeB3agMKaLyEBZ5ZVfwtnS5VJKqXBt8o5ooCWVy2H87GsZshp7DeKE25eWLyd1Ccuh2ZubQUkgpiVux/*))))#76jsyzdg",
             "wsh(or_d(pk([40259ab7/48'/1'/0'/2']tpubDFcY6nTiMAWBd5d2bS8JZvjcaLjC6GE6XnPAJAPUkVj5wa5Pyb4gumx1ZWvnXQ8tmorCmpAyai69K9hD2mGQUeNkuXfjztsfqnE5FMk1CCh/<0;1>/*),and_v(v:pkh([842a626e/48'/1'/0'/2']tpubDENBboujRvpkS8SgZsrpqG2BCUBoaAc4c57jHFe1NwKAtfVjDZDUadQKYv4pkAEF2afPv6TtQ2BoYFJAPLbuKpL1usiySERZekGo4JmnWhh/<0;1>/*),older(65535))))#deguz53x",
             "wsh(or_d(pk([40259ab7/48h/1h/0h/2h]tpubDFcY6nTiMAWBd5d2bS8JZvjcaLjC6GE6XnPAJAPUkVj5wa5Pyb4gumx1ZWvnXQ8tmorCmpAyai69K9hD2mGQUeNkuXfjztsfqnE5FMk1CCh/<0;1>/*),and_v(v:pkh([842a626e/48H/1H/0H/2H]tpubDENBboujRvpkS8SgZsrpqG2BCUBoaAc4c57jHFe1NwKAtfVjDZDUadQKYv4pkAEF2afPv6TtQ2BoYFJAPLbuKpL1usiySERZekGo4JmnWhh/<0;1>/*),older(65535))))#deguz53x",
+            "wsh(and_v(v:0,and_v(v:pk([40259ab7/48h/1h/0h/2h]tpubDFcY6nTiMAWBd5d2bS8JZvjcaLjC6GE6XnPAJAPUkVj5wa5Pyb4gumx1ZWvnXQ8tmorCmpAyai69K9hD2mGQUeNkuXfjztsfqnE5FMk1CCh/<0;1>/*),pk([40259ab7/48h/1h/0h/2h]tpubDFcY6nTiMAWBd5d2bS8JZvjcaLjC6GE6XnPAJAPUkVj5wa5Pyb4gumx1ZWvnXQ8tmorCmpAyai69K9hD2mGQUeNkuXfjztsfqnE5FMk1CCh/<0;1>/*))))",
+            "wsh(and_v(v:0,and_v(v:0,0)))",
         ]
 
         for desc in generalistic_descs:
-            Descriptor.from_string(desc)
+            desc = Descriptor.from_string(desc)
+            desc.derive(0, 0).address(network=NETWORKS["main"])
 
     def test_invalid_miniscript(self):
         """Ensure an error is raised when parsing invalid miniscript"""
