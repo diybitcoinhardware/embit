@@ -119,12 +119,35 @@ class DescriptorTest(TestCase):
                 "wsh(sortedmulti(2,%s,%s,%s))" % tuple(keys[:3]),
                 "522103801b3a4e3ca0d61d469445621561c47f6c1424d0fd353a44c2c3ebb84ae78f592103b8fa5d5959fa4027ccbf0736a86ccde4242e3051ea363437b4ff0d52598d7cec2103e7d285b4817f83f724cd29394da75dfc84fe639ed147a944e7e6064703b1413053ae",
             ),
+            (
+                "wsh(sortedmulti(2,%s,%s,%s))" % tuple(key.replace("<0;1>", "0") for key in keys[:3]),
+                "522103801b3a4e3ca0d61d469445621561c47f6c1424d0fd353a44c2c3ebb84ae78f592103b8fa5d5959fa4027ccbf0736a86ccde4242e3051ea363437b4ff0d52598d7cec2103e7d285b4817f83f724cd29394da75dfc84fe639ed147a944e7e6064703b1413053ae",
+            ),
             ("wpkh(%s)" % keys[0], "0014f8f93df2160de8fd3ca716e2f905c74da3f9839f"),
             ("sh(wpkh(%s))" % keys[0], "0014f8f93df2160de8fd3ca716e2f905c74da3f9839f"),
             ("pkh(%s)" % keys[0], "76a914f8f93df2160de8fd3ca716e2f905c74da3f9839f88ac"),
         ]
 
+        num_branches = [
+            1,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            1,
+            1,
+            2,
+            2,
+            2,
+            2,
+        ]
+
         for i, (d, a) in enumerate(dd):
+            print(i)
             sc = Descriptor.from_string(d)
             self.assertEqual(str(sc), d)
             # get top level script
@@ -133,6 +156,7 @@ class DescriptorTest(TestCase):
             schex = hexlify(scc.data).decode()
             self.assertEqual(schex, a)
             self.assertEqual(str(sc), d)
+            assert sc.num_branches == num_branches[i]
 
     def test_keys(self):
         keys = [
@@ -197,6 +221,16 @@ class DescriptorTest(TestCase):
             "wsh(or_d(pk([40259ab7/48h/1h/0h/2h]tpubDFcY6nTiMAWBd5d2bS8JZvjcaLjC6GE6XnPAJAPUkVj5wa5Pyb4gumx1ZWvnXQ8tmorCmpAyai69K9hD2mGQUeNkuXfjztsfqnE5FMk1CCh/<0;1>/*),and_v(v:pkh([842a626e/48H/1H/0H/2H]tpubDENBboujRvpkS8SgZsrpqG2BCUBoaAc4c57jHFe1NwKAtfVjDZDUadQKYv4pkAEF2afPv6TtQ2BoYFJAPLbuKpL1usiySERZekGo4JmnWhh/<0;1>/*),older(65535))))#deguz53x",
             "wsh(and_v(v:0,and_v(v:pk([40259ab7/48h/1h/0h/2h]tpubDFcY6nTiMAWBd5d2bS8JZvjcaLjC6GE6XnPAJAPUkVj5wa5Pyb4gumx1ZWvnXQ8tmorCmpAyai69K9hD2mGQUeNkuXfjztsfqnE5FMk1CCh/<0;1>/*),pk([40259ab7/48h/1h/0h/2h]tpubDFcY6nTiMAWBd5d2bS8JZvjcaLjC6GE6XnPAJAPUkVj5wa5Pyb4gumx1ZWvnXQ8tmorCmpAyai69K9hD2mGQUeNkuXfjztsfqnE5FMk1CCh/<0;1>/*))))",
             "wsh(and_v(v:0,and_v(v:0,0)))",
+
+            # liana miniscript primary tapkey anytime, else 1of2 after 3 confirmations recovery taproot
+            "tr([d63dc4a7/48'/1'/0'/2']tpubDEXCvh2aPYzMz2xfgsh9ZM6dQZxioYfCafUgw16keqschYbED4VeS46Qhr7EoonDHNr9dSsKPEGeRP5WRzDGdY3aazneR7wKmtDVNTf6qic/<0;1>/*,and_v(v:multi_a(1,[c98cbe58/48'/1'/0'/2']tpubDFXZ3rcRyvU6AvNrb4kRQFomJbtCTCyMX9jDJmfN5XfHLEAZq7a8h3CrYDZYtdexk6XWfT5DB8PYgySWA5GSdyWdzWwveQcbrzvVQw3u7bV/<0;1>/*,[9590b69a/48'/1'/0'/2']tpubDEgtrNHQ68KvQPABjV4Ah39MpUH6aniH8gbHKygJSwNwbsQpnzPJMcssdqjwPtNshjAj8nP35iZisEFchFdZtPG4rXi7FW35dsCtQSj93Qv/<0;1>/*),older(3)))#9550ke77",
+
+            # liana miniscript wsh single primary key anytime, else a secondary key after 6 confirmations
+            "wsh(or_d(pk([d63dc4a7/48'/1'/0'/2']tpubDEXCvh2aPYzMz2xfgsh9ZM6dQZxioYfCafUgw16keqschYbED4VeS46Qhr7EoonDHNr9dSsKPEGeRP5WRzDGdY3aazneR7wKmtDVNTf6qic/<0;1>/*),and_v(v:pkh([c98cbe58/48'/1'/0'/2']tpubDFXZ3rcRyvU6AvNrb4kRQFomJbtCTCyMX9jDJmfN5XfHLEAZq7a8h3CrYDZYtdexk6XWfT5DB8PYgySWA5GSdyWdzWwveQcbrzvVQw3u7bV/<0;1>/*),older(6))))#szdmyf2d",
+
+            # liana expanding multisig taproot w/ NUMS tapkey and 2 taproot paths, primary 2of2 anytime else 2of3 after 36 confirmations.
+            "tr(tpubD6NzVbkrYhZ4X6BRkDMxFyZxfUCQdjpK27dNgqwDqsQ2PUbMmjjPPFxfcTJiGEjeNz2zLbZ1PRmgCAzXn4pE6tEuQPScXyUbuAgdcec6pMN/<0;1>/*,{and_v(v:multi_a(2,[07fd816d/48'/1'/0'/2']tpubDDvFWduSiwhW7hUbL1oMyUfcNgeSyZgHbooe1WjHyRaXYH3uUjm1xdxWXAGbQFn8QGScDg4b4a6WMGNiEAq2uQdmPDhDKPE5Dr8DX24mwd5/<2;3>/*,[da855a1f/48'/1'/0'/2']tpubDEHRt73d4guqR5BLGQud4XMW8vDCGHUj54qDTFtsdFstF6PAYx1oAy3jfKg1PffqLUWuSsXmnetKeTJFKfKLXeJR97yUuqvvojnoBcUDHg5/<2;3>/*,[cdef7cd9/48'/1'/0'/2']tpubDEzdWp7365AFAExeUsHiwRmkZN5it3sSAZsd6GKUXvUiJBytXnZrRKMAt9UgCkWB2mP3K9WujLuTjrRLBn51Y18pMVyg2v18un4ivqWSAk2/<0;1>/*),older(36)),multi_a(2,[07fd816d/48'/1'/0'/2']tpubDDvFWduSiwhW7hUbL1oMyUfcNgeSyZgHbooe1WjHyRaXYH3uUjm1xdxWXAGbQFn8QGScDg4b4a6WMGNiEAq2uQdmPDhDKPE5Dr8DX24mwd5/<0;1>/*,[da855a1f/48'/1'/0'/2']tpubDEHRt73d4guqR5BLGQud4XMW8vDCGHUj54qDTFtsdFstF6PAYx1oAy3jfKg1PffqLUWuSsXmnetKeTJFKfKLXeJR97yUuqvvojnoBcUDHg5/<0;1>/*)})#tvh3u2lu"
+
         ]
 
         for desc in generalistic_descs:
@@ -256,10 +290,20 @@ class DescriptorTest(TestCase):
                 False,
             ),
         ]
-        for dstr, is_basic, is_sorted in descriptors:
+        num_branches = [
+            1,
+            1,
+            1,
+            1,
+            1,
+        ]
+        for i, val in enumerate(descriptors):
+            dstr, is_basic, is_sorted = val
             d = Descriptor.from_string(dstr)
             self.assertEqual(d.is_basic_multisig, is_basic)
             self.assertEqual(d.is_sorted, is_sorted)
+            
+            assert num_branches[i] == d.num_branches
 
 
 # test that:
