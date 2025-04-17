@@ -59,6 +59,9 @@ class Descriptor(DescriptorBase):
 
     @property
     def num_branches(self):
+        if self.miniscript is not None:
+            return max({k.num_branches for k in self.miniscript.keys})
+
         return max([k.num_branches for k in self.keys])
 
     def branch(self, branch_index=None):
