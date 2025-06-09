@@ -1,5 +1,5 @@
 from unittest import TestCase
-from embit.script import Script, p2wpkh, p2sh, p2pkh, p2tr
+from embit.script import Script, p2wpkh, p2sh, p2pkh, p2tr, p2a
 from embit.ec import PrivateKey
 from embit.hashes import hash160
 
@@ -12,6 +12,7 @@ class ScriptTest(TestCase):
             p2pkh(pk),
             p2sh(p2wpkh(pk)),
             p2tr(pk),
+            p2a(),
         ]
         for sc in scripts:
             self.assertEqual(sc, Script.from_address(sc.address()))
