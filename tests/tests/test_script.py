@@ -2,6 +2,7 @@ from unittest import TestCase
 from embit.script import Script, p2wpkh, p2sh, p2pkh, p2tr, p2a
 from embit.ec import PrivateKey
 from embit.hashes import hash160
+from embit.networks import NETWORKS
 
 
 class ScriptTest(TestCase):
@@ -15,7 +16,9 @@ class ScriptTest(TestCase):
             p2a(),
         ]
         for sc in scripts:
-            self.assertEqual(sc, Script.from_address(sc.address()))
+            for network in NETWORKS.values():
+                # Addresses will differ by network (e.g. bc1q vs bcrt1q) so test them all
+                self.assertEqual(sc, Script.from_address(sc.address(network)))
 
     def test_push(self):
         pk = PrivateKey(b"\x11" * 32)

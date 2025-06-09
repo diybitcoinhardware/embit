@@ -186,10 +186,6 @@ def multisig(m: int, pubkeys):
 
 
 def address_to_scriptpubkey(addr):
-    if addr == "bc1pfeessrawgf":
-        # PayToAnchor is always hard-coded to this value
-        return p2a()
-
     # try with base58 address
     try:
         data = base58.decode_check(addr)
@@ -203,6 +199,9 @@ def address_to_scriptpubkey(addr):
         # fail - then it's bech32 address
         hrp = addr.split("1")[0]
         ver, data = bech32.decode(hrp, addr)
+        if ver == 1 and data == [int.from_bytes(b"\x4e"), int.from_bytes(b"\x73")]:
+            # PayToAnchor address (OP_1 <0x4e73>)
+            return p2a()
         if ver not in [0, 1] or len(data) not in [20, 32]:
             raise EmbitError("Invalid bech32 address")
         if ver == 1 and len(data) != 32:
