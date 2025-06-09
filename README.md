@@ -73,6 +73,9 @@ Install in developer mode with dev dependencies:
 
 ```sh
 pip install -e .[dev]
+
+# Note: macOS requires single or double quotes:
+pip install -e ".[dev]"
 ```
 
 Install pre-commit hook:
