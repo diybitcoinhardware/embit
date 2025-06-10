@@ -219,7 +219,7 @@ class InputScope(PSBTScope):
 
     @property
     def is_taproot(self):
-        return self.utxo.script_pubkey.script_type() == "p2tr"
+        return self.utxo.script_pubkey.script_type() in ["p2tr", "p2a"]
 
     def verify(self, ignore_missing=False):
         """Verifies the hash of previous transaction provided in non_witness_utxo.
