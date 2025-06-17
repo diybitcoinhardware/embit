@@ -10,6 +10,7 @@ readme = "README.md"
 authors = [
     {name = "Stepan Snigirev", email = "snigirev.stepan@gmail.com"},
 ]
+requires-python = ">=3.6"
 classifiers = [
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
