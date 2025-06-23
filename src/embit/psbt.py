@@ -489,6 +489,7 @@ class OutputScope(PSBTScope):
         self.bip32_derivations = OrderedDict()
         self.taproot_bip32_derivations = OrderedDict()
         self.taproot_internal_key = None
+        self.dnssec_proof = None
         self.parse_unknowns()
 
     def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
@@ -501,6 +502,7 @@ class OutputScope(PSBTScope):
         self.bip32_derivations = OrderedDict()
         self.taproot_bip32_derivations = OrderedDict()
         self.taproot_internal_key = None
+        self.dnssec_proof = None
 
     def update(self, other):
         self.value = other.value if other.value is not None else self.value
@@ -511,6 +513,7 @@ class OutputScope(PSBTScope):
         self.bip32_derivations.update(other.bip32_derivations)
         self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
         self.taproot_internal_key = other.taproot_internal_key
+        self.dnssec_proof = other.dnssec_proof or self.dnssec_proof
 
     @property
     def vout(self):
@@ -522,6 +525,23 @@ class OutputScope(PSBTScope):
             return
 
         v = read_string(stream)
+
+        # PSBT_OUT_DNSSEC_PROOF (BIP-353)
+        if k[0] == 0x35:  # PSBT_OUT_DNSSEC_PROOF
+            if len(k) != 1:
+                raise PSBTError("Invalid DNSSEC proof key")
+            elif self.dnssec_proof is not None:
+                raise PSBTError("Duplicated DNSSEC proof")
+            else:
+                # First byte is length of human-readable name
+                name_len = v[0]
+                if name_len >= len(v):
+                    raise PSBTError("Invalid DNSSEC proof format")
+                # Extract name and proof
+                name = v[1:1+name_len]
+                proof = v[1+name_len:]
+                self.dnssec_proof = (name, proof)
+            return
 
         # redeem script
         if k[0] == 0x00:
@@ -608,6 +628,12 @@ class OutputScope(PSBTScope):
                 + b"".join(leaf_hashes)
                 + derivation.serialize(),
             )
+
+        # PSBT_OUT_DNSSEC_PROOF (BIP-353)
+        if self.dnssec_proof is not None:
+            name, proof = self.dnssec_proof
+            r += ser_string(stream, b"\x35")  # PSBT_OUT_DNSSEC_PROOF
+            r += ser_string(stream, bytes([len(name)]) + name + proof)
 
         # unknown
         for key in self.unknown:
