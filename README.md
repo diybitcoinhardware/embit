@@ -74,7 +74,7 @@ Install in developer mode with dev dependencies:
 ```sh
 pip install -e .[dev]
 
-# Note: macOS requires single or double quotes:
+# Note: zsh and some other shells require quotes around brackets:
 pip install -e ".[dev]"
 ```
 
