@@ -553,7 +553,7 @@ def verify_schnorr(key, sig, msg):
     return True
 
 
-def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
+def sign_schnorr(key, msg, aux=None):
     """Create a Schnorr signature (see BIP 340)."""
 
     assert len(key) == 32
@@ -561,37 +561,20 @@ def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
     if aux is not None:
         assert len(aux) == 32
 
-    sec = int.from_bytes(key, "big")
-    if sec == 0 or sec >= SECP256K1_ORDER:
+    d0 = int.from_bytes(key, "big")
+    if not (1 <= d0 <= SECP256K1_ORDER - 1):
         return None
-    P = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, sec)]))
-    if SECP256K1.has_even_y(P) == flip_p:
-        sec = SECP256K1_ORDER - sec
-    if aux is not None:
-        t = (sec ^ int.from_bytes(TaggedHash("BIP0340/aux", aux), "big")).to_bytes(
-            32, "big"
-        )
-    else:
-        t = sec.to_bytes(32, "big")
-    kp = (
-        int.from_bytes(
-            TaggedHash("BIP0340/nonce", t + P[0].to_bytes(32, "big") + msg), "big"
-        )
-        % SECP256K1_ORDER
-    )
-    assert kp != 0
-    R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, kp)]))
-    k = kp if SECP256K1.has_even_y(R) != flip_r else SECP256K1_ORDER - kp
-    e = (
-        int.from_bytes(
-            TaggedHash(
-                "BIP0340/challenge",
-                R[0].to_bytes(32, "big") + P[0].to_bytes(32, "big") + msg,
-            ),
-            "big",
-        )
-        % SECP256K1_ORDER
-    )
-    return R[0].to_bytes(32, "big") + ((k + e * sec) % SECP256K1_ORDER).to_bytes(
-        32, "big"
-    )
+    if aux is None:
+        aux = b'\x00' * 32
+    P = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, d0)]))
+    assert P is not None
+    d = d0 if SECP256K1.has_even_y(P) else SECP256K1_ORDER - d0
+    t = xor_bytes(d.to_bytes(32, "big"), TaggedHash("BIP0340/aux", aux))
+    k0 = int.from_bytes(TaggedHash("BIP0340/nonce", t + P[0].to_bytes(32, "big") + msg), "big") % SECP256K1_ORDER
+    if k0 == 0:
+        return None
+    R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, k0)]))
+    assert R is not None
+    k = SECP256K1_ORDER - k0 if not SECP256K1.has_even_y(R) else k0
+    e = int.from_bytes(TaggedHash("BIP0340/challenge", R[0].to_bytes(32, "big") + P[0].to_bytes(32, "big") + msg), "big") % SECP256K1_ORDER
+    return R[0].to_bytes(32, "big") + ((k + e * d) % SECP256K1_ORDER).to_bytes(32, "big")
