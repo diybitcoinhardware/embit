@@ -11,6 +11,17 @@ if [ "$BUILD_SECP256K1_FROM_SOURCE" = "1" ]; then
     make install
     ldconfig
     cd /app
+    pip install -e .
+    cd /
+    apt-get update && apt-get install -y libzbar0
+    git clone https://github.com/kdmukai/seedsigner.git
+    cd seedsigner
+    git checkout exhaustive_psbtparser_tests
+    git submodule init
+    git submodule update
+    pip install -r requirements.txt
+    pip install -e .
+
 else
     echo "Using system or prebuilt secp256k1."
 fi
