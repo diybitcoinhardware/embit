@@ -320,8 +320,18 @@ class ShareSet:
     def generate_shares(
         cls, mnemonic, k, n, passphrase=b"", exponent=0, randint=secure_randint
     ):
-        """Takes a BIP39 mnemonic along with k, n, passphrase and exponent.
-        Returns a list of SLIP39 mnemonics, any k of of which, along with the passphrase, recover the secret
+        """
+        Takes a BIP39 mnemonic along with k, n, passphrase and exponent.
+        Returns a list of SLIP39 mnemonics, any k of which, along with the passphrase, recover the secret.
+        
+        NOTE: This function is designed for creating NEW wallets from scratch using the BIP39 
+        mnemonic as the source entropy. It does NOT convert an existing BIP39-backed wallet 
+        to SLIP39 format while preserving the same addresses.
+        
+        For existing BIP39 wallets, converting to SLIP39 while maintaining the same addresses 
+        would require using the BIP39 seed (from mnemonic_to_seed) as input, which generates 
+        512-bit seeds requiring 59-word SLIP39 shares. This conversion is not supported by 
+        embit and is not recommended.
         """
         # convert mnemonic to a shared secret
         secret = mnemonic_to_bytes(mnemonic)
@@ -352,7 +362,20 @@ class ShareSet:
 
     @classmethod
     def recover_mnemonic(cls, share_mnemonics, passphrase=b""):
-        """Recovers the BIP39 mnemonic from a bunch of SLIP39 mnemonics"""
+        """
+        WARNING: This function will be removed in a future version as it is misleading.
+
+        This function recovers the original BIP32 seed in BIP39 mnemonic format from 
+        SLIP39 shares, but this is NOT the same as a proper BIP39 mnemonic recovery. 
+        Using the returned mnemonic with standard BIP39 seed derivation (mnemonic_to_seed) 
+        will generate a different seed than the original BIP32 seed, resulting in 
+        a completely different wallet with different addresses.
+
+        The function technically returns the correct raw seed data formatted as a BIP39 
+        mnemonic, but this creates confusion as users expect BIP39 mnemonics to work with 
+        standard BIP39 derivation processes. This will cause users to lose access to their 
+        original wallet addresses.
+        """
         shares = [Share.parse(m) for m in share_mnemonics]
         share_set = ShareSet(shares)
         secret = share_set.recover(passphrase)
