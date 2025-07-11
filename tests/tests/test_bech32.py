@@ -135,16 +135,16 @@ class Bech32Test(TestCase):
     def test_invalid_address(self):
         """Test whether invalid addresses fail to decode."""
         for test in INVALID_ADDRESS:
-            witver, _ = segwit_addr.decode("bc", test)
-            self.assertIsNone(witver)
-            witver, _ = segwit_addr.decode("tb", test)
-            self.assertIsNone(witver)
+            with self.assertRaises(segwit_addr.Bech32DecodeError):
+                segwit_addr.decode("bc", test)
+            with self.assertRaises(segwit_addr.Bech32DecodeError):
+                segwit_addr.decode("tb", test)
 
     def test_invalid_address_enc(self):
         """Test whether address encoding fails on invalid input."""
         for hrp, version, length in INVALID_ADDRESS_ENC:
-            code = segwit_addr.encode(hrp, version, [0] * length)
-            self.assertIsNone(code)
+            with self.assertRaises(segwit_addr.Bech32DecodeError):
+                segwit_addr.encode(hrp, version, [0] * length)
 
     def test_silent_payments_address(self):
         """Test decoding of Silent Payments address (Bech32m format)."""

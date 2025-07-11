@@ -117,7 +117,7 @@ def convertbits(data, frombits, tobits, pad=True):
     max_acc = (1 << (frombits + tobits - 1)) - 1
     for value in data:
         if value < 0 or (value >> frombits):
-            return None
+            raise Bech32DecodeError("Invalid input value for bit conversion")
         acc = ((acc << frombits) | value) & max_acc
         bits += frombits
         while bits >= tobits:
@@ -127,36 +127,46 @@ def convertbits(data, frombits, tobits, pad=True):
         if bits:
             ret.append((acc << (tobits - bits)) & maxv)
     elif bits >= frombits or ((acc << (tobits - bits)) & maxv):
-        return None
+        raise Bech32DecodeError("Invalid padding in bit conversion")
     return ret
 
 
 def decode(hrp, addr):
     """Decode a segwit address."""
-    try:
-        encoding, hrpgot, data = bech32_decode(addr)
-    except Bech32DecodeError:
-        return (None, None)
+    encoding, hrpgot, data = bech32_decode(addr)
     if hrpgot != hrp:
-        return (None, None)
+        raise Bech32DecodeError(f"HRP mismatch: expected {hrp}, got {hrpgot}")
     decoded = convertbits(data[1:], 5, 8, False)
-    if decoded is None or len(decoded) < 2 or len(decoded) > 40:
-        return (None, None)
+    if len(decoded) < 2 or len(decoded) > 40:
+        raise Bech32DecodeError("Invalid witness program length")
     if data[0] > 16:
-        return (None, None)
+        raise Bech32DecodeError("Invalid witness version")
     if data[0] == 0 and len(decoded) != 20 and len(decoded) != 32:
-        return (None, None)
+        raise Bech32DecodeError("Invalid witness program length for version 0")
     if (data[0] == 0 and encoding != Encoding.BECH32) or (
         data[0] != 0 and encoding != Encoding.BECH32M
     ):
-        return (None, None)
+        raise Bech32DecodeError("Invalid encoding for witness version")
     return (data[0], decoded)
 
 
 def encode(hrp, witver, witprog):
     """Encode a segwit address."""
+    if witver < 0 or witver > 16:
+        raise Bech32DecodeError("Invalid witness version")
+    if len(witprog) < 2 or len(witprog) > 40:
+        raise Bech32DecodeError("Invalid witness program length")
+    if witver == 0 and len(witprog) != 20 and len(witprog) != 32:
+        raise Bech32DecodeError("Invalid witness program length for version 0")
+
     encoding = Encoding.BECH32 if witver == 0 else Encoding.BECH32M
-    ret = bech32_encode(encoding, hrp, [witver] + convertbits(witprog, 8, 5))
-    if decode(hrp, ret) == (None, None):
-        return None
+    converted = convertbits(witprog, 8, 5)
+    ret = bech32_encode(encoding, hrp, [witver] + converted)
+
+    # Verify the encoding worked correctly
+    try:
+        decode(hrp, ret)
+    except Bech32DecodeError:
+        raise Bech32DecodeError("Failed to encode valid segwit address")
+
     return ret
