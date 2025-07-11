@@ -33,6 +33,12 @@ class Encoding:
     BECH32M = 2
 
 
+class Bech32DecodeError(Exception):
+    """Exception raised for errors during Bech32 decoding."""
+
+    pass
+
+
 def bech32_polymod(values):
     """Internal function that computes the Bech32 checksum."""
     generator = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
@@ -77,21 +83,28 @@ def bech32_encode(encoding, hrp, data):
 
 def bech32_decode(bech):
     """Validate a Bech32/Bech32m string, and determine HRP and data."""
-    if (any(ord(x) < 33 or ord(x) > 126 for x in bech)) or (
-        bech.lower() != bech and bech.upper() != bech
-    ):
-        return (None, None, None)
+    if any(ord(x) < 33 or ord(x) > 126 for x in bech):
+        raise Bech32DecodeError("Invalid character in input")
+    if bech.lower() != bech and bech.upper() != bech:
+        raise Bech32DecodeError("Mixed case strings not allowed")
     bech = bech.lower()
     pos = bech.rfind("1")
-    if pos < 1 or pos + 7 > len(bech) or len(bech) > 90:
-        return (None, None, None)
-    if not all(x in CHARSET for x in bech[pos + 1 :]):
-        return (None, None, None)
+    if pos < 1:
+        raise Bech32DecodeError("Separator '1' not found or misplaced")
+    if pos > 83:
+        raise Bech32DecodeError("HRP too long (max 83 characters)")
+    if pos + 7 > len(bech):
+        raise Bech32DecodeError("Data part too short")
+    if len(bech) > 118:
+        raise Bech32DecodeError("String too long for SP address")
     hrp = bech[:pos]
-    data = [CHARSET.find(x) for x in bech[pos + 1 :]]
+    data_part = bech[pos + 1 :]
+    if not all(x in CHARSET for x in data_part):
+        raise Bech32DecodeError("Data part contains invalid characters")
+    data = [CHARSET.find(x) for x in data_part]
     encoding = bech32_verify_checksum(hrp, data)
     if encoding is None:
-        return (None, None, None)
+        raise Bech32DecodeError("Checksum verification failed")
     return (encoding, hrp, data[:-6])
 
 
@@ -120,7 +133,10 @@ def convertbits(data, frombits, tobits, pad=True):
 
 def decode(hrp, addr):
     """Decode a segwit address."""
-    encoding, hrpgot, data = bech32_decode(addr)
+    try:
+        encoding, hrpgot, data = bech32_decode(addr)
+    except Bech32DecodeError:
+        return (None, None)
     if hrpgot != hrp:
         return (None, None)
     decoded = convertbits(data[1:], 5, 8, False)

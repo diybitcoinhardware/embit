@@ -99,9 +99,11 @@ INVALID_ADDRESS_ENC = [
     ("bc", 16, 41),
 ]
 
+SILENT_PAYMENTS_ADDRESS = "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv"
+
 
 class Bech32Test(TestCase):
-    """Unit test class for segwit addressess."""
+    """Unit test class for segwit addresses."""
 
     def test_valid_checksum(self):
         """Test checksum creation and validation."""
@@ -110,14 +112,14 @@ class Bech32Test(TestCase):
             self.assertIsNotNone(hrp)
             pos = test.rfind("1")
             test = test[: pos + 1] + chr(ord(test[pos + 1]) ^ 1) + test[pos + 2 :]
-            enc, hrp, _ = segwit_addr.bech32_decode(test)
-            self.assertIsNone(hrp)
+            with self.assertRaises(segwit_addr.Bech32DecodeError):
+                segwit_addr.bech32_decode(test)
 
     def test_invalid_checksum(self):
         """Test validation of invalid checksums."""
         for test in INVALID_CHECKSUM:
-            enc, hrp, _ = segwit_addr.bech32_decode(test)
-            self.assertIsNone(hrp)
+            with self.assertRaises(segwit_addr.Bech32DecodeError):
+                segwit_addr.bech32_decode(test)
 
     def test_valid_address(self):
         """Test whether valid addresses decode to the correct output."""
@@ -143,3 +145,58 @@ class Bech32Test(TestCase):
         for hrp, version, length in INVALID_ADDRESS_ENC:
             code = segwit_addr.encode(hrp, version, [0] * length)
             self.assertIsNone(code)
+
+    def test_silent_payments_address(self):
+        """Test decoding of Silent Payments address (Bech32m format)."""
+        encoding, hrp, data = segwit_addr.bech32_decode(SILENT_PAYMENTS_ADDRESS)
+        self.assertIsNotNone(hrp)
+        self.assertEqual(hrp, "sp")
+        self.assertEqual(encoding, segwit_addr.Encoding.BECH32M)
+
+    def test_bech32_decode_exceptions(self):
+        """Test exception cases for bech32_decode."""
+        with self.assertRaises(segwit_addr.Bech32DecodeError) as context:
+            segwit_addr.bech32_decode("bc1qw!@#$%")
+        self.assertIn("Data part contains invalid characters", str(context.exception))
+
+        with self.assertRaises(segwit_addr.Bech32DecodeError) as context:
+            segwit_addr.bech32_decode("BC1qwgHUDx")
+        self.assertIn("Mixed case", str(context.exception))
+
+        with self.assertRaises(segwit_addr.Bech32DecodeError) as context:
+            segwit_addr.bech32_decode("nonseparatoraddress")
+        self.assertIn("Separator '1' not found", str(context.exception))
+
+        with self.assertRaises(segwit_addr.Bech32DecodeError) as context:
+            segwit_addr.bech32_decode("bc1short")
+        self.assertIn("Data part too short", str(context.exception))
+
+        with self.assertRaises(segwit_addr.Bech32DecodeError) as context:
+            segwit_addr.bech32_decode("bc1qinvalidchar")
+        self.assertIn("Data part contains invalid characters", str(context.exception))
+
+        with self.assertRaises(segwit_addr.Bech32DecodeError) as context:
+            segwit_addr.bech32_decode("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5")
+        self.assertIn("Checksum verification failed", str(context.exception))
+
+
+class Bech32RoundTripTest(TestCase):
+    """Test round-trip encoding/decoding for various payload sizes."""
+
+    def test_round_trip(self):
+        """Test round-trip encoding/decoding for various payload sizes."""
+        test_cases = [
+            ("test", []),  # empty payload
+            ("ln", [0] * 100),  # medium
+            ("hrp-with-dashes", list(range(31))),  # full charset
+        ]
+
+        for hrp, payload in test_cases:
+            for encoding in [segwit_addr.Encoding.BECH32, segwit_addr.Encoding.BECH32M]:
+                encoded = segwit_addr.bech32_encode(encoding, hrp, payload)
+                decoded_enc, decoded_hrp, decoded_data = segwit_addr.bech32_decode(
+                    encoded
+                )
+
+                self.assertEqual(decoded_enc, encoding)
+                self.assertEqual(decoded_hrp, hrp.lower())
