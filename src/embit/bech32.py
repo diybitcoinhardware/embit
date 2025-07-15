@@ -34,8 +34,6 @@ class Encoding:
 
 
 class Bech32DecodeError(Exception):
-    """Exception raised for errors during Bech32 decoding."""
-
     pass
 
 
@@ -137,14 +135,20 @@ def decode(hrp, addr):
     if hrpgot != hrp:
         raise Bech32DecodeError(f"HRP mismatch: expected {hrp}, got {hrpgot}")
     decoded = convertbits(data[1:], 5, 8, False)
-    if len(decoded) < 2 or len(decoded) > 40:
-        raise Bech32DecodeError("Invalid witness program length")
+    if len(decoded) < 2 or len(decoded) > 66:
+        raise Bech32DecodeError(f"Invalid witness program length")
     if data[0] > 16:
         raise Bech32DecodeError("Invalid witness version")
-    if data[0] == 0 and len(decoded) != 20 and len(decoded) != 32:
+    if (
+        hrp not in ["sp", "tsp"]
+        and data[0] == 0
+        and len(decoded) != 20
+        and len(decoded) != 32
+    ):
         raise Bech32DecodeError("Invalid witness program length for version 0")
-    if (data[0] == 0 and encoding != Encoding.BECH32) or (
-        data[0] != 0 and encoding != Encoding.BECH32M
+    if hrp not in ["sp", "tsp"] and (
+        (data[0] == 0 and encoding != Encoding.BECH32)
+        or (data[0] != 0 and encoding != Encoding.BECH32M)
     ):
         raise Bech32DecodeError("Invalid encoding for witness version")
     return (data[0], decoded)
@@ -160,10 +164,8 @@ def encode(hrp, witver, witprog):
         raise Bech32DecodeError("Invalid witness program length for version 0")
 
     encoding = Encoding.BECH32 if witver == 0 else Encoding.BECH32M
-    converted = convertbits(witprog, 8, 5)
-    ret = bech32_encode(encoding, hrp, [witver] + converted)
+    ret = bech32_encode(encoding, hrp, [witver] + convertbits(witprog, 8, 5))
 
-    # Verify the encoding worked correctly
     try:
         decode(hrp, ret)
     except Bech32DecodeError:
