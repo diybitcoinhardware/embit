@@ -96,7 +96,7 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_wrapped(self):
-        return self.sh and self.is_segwit
+        return bool(self.sh and self.is_segwit)
 
     @property
     def is_legacy(self):
@@ -105,7 +105,9 @@ class Descriptor(DescriptorBase):
     @property
     def is_segwit(self):
         return (
-            (self.wsh and self.miniscript) or (self.wpkh and self.key) or self.taproot
+            bool(self.wsh and self.miniscript)
+            or bool(self.wpkh and self.key)
+            or bool(self.taproot)
         )
 
     @property
@@ -130,14 +132,22 @@ class Descriptor(DescriptorBase):
         if self.is_taproot:
             return "p2tr"
         if self.sh:
+            # `wsh` and `wpkh` both default to True in `__init__`, so tell p2wpkh
+            # from p2wsh by the miniscript, the same way `redeem_script()` does.
+            if self.miniscript is None:
+                return "p2sh-p2wpkh"
+            if self.wsh:
+                return "p2sh-p2wsh"
             return "p2sh"
+        if self.wsh and self.miniscript is not None:
+            # same reasoning as above (`wsh` being initialized as `True` and
+            # need to check for `miniscript`)
+            return "p2wsh"
         if self.is_pkh:
             if self.is_legacy:
                 return "p2pkh"
             if self.is_segwit:
                 return "p2wpkh"
-        else:
-            return "p2wsh"
 
     @property
     def brief_policy(self):
@@ -211,8 +221,13 @@ class Descriptor(DescriptorBase):
         # we can't check if we don't know script_pubkey
         if psbt_scope.script_pubkey is None:
             return False
-        # quick check of script_pubkey type
-        if psbt_scope.script_pubkey.script_type() != self.scriptpubkey_type():
+        # `Script.script_type()` only sees "p2sh" for nested segwit, so map ours
+        # to "p2sh" for this quick check; comparing the derived scriptPubKey below
+        # tells sh(), sh(wpkh()) and sh(wsh()) apart
+        expected = self.scriptpubkey_type()
+        if expected in ("p2sh-p2wpkh", "p2sh-p2wsh"):
+            expected = "p2sh"
+        if psbt_scope.script_pubkey.script_type() != expected:
             return False
         for pub, der in psbt_scope.bip32_derivations.items():
             # check of the fingerprints
