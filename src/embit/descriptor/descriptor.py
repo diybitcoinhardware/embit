@@ -125,22 +125,14 @@ class Descriptor(DescriptorBase):
         if self.is_taproot:
             return "p2tr"
         if self.sh:
-            if self.wpkh:
-                return "p2sh-p2wpkh"
-            if self.wsh:
-                return "p2sh-p2wsh"
             return "p2sh"
-        if self.wsh:
-            return "p2wsh"
         if self.is_pkh:
             if self.is_legacy:
                 return "p2pkh"
             if self.is_segwit:
                 return "p2wpkh"
-
-        raise DescriptorError(
-            "Unknown scriptpubkey type for descriptor %s" % self.to_string()
-        )
+        else:
+            return "p2wsh"
 
     @property
     def brief_policy(self):
