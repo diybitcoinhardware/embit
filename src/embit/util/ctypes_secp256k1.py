@@ -17,7 +17,15 @@ from ctypes import (
     create_string_buffer,
     CFUNCTYPE,
     POINTER,
+    Structure,
 )
+
+class secp256k1_schnorrsig_extraparams(Structure):
+    _fields_ = [
+        ("magic", c_char * 4),
+        ("noncefp", c_void_p),  # secp256k1_nonce_function_hardened is a function pointer
+        ("ndata", c_void_p),
+    ]
 
 _lock = threading.Lock()
 
@@ -224,6 +232,16 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
             c_char_p,  # aux_rand
         ]
         secp256k1.secp256k1_schnorrsig_sign32.restype = c_int
+
+        secp256k1.secp256k1_schnorrsig_sign_custom.argtypes = [
+            c_void_p,  # ctx
+            c_char_p,  # sig
+            c_char_p,  # msg
+            c_size_t,  # msglen
+            c_char_p,  # keypair
+            POINTER(secp256k1_schnorrsig_extraparams),  # pointer to extraparams (can be NULL)
+        ]
+        secp256k1.secp256k1_schnorrsig_sign_custom.restype = c_int
 
         secp256k1.secp256k1_keypair_create.argtypes = [
             c_void_p,  # ctx
@@ -779,7 +797,7 @@ def keypair_create(secret, context=_secp.ctx):
 
 
 # not @locked because it uses keypair_create inside
-def schnorrsig_sign(msg, keypair, nonce_function=None, aux_rand=None, context=_secp.ctx):
+def schnorrsig_sign_32(msg, keypair, nonce_function=None, aux_rand=None, context=_secp.ctx):
     assert len(msg) == 32
     if len(keypair) == 32:
         keypair = keypair_create(keypair, context=context)
@@ -793,6 +811,20 @@ def schnorrsig_sign(msg, keypair, nonce_function=None, aux_rand=None, context=_s
             raise ValueError("Failed to sign")
         return sig
 
+# not @locked because it uses keypair_create inside
+def schnorrsig_sign(msg, keypair, nonce_function=None, aux_rand=None, context=_secp.ctx):
+    assert len(msg) == 32
+    if len(keypair) == 32:
+        keypair = keypair_create(keypair, context=context)
+    with _lock:
+        assert len(keypair) == 96
+        sig = bytes(64)
+        r = _secp.secp256k1_schnorrsig_sign_custom(
+            context, sig, msg, len(msg), keypair, None
+        )
+        if r == 0:
+            raise ValueError("Failed to sign")
+        return sig
 
 # recoverable
 @locked
