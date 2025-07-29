@@ -17,7 +17,15 @@ from ctypes import (
     create_string_buffer,
     CFUNCTYPE,
     POINTER,
+    Structure,
 )
+
+class secp256k1_schnorrsig_extraparams(Structure):
+    _fields_ = [
+        ("magic", c_char * 4),
+        ("noncefp", c_void_p),  # secp256k1_nonce_function_hardened is a function pointer
+        ("ndata", c_void_p),
+    ]
 
 _lock = threading.Lock()
 
@@ -99,17 +107,17 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
     secp256k1.secp256k1_ec_seckey_verify.argtypes = [c_void_p, c_char_p]
     secp256k1.secp256k1_ec_seckey_verify.restype = c_int
 
-    secp256k1.secp256k1_ec_privkey_negate.argtypes = [c_void_p, c_char_p]
-    secp256k1.secp256k1_ec_privkey_negate.restype = c_int
+    secp256k1.secp256k1_ec_seckey_negate.argtypes = [c_void_p, c_char_p]
+    secp256k1.secp256k1_ec_seckey_negate.restype = c_int
 
     secp256k1.secp256k1_ec_pubkey_negate.argtypes = [c_void_p, c_char_p]
     secp256k1.secp256k1_ec_pubkey_negate.restype = c_int
 
-    secp256k1.secp256k1_ec_privkey_tweak_add.argtypes = [c_void_p, c_char_p, c_char_p]
-    secp256k1.secp256k1_ec_privkey_tweak_add.restype = c_int
+    secp256k1.secp256k1_ec_seckey_tweak_mul.argtypes = [c_void_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_ec_seckey_tweak_mul.restype = c_int
 
-    secp256k1.secp256k1_ec_privkey_tweak_mul.argtypes = [c_void_p, c_char_p, c_char_p]
-    secp256k1.secp256k1_ec_privkey_tweak_mul.restype = c_int
+    secp256k1.secp256k1_ec_seckey_tweak_mul.argtypes = [c_void_p, c_char_p, c_char_p]
+    secp256k1.secp256k1_ec_seckey_tweak_mul.restype = c_int
 
     secp256k1.secp256k1_ec_pubkey_create.argtypes = [c_void_p, c_void_p, c_char_p]
     secp256k1.secp256k1_ec_pubkey_create.restype = c_int
@@ -211,19 +219,29 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
             c_void_p,  # ctx
             c_char_p,  # sig
             c_char_p,  # msg
+            c_size_t,  # msglen
             c_char_p,  # pubkey
         ]
         secp256k1.secp256k1_schnorrsig_verify.restype = c_int
 
-        secp256k1.secp256k1_schnorrsig_sign.argtypes = [
+        secp256k1.secp256k1_schnorrsig_sign32.argtypes = [
             c_void_p,  # ctx
             c_char_p,  # sig
             c_char_p,  # msg
             c_char_p,  # keypair
-            c_void_p,  # nonce_function
-            c_char_p,  # extra data
+            c_char_p,  # aux_rand
         ]
-        secp256k1.secp256k1_schnorrsig_sign.restype = c_int
+        secp256k1.secp256k1_schnorrsig_sign32.restype = c_int
+
+        secp256k1.secp256k1_schnorrsig_sign_custom.argtypes = [
+            c_void_p,  # ctx
+            c_char_p,  # sig
+            c_char_p,  # msg
+            c_size_t,  # msglen
+            c_char_p,  # keypair
+            POINTER(secp256k1_schnorrsig_extraparams),  # pointer to extraparams (can be NULL)
+        ]
+        secp256k1.secp256k1_schnorrsig_sign_custom.restype = c_int
 
         secp256k1.secp256k1_keypair_create.argtypes = [
             c_void_p,  # ctx
@@ -624,7 +642,7 @@ def ec_privkey_negate(secret, context=_secp.ctx):
     if len(secret) != 32:
         raise ValueError("Secret should be 32 bytes long")
     b = _copy(secret)
-    _secp.secp256k1_ec_privkey_negate(context, b)
+    _secp.secp256k1_ec_seckey_negate(context, b)
     return b
 
 
@@ -644,7 +662,7 @@ def ec_privkey_tweak_add(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
     t = _copy(tweak)
-    if _secp.secp256k1_ec_privkey_tweak_add(context, secret, tweak) == 0:
+    if _secp.secp256k1_ec_seckey_tweak_add(context, secret, tweak) == 0:
         raise ValueError("Failed to tweak the secret")
     return None
 
@@ -668,7 +686,7 @@ def ec_privkey_add(secret, tweak, context=_secp.ctx):
     # ugly copy that works in mpy and py
     s = _copy(secret)
     t = _copy(tweak)
-    if _secp.secp256k1_ec_privkey_tweak_add(context, s, t) == 0:
+    if _secp.secp256k1_ec_seckey_tweak_add(context, s, t) == 0:
         raise ValueError("Failed to tweak the secret")
     return s
 
@@ -689,7 +707,7 @@ def ec_pubkey_add(pub, tweak, context=_secp.ctx):
 def ec_privkey_tweak_mul(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
-    if _secp.secp256k1_ec_privkey_tweak_mul(context, secret, tweak) == 0:
+    if _secp.secp256k1_ec_seckey_tweak_mul(context, secret, tweak) == 0:
         raise ValueError("Failed to tweak the secret")
 
 
@@ -764,7 +782,7 @@ def schnorrsig_verify(sig, msg, pubkey, context=_secp.ctx):
     assert len(sig) == 64
     assert len(msg) == 32
     assert len(pubkey) == 64
-    res = _secp.secp256k1_schnorrsig_verify(context, sig, msg, pubkey)
+    res = _secp.secp256k1_schnorrsig_verify(context, sig, msg, len(msg), pubkey)
     return bool(res)
 
 
@@ -779,22 +797,34 @@ def keypair_create(secret, context=_secp.ctx):
 
 
 # not @locked because it uses keypair_create inside
-def schnorrsig_sign(
-    msg, keypair, nonce_function=None, extra_data=None, context=_secp.ctx
-):
+def schnorrsig_sign_32(msg, keypair, nonce_function=None, aux_rand=None, context=_secp.ctx):
     assert len(msg) == 32
     if len(keypair) == 32:
         keypair = keypair_create(keypair, context=context)
     with _lock:
         assert len(keypair) == 96
         sig = bytes(64)
-        r = _secp.secp256k1_schnorrsig_sign(
-            context, sig, msg, keypair, nonce_function, extra_data
+        r = _secp.secp256k1_schnorrsig_sign32(
+            context, sig, msg, keypair, aux_rand
         )
         if r == 0:
             raise ValueError("Failed to sign")
         return sig
 
+# not @locked because it uses keypair_create inside
+def schnorrsig_sign(msg, keypair, nonce_function=None, aux_rand=None, context=_secp.ctx):
+    assert len(msg) == 32
+    if len(keypair) == 32:
+        keypair = keypair_create(keypair, context=context)
+    with _lock:
+        assert len(keypair) == 96
+        sig = bytes(64)
+        r = _secp.secp256k1_schnorrsig_sign_custom(
+            context, sig, msg, len(msg), keypair, None
+        )
+        if r == 0:
+            raise ValueError("Failed to sign")
+        return sig
 
 # recoverable
 @locked
