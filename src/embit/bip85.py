@@ -52,7 +52,7 @@ def derive_xprv(root, index=0):
 def derive_hex(root, num_bytes=32, index=0):
     """Derive raw entropy from 16 to 64 bytes long"""
     if num_bytes > 64:
-        raise ValueError("Number of bytes must be less than 64")
+        raise ValueError("Number of bytes must not exceed 64")
     if num_bytes < 16:
         raise ValueError("Number of bytes must be at least 16")
     entropy = derive_entropy(root, 128169, [num_bytes, index])
