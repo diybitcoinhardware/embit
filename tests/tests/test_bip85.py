@@ -104,7 +104,7 @@ class Bip85Test(TestCase):
         for num_bytes in [65, 100, 1000, 10000]:
             with self.assertRaises(ValueError) as exc:
                 bip85.derive_hex(ROOT, num_bytes, 1)
-            self.assertEqual(str(exc.exception), "Number of bytes must be less than 64")
+            self.assertEqual(str(exc.exception), "Number of bytes must not exceed 64")
 
     def test_hex_fail_num_bytes_le_16(self):
         for num_bytes in [15, 14, 10, 0]:
