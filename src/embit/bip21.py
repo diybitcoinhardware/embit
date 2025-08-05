@@ -1,0 +1,237 @@
+"""BIP21 Bitcoin URI handling"""
+
+import re
+from urllib.parse import quote, unquote, urlparse, parse_qs
+from decimal import Decimal, InvalidOperation
+from .base import EmbitBase, EmbitError
+
+
+class BIP21Error(EmbitError):
+    """BIP21 URI parsing/validation error"""
+    pass
+
+
+class BitcoinURI(EmbitBase):
+    """
+    Bitcoin URI handler implementing BIP21 standard.
+    
+    Supports:
+    - Standard bitcoin: URIs
+    - URL encoding/decoding
+    - Required field validation (req- prefix)
+    - Standard fields: amount, label, message
+    - Silent payments addresses (sp parameter)
+    """
+    
+    # Standard field names
+    FIELD_MESSAGE = "message"
+    FIELD_LABEL = "label"
+    FIELD_AMOUNT = "amount"
+    FIELD_ADDRESS = "address"
+    FIELD_SILENT_PAYMENT = "sp"
+    
+    # Constants
+    BITCOIN_SCHEME = "bitcoin"
+    MAX_BITCOIN = 21000000
+    SATOSHIS_PER_BITCOIN = 100000000
+    SMALLEST_UNIT_EXPONENT = 8
+    
+    def __init__(self, uri_string):
+        """
+        Parse a Bitcoin URI string.
+        
+        Args:
+            uri_string: The URI string to parse
+            
+        Raises:
+            BIP21Error: If the URI is invalid
+        """
+        self.uri_string = uri_string
+        self.parameters = {}
+        
+        # Parse the URI
+        try:
+            parsed = urlparse(uri_string)
+        except Exception as e:
+            raise BIP21Error(f"Bad URI syntax: {e}")
+        
+        # Validate scheme
+        if parsed.scheme.lower() != self.BITCOIN_SCHEME:
+            raise BIP21Error(f"Unsupported URI scheme: {parsed.scheme}")
+        
+        # Extract address and parameters
+        # Handle both bitcoin:address?params and bitcoin://address?params formats
+        path = parsed.path
+        if path.startswith("//"):
+            path = path[2:]
+        
+        # Split address from query params
+        if "?" in uri_string:
+            address_part = path
+            query_part = parsed.query
+        else:
+            address_part = path
+            query_part = ""
+        
+        # Parse address if present
+        if address_part:
+            try:
+                # Basic address validation - just check it's not empty and reasonable length
+                if len(address_part) < 26 or len(address_part) > 62:
+                    raise ValueError("Invalid address length")
+                self._put_with_validation(self.FIELD_ADDRESS, address_part)
+            except Exception as e:
+                raise BIP21Error(f"Invalid address: {e}")
+        
+        # Parse query parameters
+        if query_part:
+            params = parse_qs(query_part, keep_blank_values=True)
+            for name, values in params.items():
+                # Take the first value if multiple are present
+                value = values[0] if values else ""
+                self._parse_parameter(name.lower(), value)
+    
+    def _parse_parameter(self, name, value):
+        """Parse a single parameter name/value pair"""
+        if name == self.FIELD_AMOUNT and value:
+            try:
+                # Parse amount as decimal with up to 8 decimal places
+                amount_decimal = Decimal(value.replace(',', '.'))
+                if amount_decimal < 0:
+                    raise ValueError("Negative amount")
+                
+                # Convert to satoshis
+                satoshis = int(amount_decimal * self.SATOSHIS_PER_BITCOIN)
+                if satoshis > self.MAX_BITCOIN * self.SATOSHIS_PER_BITCOIN:
+                    raise ValueError("Amount exceeds maximum")
+                
+                self._put_with_validation(self.FIELD_AMOUNT, satoshis)
+            except (InvalidOperation, ValueError, OverflowError) as e:
+                raise BIP21Error(f"'{value}' is not a valid amount: {e}")
+        
+        elif name == self.FIELD_SILENT_PAYMENT and value:
+            # Parse silent payment address
+            try:
+                decoded_sp = unquote(value)
+                # Basic validation for silent payment address format
+                if not decoded_sp.startswith('sp1'):
+                    raise ValueError("Silent payment address must start with 'sp1'")
+                if len(decoded_sp) < 100:  # Silent payment addresses are quite long
+                    raise ValueError("Silent payment address too short")
+                self._put_with_validation(self.FIELD_SILENT_PAYMENT, decoded_sp)
+            except Exception as e:
+                raise BIP21Error(f"'{value}' is not a valid silent payment address: {e}")
+        
+        elif name.startswith("req-"):
+            # Required parameter we don't know about
+            raise BIP21Error(f"'{name}' is required but not known, this URI is not valid")
+        
+        else:
+            # Known or unknown optional parameter
+            if value:
+                decoded_value = unquote(value)
+                self._put_with_validation(name, decoded_value)
+    
+    def _put_with_validation(self, key, value):
+        """Add parameter with duplicate validation"""
+        if key in self.parameters:
+            raise BIP21Error(f"'{key}' is duplicated, URI is invalid")
+        self.parameters[key] = value
+    
+    def get_address(self):
+        """Get the Bitcoin address from the URI"""
+        return self.parameters.get(self.FIELD_ADDRESS)
+    
+    def get_amount(self):
+        """Get the amount in satoshis, or None if not specified"""
+        return self.parameters.get(self.FIELD_AMOUNT)
+    
+    def get_label(self):
+        """Get the label parameter"""
+        return self.parameters.get(self.FIELD_LABEL)
+    
+    def get_message(self):
+        """Get the message parameter"""
+        return self.parameters.get(self.FIELD_MESSAGE)
+    
+    def get_silent_payment_address(self):
+        """Get the silent payment address from the URI"""
+        return self.parameters.get(self.FIELD_SILENT_PAYMENT)
+    
+    def get_parameter(self, name):
+        """Get a parameter by name"""
+        return self.parameters.get(name)
+    
+    def __str__(self):
+        """String representation showing all parameters"""
+        items = []
+        for key, value in self.parameters.items():
+            items.append(f"'{key}'='{value}'")
+        return f"BitcoinURI[{','.join(items)}]"
+    
+    def to_uri_string(self):
+        """Get the original URI string"""
+        return self.uri_string
+    
+    @classmethod
+    def from_address(cls, address):
+        """Create a BitcoinURI from just an address"""
+        return cls(f"{cls.BITCOIN_SCHEME}:{address}")
+    
+    @classmethod
+    def from_silent_payment(cls, sp_address):
+        """Create a BitcoinURI from a silent payment address"""
+        encoded_sp = quote(sp_address, safe='')
+        return cls(f"{cls.BITCOIN_SCHEME}:?{cls.FIELD_SILENT_PAYMENT}={encoded_sp}")
+    
+    @classmethod
+    def build_uri(cls, address=None, amount=None, label=None, message=None, silent_payment=None):
+        """
+        Build a Bitcoin URI from components.
+        
+        Args:
+            address: Bitcoin address (optional)
+            amount: Amount in satoshis (optional)
+            label: Label text (optional)
+            message: Message text (optional)
+            silent_payment: Silent payment address (optional)
+            
+        Returns:
+            Complete Bitcoin URI string
+        """
+        if amount is not None and amount < 0:
+            raise ValueError("Amount must be positive")
+        
+        # Handle silent payment URIs (no address in path)
+        if silent_payment and not address:
+            uri = f"{cls.BITCOIN_SCHEME}:"
+        elif address:
+            uri = f"{cls.BITCOIN_SCHEME}:{address}"
+        else:
+            uri = f"{cls.BITCOIN_SCHEME}:"
+        
+        params = []
+        
+        if silent_payment:
+            encoded_sp = quote(silent_payment, safe='')
+            params.append(f"{cls.FIELD_SILENT_PAYMENT}={encoded_sp}")
+        
+        if amount is not None:
+            # Convert satoshis to BTC with proper decimal formatting
+            btc_amount = Decimal(amount) / cls.SATOSHIS_PER_BITCOIN
+            # Format to remove trailing zeros
+            amount_str = f"{btc_amount:f}".rstrip('0').rstrip('.')
+            params.append(f"{cls.FIELD_AMOUNT}={amount_str}")
+        
+        if label:
+            encoded_label = quote(label, safe='')
+            params.append(f"{cls.FIELD_LABEL}={encoded_label}")
+        
+        if message:
+            encoded_message = quote(message, safe='')
+            params.append(f"{cls.FIELD_MESSAGE}={encoded_message}")
+        
+        if params:
+            uri += "?" + "&".join(params)
+        
+        return uri
