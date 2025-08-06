@@ -30,9 +30,10 @@ class BitcoinURI(EmbitBase):
     FIELD_AMOUNT = "amount"
     FIELD_BC = "bc"  # Bech32(m) address parameter
     FIELD_SILENT_PAYMENT = "sp"
+    FIELD_POP = "pop"
     
     # Fields that MUST NOT have duplicates
-    NO_DUPLICATE_FIELDS = {FIELD_LABEL, FIELD_MESSAGE, "pop"}
+    NO_DUPLICATE_FIELDS = {FIELD_LABEL, FIELD_MESSAGE, FIELD_AMOUNT, FIELD_POP}
     
     # Fields that are payment instructions and MAY have duplicates
     PAYMENT_INSTRUCTION_FIELDS = {FIELD_BC, FIELD_SILENT_PAYMENT}
@@ -99,7 +100,7 @@ class BitcoinURI(EmbitBase):
             params = parse_qs(query_part, keep_blank_values=True)
             for name, values in params.items():
                 name_lower = name.lower()
-                
+
                 # Check for forbidden duplicates
                 if name_lower in self.NO_DUPLICATE_FIELDS and len(values) > 1:
                     raise BIP21Error(f"Multiple query parameters with key '{name}' are not allowed")
@@ -139,8 +140,8 @@ class BitcoinURI(EmbitBase):
                 # Basic validation for Bech32m address format (case-insensitive)
                 if not decoded_bc.lower().startswith('bc1'):
                     raise ValueError("Bech32m address must start with 'bc1'")
-                # Add to list of bc addresses
-                self.parameters[self.FIELD_BC].append(decoded_bc)
+                # Add to list of bc addresses (normalized to lowercase)
+                self.parameters[self.FIELD_BC].append(decoded_bc.lower())
             except Exception as e:
                 raise BIP21Error(f"'{value}' is not a valid Bech32m address: {e}")
         
@@ -152,7 +153,7 @@ class BitcoinURI(EmbitBase):
                 if not decoded_sp.startswith('sp1'):
                     raise ValueError("Silent payment address must start with 'sp1'")
                 # Add to list of silent payment addresses
-                self.parameters[self.FIELD_SILENT_PAYMENT].append(decoded_sp)
+                self.parameters[self.FIELD_SILENT_PAYMENT].append(decoded_sp.lower())
             except Exception as e:
                 raise BIP21Error(f"'{value}' is not a valid silent payment address: {e}")
         
