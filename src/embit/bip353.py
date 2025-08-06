@@ -17,13 +17,8 @@ def verify_dns_proof(hrn: str, proof: bytes):
     try:
         result = verify_byte_stream(proof, hrn)
         parsed_result = json.loads(result)
-        
-        # Filter to only include TXT records
-        if "verified_rrs" in parsed_result:
-            txt_records = [rr for rr in parsed_result["verified_rrs"] if rr.get("type") == "txt"]
-            parsed_result["verified_rrs"] = txt_records
-        
         return parsed_result
+    
     except Exception as e:
         return {"error": f"DNSSEC proof verification failed for HRN '{hrn}': {e}"}
 
@@ -56,7 +51,7 @@ def get_payment_info_from_hrn(hrn: str, proof: bytes):
         raise Exception(f"No TXT records found in DNSSEC proof for HRN '{hrn}'. BIP353 requires Bitcoin payment information to be stored in TXT records.")
     
     if len(txt_records) > 1:
-        raise Exception(f"Multiple TXT records found for HRN '{hrn}'. BIP353 requires exactly one TXT record containing Bitcoin payment information.")
+        raise Exception(f"Multiple TXT records found for HRN '{hrn}' ({len(txt_records)} records). BIP353 requires exactly one TXT record containing Bitcoin payment information.")
     
     try:
         bitcoin_uri_obj = bip21.BitcoinURI(txt_records[0]["contents"])
