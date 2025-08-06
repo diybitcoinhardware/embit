@@ -61,16 +61,18 @@ def get_payment_info_from_hrn(hrn: str, proof: bytes):
     payment_info = {
         "uri": txt_records[0]["contents"],
         "hrn": txt_records[0]["name"],
-        "address": bitcoin_uri_obj.get_address(),
-        "silent_payment_address": bitcoin_uri_obj.get_silent_payment_address(),
+        "uri_address": bitcoin_uri_obj.get_address(),
+        "bc_addresses": bitcoin_uri_obj.get_bc_addresses(),
+        "silent_payment_addresses": bitcoin_uri_obj.get_silent_payment_addresses(),
     }
 
     # Validate that at least one payment method is available
-    has_regular_address = payment_info["address"] is not None
-    has_silent_payment = payment_info["silent_payment_address"] is not None
+    has_regular_address = payment_info["uri_address"] is not None
+    has_bc_addresses = len(payment_info["bc_addresses"]) > 0
+    has_silent_payment = len(payment_info["silent_payment_addresses"]) > 0
     
-    if not has_regular_address and not has_silent_payment:
-        raise Exception(f"Bitcoin URI in HRN '{hrn}' must contain either a regular Bitcoin address or a silent payment address")
+    if not has_regular_address and not has_bc_addresses and not has_silent_payment:
+        raise Exception(f"Bitcoin URI in HRN '{hrn}' must contain either a regular Bitcoin address, bech32(m) address (bc parameter), or a silent payment address")
     
     # Remove None values to clean up the response
     return {k: v for k, v in payment_info.items() if v is not None}

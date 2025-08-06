@@ -13,9 +13,9 @@ VECTORS_BIP353_INVALID_PROOFS = [
 ]
 
 VECTORS_BIP353_PAYMENT_INFO = [
-    {'uri': 'bitcoin:bc1qwthe43xeuasklclq4kvhreluv3hu92rzej42js', 'hrn': 'craig.user._bitcoin-payment.sparrowwallet.com.', 'address': 'bc1qwthe43xeuasklclq4kvhreluv3hu92rzej42js'},
-    {'uri': 'bitcoin:bc1qztwy6xen3zdtt7z0vrgapmjtfz8acjkfp5fp7l?lno=lno1zr5qyugqgskrk70kqmuq7v3dnr2fnmhukps9n8hut48vkqpqnskt2svsqwjakp7k6pyhtkuxw7y2kqmsxlwruhzqv0zsnhh9q3t9xhx39suc6qsr07ekm5esdyum0w66mnx8vdquwvp7dp5jp7j3v5cp6aj0w329fnkqqv60q96sz5nkrc5r95qffx002q53tqdk8x9m2tmt85jtpmcycvfnrpx3lr45h2g7na3sec7xguctfzzcm8jjqtj5ya27te60j03vpt0vq9tm2n9yxl2hngfnmygesa25s4u4zlxewqpvp94xt7rur4rhxunwkthk9vly3lm5hh0pqv4aymcqejlgssnlpzwlggykkajp7yjs5jvr2agkyypcdlj280cy46jpynsezrcj2kwa2lyr8xvd6lfkph4xrxtk2xc3lpq', 'hrn': 'matt.user._bitcoin-payment.mattcorallo.com.', 'address': 'bc1qztwy6xen3zdtt7z0vrgapmjtfz8acjkfp5fp7l'},
-    {'uri': 'bitcoin:1JBMattRztKDF2KRS3vhjJXA7h47NEsn2c', 'hrn': 'override.x_domain_cname_wild.user._bitcoin-payment.dnssec_proof_tests.bitcoin.ninja.', 'address': '1JBMattRztKDF2KRS3vhjJXA7h47NEsn2c'},
+    {'uri': 'bitcoin:bc1qwthe43xeuasklclq4kvhreluv3hu92rzej42js', 'hrn': 'craig.user._bitcoin-payment.sparrowwallet.com.', 'uri_address': 'bc1qwthe43xeuasklclq4kvhreluv3hu92rzej42js', 'bc_addresses': [], 'silent_payment_addresses': []},
+    {'uri': 'bitcoin:bc1qztwy6xen3zdtt7z0vrgapmjtfz8acjkfp5fp7l?lno=lno1zr5qyugqgskrk70kqmuq7v3dnr2fnmhukps9n8hut48vkqpqnskt2svsqwjakp7k6pyhtkuxw7y2kqmsxlwruhzqv0zsnhh9q3t9xhx39suc6qsr07ekm5esdyum0w66mnx8vdquwvp7dp5jp7j3v5cp6aj0w329fnkqqv60q96sz5nkrc5r95qffx002q53tqdk8x9m2tmt85jtpmcycvfnrpx3lr45h2g7na3sec7xguctfzzcm8jjqtj5ya27te60j03vpt0vq9tm2n9yxl2hngfnmygesa25s4u4zlxewqpvp94xt7rur4rhxunwkthk9vly3lm5hh0pqv4aymcqejlgssnlpzwlggykkajp7yjs5jvr2agkyypcdlj280cy46jpynsezrcj2kwa2lyr8xvd6lfkph4xrxtk2xc3lpq', 'hrn': 'matt.user._bitcoin-payment.mattcorallo.com.', 'uri_address': 'bc1qztwy6xen3zdtt7z0vrgapmjtfz8acjkfp5fp7l', 'bc_addresses': [], 'silent_payment_addresses': []},
+    {'uri': 'bitcoin:1JBMattRztKDF2KRS3vhjJXA7h47NEsn2c', 'hrn': 'override.x_domain_cname_wild.user._bitcoin-payment.dnssec_proof_tests.bitcoin.ninja.', 'uri_address': '1JBMattRztKDF2KRS3vhjJXA7h47NEsn2c', 'bc_addresses': [], 'silent_payment_addresses': []},
 ]
 
 

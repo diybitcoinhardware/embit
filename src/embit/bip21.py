@@ -21,14 +21,21 @@ class BitcoinURI(EmbitBase):
     - Required field validation (req- prefix)
     - Standard fields: amount, label, message
     - Silent payments addresses (sp parameter)
+    - Bech32(m) addresses (bc parameter)
     """
     
     # Standard field names
     FIELD_MESSAGE = "message"
     FIELD_LABEL = "label"
     FIELD_AMOUNT = "amount"
-    FIELD_ADDRESS = "address"
+    FIELD_BC = "bc"  # Bech32(m) address parameter
     FIELD_SILENT_PAYMENT = "sp"
+    
+    # Fields that MUST NOT have duplicates
+    NO_DUPLICATE_FIELDS = {FIELD_LABEL, FIELD_MESSAGE, "pop"}
+    
+    # Fields that are payment instructions and MAY have duplicates
+    PAYMENT_INSTRUCTION_FIELDS = {FIELD_BC, FIELD_SILENT_PAYMENT}
     
     # Constants
     BITCOIN_SCHEME = "bitcoin"
@@ -79,17 +86,33 @@ class BitcoinURI(EmbitBase):
                 # Basic address validation - just check it's not empty and reasonable length
                 if len(address_part) < 26 or len(address_part) > 62:
                     raise ValueError("Invalid address length")
-                self._put_with_validation(self.FIELD_ADDRESS, address_part)
+                self._put_with_validation("uri_address", address_part)
             except Exception as e:
                 raise BIP21Error(f"Invalid address: {e}")
+        
+        # Initialize payment instruction fields as lists
+        for field in self.PAYMENT_INSTRUCTION_FIELDS:
+            self.parameters[field] = []
         
         # Parse query parameters
         if query_part:
             params = parse_qs(query_part, keep_blank_values=True)
             for name, values in params.items():
-                # Take the first value if multiple are present
-                value = values[0] if values else ""
-                self._parse_parameter(name.lower(), value)
+                name_lower = name.lower()
+                
+                # Check for forbidden duplicates
+                if name_lower in self.NO_DUPLICATE_FIELDS and len(values) > 1:
+                    raise BIP21Error(f"Multiple query parameters with key '{name}' are not allowed")
+                
+                # Handle payment instruction fields that can have multiple values
+                if name_lower in self.PAYMENT_INSTRUCTION_FIELDS:
+                    for value in values:
+                        if value:
+                            self._parse_parameter(name_lower, value)
+                else:
+                    # For other fields, take the first value only
+                    value = values[0] if values else ""
+                    self._parse_parameter(name_lower, value)
     
     def _parse_parameter(self, name, value):
         """Parse a single parameter name/value pair"""
@@ -109,16 +132,27 @@ class BitcoinURI(EmbitBase):
             except (InvalidOperation, ValueError, OverflowError) as e:
                 raise BIP21Error(f"'{value}' is not a valid amount: {e}")
         
+        elif name == self.FIELD_BC and value:
+            # Parse bc parameter (Bech32m address) and add to list
+            try:
+                decoded_bc = unquote(value)
+                # Basic validation for Bech32m address format (case-insensitive)
+                if not decoded_bc.lower().startswith('bc1'):
+                    raise ValueError("Bech32m address must start with 'bc1'")
+                # Add to list of bc addresses
+                self.parameters[self.FIELD_BC].append(decoded_bc)
+            except Exception as e:
+                raise BIP21Error(f"'{value}' is not a valid Bech32m address: {e}")
+        
         elif name == self.FIELD_SILENT_PAYMENT and value:
-            # Parse silent payment address
+            # Parse silent payment address and add to list
             try:
                 decoded_sp = unquote(value)
                 # Basic validation for silent payment address format
                 if not decoded_sp.startswith('sp1'):
                     raise ValueError("Silent payment address must start with 'sp1'")
-                if len(decoded_sp) < 100:  # Silent payment addresses are quite long
-                    raise ValueError("Silent payment address too short")
-                self._put_with_validation(self.FIELD_SILENT_PAYMENT, decoded_sp)
+                # Add to list of silent payment addresses
+                self.parameters[self.FIELD_SILENT_PAYMENT].append(decoded_sp)
             except Exception as e:
                 raise BIP21Error(f"'{value}' is not a valid silent payment address: {e}")
         
@@ -133,14 +167,14 @@ class BitcoinURI(EmbitBase):
                 self._put_with_validation(name, decoded_value)
     
     def _put_with_validation(self, key, value):
-        """Add parameter with duplicate validation"""
-        if key in self.parameters:
+        """Add parameter with duplicate validation for non-payment instruction fields"""
+        if key in self.parameters and key not in self.PAYMENT_INSTRUCTION_FIELDS:
             raise BIP21Error(f"'{key}' is duplicated, URI is invalid")
         self.parameters[key] = value
     
     def get_address(self):
-        """Get the Bitcoin address from the URI"""
-        return self.parameters.get(self.FIELD_ADDRESS)
+        """Get the Bitcoin address from the URI path"""
+        return self.parameters.get("uri_address")
     
     def get_amount(self):
         """Get the amount in satoshis, or None if not specified"""
@@ -154,9 +188,13 @@ class BitcoinURI(EmbitBase):
         """Get the message parameter"""
         return self.parameters.get(self.FIELD_MESSAGE)
     
-    def get_silent_payment_address(self):
-        """Get the silent payment address from the URI"""
-        return self.parameters.get(self.FIELD_SILENT_PAYMENT)
+    def get_bc_addresses(self):
+        """Get all bech32(m) addresses from the bc parameters"""
+        return self.parameters.get(self.FIELD_BC, [])
+    
+    def get_silent_payment_addresses(self):
+        """Get all silent payment addresses from the sp parameters"""
+        return self.parameters.get(self.FIELD_SILENT_PAYMENT, [])
     
     def get_parameter(self, name):
         """Get a parameter by name"""
