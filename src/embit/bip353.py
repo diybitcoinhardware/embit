@@ -50,17 +50,23 @@ def get_payment_info_from_hrn(hrn: str, proof: bytes):
     if not txt_records:
         raise Exception(f"No TXT records found in DNSSEC proof for HRN '{hrn}'. BIP353 requires Bitcoin payment information to be stored in TXT records.")
     
-    if len(txt_records) > 1:
-        raise Exception(f"Multiple TXT records found for HRN '{hrn}' ({len(txt_records)} records). BIP353 requires exactly one TXT record containing Bitcoin payment information.")
+    # Filter TXT records that start with "bitcoin:" (case insensitive)
+    bitcoin_txt_records = [rr for rr in txt_records if rr.get("contents", "").lower().startswith("bitcoin:")]
+    
+    if not bitcoin_txt_records:
+        raise Exception(f"No TXT records containing Bitcoin URI found for HRN '{hrn}'. BIP353 requires exactly one TXT record starting with 'bitcoin:'.")
+    
+    if len(bitcoin_txt_records) > 1:
+        raise Exception(f"Multiple TXT records starting with 'bitcoin:' found for HRN '{hrn}' ({len(bitcoin_txt_records)} records). BIP353 requires exactly one TXT record containing Bitcoin payment information.")
     
     try:
-        bitcoin_uri_obj = bip21.BitcoinURI(txt_records[0]["contents"])
+        bitcoin_uri_obj = bip21.BitcoinURI(bitcoin_txt_records[0]["contents"])
     except Exception as e:
         raise Exception(f"Invalid Bitcoin URI in TXT record for HRN '{hrn}': {e}")
     
     payment_info = {
-        "uri": txt_records[0]["contents"],
-        "hrn": txt_records[0]["name"],
+        "uri": bitcoin_txt_records[0]["contents"],
+        "hrn": bitcoin_txt_records[0]["name"],
         "uri_address": bitcoin_uri_obj.get_address(),
         "bc_addresses": bitcoin_uri_obj.get_bc_addresses(),
         "silent_payment_addresses": bitcoin_uri_obj.get_silent_payment_addresses(),
