@@ -526,23 +526,6 @@ class OutputScope(PSBTScope):
 
         v = read_string(stream)
 
-        # PSBT_OUT_DNSSEC_PROOF (BIP-353)
-        if k[0] == 0x35:  # PSBT_OUT_DNSSEC_PROOF
-            if len(k) != 1:
-                raise PSBTError("Invalid DNSSEC proof key")
-            elif self.dnssec_proof is not None:
-                raise PSBTError("Duplicated DNSSEC proof")
-            else:
-                # First byte is length of human-readable name
-                name_len = v[0]
-                if name_len >= len(v):
-                    raise PSBTError("Invalid DNSSEC proof format")
-                # Extract name and proof
-                name = v[1:1+name_len]
-                proof = v[1+name_len:]
-                self.dnssec_proof = (name, proof)
-            return
-
         # redeem script
         if k[0] == 0x00:
             if len(k) != 1:
@@ -587,6 +570,23 @@ class OutputScope(PSBTScope):
                     raise PSBTError("Invalid length of taproot leaf hashes")
                 der = DerivationPath.read_from(b)
                 self.taproot_bip32_derivations[pub] = (leaf_hashes, der)
+
+        # PSBT_OUT_DNSSEC_PROOF (BIP-353)
+        elif k[0] == 0x35:  # PSBT_OUT_DNSSEC_PROOF
+            if len(k) != 1:
+                raise PSBTError("Invalid DNSSEC proof key")
+            elif self.dnssec_proof is not None:
+                raise PSBTError("Duplicated DNSSEC proof")
+            else:
+                # First byte is length of human-readable name
+                name_len = v[0]
+                if name_len >= len(v):
+                    raise PSBTError("Invalid DNSSEC proof format")
+                # Extract name and proof
+                name = v[1:1+name_len]
+                proof = v[1+name_len:]
+                self.dnssec_proof = (name, proof)
+            return
 
         else:
             if k in self.unknown:
