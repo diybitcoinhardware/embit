@@ -3,10 +3,12 @@ from .base import EmbitError
 from . import bip21
 from .util.dnssec_prover import verify_byte_stream, InternalError
 
+
 class DNSSECProofValidationError(EmbitError):
     pass
 
-def verify_dns_proof(hrn: str, proof: bytes):
+
+def verify_dns_proof(hrn: str, proof: bytes) -> dict:
     """
     Verify a DNS proof for a given human-readable name.
     
@@ -31,7 +33,7 @@ def verify_dns_proof(hrn: str, proof: bytes):
         raise DNSSECProofValidationError(f"Unexpected error during DNSSEC proof verification for HRN '{hrn}': {e}")
     
 
-def get_payment_info_from_hrn(hrn: str, proof: bytes):
+def get_payment_info_from_hrn(hrn: str, proof: bytes) -> dict:
     """
     Extract complete payment information from a human-readable name using DNS proof verification.
     

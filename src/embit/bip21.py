@@ -2,7 +2,7 @@
 
 import re
 from urllib.parse import quote, unquote, urlparse, parse_qs
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 from .base import EmbitBase, EmbitError
 
 
@@ -13,7 +13,8 @@ class BIP21Error(EmbitError):
 
 class BitcoinURI(EmbitBase):
     """
-    Bitcoin URI handler implementing BIP21 standard.
+    Bitcoin URI handler implementing BIP-21/BIP-321. 
+    Used by BIP-353 implementation to extract payment information from a human-readable name.
     
     Supports:
     - Standard bitcoin: URIs
@@ -43,8 +44,14 @@ class BitcoinURI(EmbitBase):
     MAX_BITCOIN = 21000000
     SATOSHIS_PER_BITCOIN = 100000000
     SMALLEST_UNIT_EXPONENT = 8
+      
+    # Bech32/Bech32m addresses: max 90 characters total (from BIP173)
+    # Minimum: HRP (2 chars) + "1" + 6 chars checksum + data (min 2 chars) = 11 chars
+    # Base58 addresses (P2PKH/P2SH): typically 26-35 characters. We take bech32 as reference.
+    MIN_BECH32_LENGTH = 11
+    MAX_BECH32_LENGTH = 90
     
-    def __init__(self, uri_string):
+    def __init__(self, uri_string: str):
         """
         Parse a Bitcoin URI string.
         
@@ -68,10 +75,7 @@ class BitcoinURI(EmbitBase):
             raise BIP21Error(f"Unsupported URI scheme: {parsed.scheme}")
         
         # Extract address and parameters
-        # Handle both bitcoin:address?params and bitcoin://address?params formats
         path = parsed.path
-        if path.startswith("//"):
-            path = path[2:]
         
         # Split address from query params
         if "?" in uri_string:
@@ -84,8 +88,8 @@ class BitcoinURI(EmbitBase):
         # Parse address if present
         if address_part:
             try:
-                # Basic address validation - just check it's not empty and reasonable length
-                if len(address_part) < 26 or len(address_part) > 62:
+                # Basic address length validation. We rely on the coordinator to validate the address before.
+                if len(address_part) < self.MIN_BECH32_LENGTH or len(address_part) > self.MAX_BECH32_LENGTH:
                     raise ValueError("Invalid address length")
                 self._put_with_validation("uri_address", address_part)
             except Exception as e:
@@ -114,8 +118,8 @@ class BitcoinURI(EmbitBase):
                     # For other fields, take the first value only
                     value = values[0] if values else ""
                     self._parse_parameter(name_lower, value)
-    
-    def _parse_parameter(self, name, value):
+        
+    def _parse_parameter(self, name: str, value: str):
         """Parse a single parameter name/value pair"""
         if name == self.FIELD_AMOUNT and value:
             try:
@@ -123,6 +127,9 @@ class BitcoinURI(EmbitBase):
                 amount_decimal = Decimal(value.replace(',', '.'))
                 if amount_decimal < 0:
                     raise ValueError("Negative amount")
+                
+                # Truncate to 8 decimal places
+                amount_decimal = amount_decimal.quantize(Decimal('0.00000001'), rounding=ROUND_FLOOR)
                 
                 # Convert to satoshis
                 satoshis = int(amount_decimal * self.SATOSHIS_PER_BITCOIN)
@@ -138,8 +145,8 @@ class BitcoinURI(EmbitBase):
             try:
                 decoded_bc = unquote(value)
                 # Basic validation for Bech32m address format (case-insensitive)
-                if not decoded_bc.lower().startswith('bc1'):
-                    raise ValueError("Bech32m address must start with 'bc1'")
+                if not decoded_bc.lower().startswith('bc1') and not decoded_bc.lower().startswith('tb1'):
+                    raise ValueError("Bech32m address must start with 'bc1'/'tb1'")
                 # Add to list of bc addresses (normalized to lowercase)
                 self.parameters[self.FIELD_BC].append(decoded_bc.lower())
             except Exception as e:
@@ -167,64 +174,64 @@ class BitcoinURI(EmbitBase):
                 decoded_value = unquote(value)
                 self._put_with_validation(name, decoded_value)
     
-    def _put_with_validation(self, key, value):
+    def _put_with_validation(self, key: str, value: str):
         """Add parameter with duplicate validation for non-payment instruction fields"""
         if key in self.parameters and key not in self.PAYMENT_INSTRUCTION_FIELDS:
             raise BIP21Error(f"'{key}' is duplicated, URI is invalid")
         self.parameters[key] = value
     
-    def get_address(self):
+    def get_address(self) -> str:
         """Get the Bitcoin address from the URI path"""
         return self.parameters.get("uri_address")
     
-    def get_amount(self):
+    def get_amount(self) -> int:
         """Get the amount in satoshis, or None if not specified"""
         return self.parameters.get(self.FIELD_AMOUNT)
     
-    def get_label(self):
+    def get_label(self) -> str:
         """Get the label parameter"""
         return self.parameters.get(self.FIELD_LABEL)
     
-    def get_message(self):
+    def get_message(self) -> str:
         """Get the message parameter"""
         return self.parameters.get(self.FIELD_MESSAGE)
     
-    def get_bc_addresses(self):
+    def get_bc_addresses(self) -> list[str]:
         """Get all bech32(m) addresses from the bc parameters"""
         return self.parameters.get(self.FIELD_BC, [])
     
-    def get_silent_payment_addresses(self):
+    def get_silent_payment_addresses(self) -> list[str]:
         """Get all silent payment addresses from the sp parameters"""
         return self.parameters.get(self.FIELD_SILENT_PAYMENT, [])
     
-    def get_parameter(self, name):
+    def get_parameter(self, name: str):
         """Get a parameter by name"""
         return self.parameters.get(name)
     
-    def __str__(self):
+    def __str__(self) -> str:
         """String representation showing all parameters"""
         items = []
         for key, value in self.parameters.items():
             items.append(f"'{key}'='{value}'")
         return f"BitcoinURI[{','.join(items)}]"
     
-    def to_uri_string(self):
+    def to_uri_string(self) -> str:
         """Get the original URI string"""
         return self.uri_string
     
     @classmethod
-    def from_address(cls, address):
+    def from_address(cls, address: str):
         """Create a BitcoinURI from just an address"""
         return cls(f"{cls.BITCOIN_SCHEME}:{address}")
     
     @classmethod
-    def from_silent_payment(cls, sp_address):
+    def from_silent_payment(cls, sp_address: str):
         """Create a BitcoinURI from a silent payment address"""
         encoded_sp = quote(sp_address, safe='')
         return cls(f"{cls.BITCOIN_SCHEME}:?{cls.FIELD_SILENT_PAYMENT}={encoded_sp}")
     
     @classmethod
-    def build_uri(cls, address=None, amount=None, label=None, message=None, silent_payment=None):
+    def build_uri(cls, address: str = None, amount: int = None, label: str = None, message: str = None, silent_payment: str = None) -> str:
         """
         Build a Bitcoin URI from components.
         
