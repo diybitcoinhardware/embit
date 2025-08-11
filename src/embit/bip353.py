@@ -1,7 +1,10 @@
 import json
+from .base import EmbitError
 from . import bip21
-from .util.dnssec_prover import verify_byte_stream
+from .util.dnssec_prover import verify_byte_stream, InternalError
 
+class DNSSECProofValidationError(EmbitError):
+    pass
 
 def verify_dns_proof(hrn: str, proof: bytes):
     """
@@ -13,15 +16,20 @@ def verify_dns_proof(hrn: str, proof: bytes):
     
     Returns:
         Dictionary containing verification result with only TXT records
+     
+    Raises:
+        DNSSECProofValidationError: When DNSSEC proof verification fails
     """
     try:
         result = verify_byte_stream(proof, hrn)
         parsed_result = json.loads(result)
         return parsed_result
     
+    except InternalError as e:
+        raise DNSSECProofValidationError(f"DNSSEC proof verification failed for HRN '{hrn}': {e}")
     except Exception as e:
-        return {"error": f"DNSSEC proof verification failed for HRN '{hrn}': {e}"}
-
+        raise DNSSECProofValidationError(f"Unexpected error during DNSSEC proof verification for HRN '{hrn}': {e}")
+    
 
 def get_payment_info_from_hrn(hrn: str, proof: bytes):
     """
