@@ -125,12 +125,13 @@ class BitcoinURI(EmbitBase):
             try:
                 # Parse amount as decimal with up to 8 decimal places
                 amount_decimal = Decimal(value.replace(',', '.'))
+                
                 if amount_decimal < 0:
                     raise ValueError("Negative amount")
-                
-                # Truncate to 8 decimal places
-                amount_decimal = amount_decimal.quantize(Decimal('0.00000001'), rounding=ROUND_FLOOR)
-                
+            
+                if amount_decimal.as_tuple().exponent < -self.SMALLEST_UNIT_EXPONENT:
+                    raise ValueError("Amount has more than 8 decimal places")
+
                 # Convert to satoshis
                 satoshis = int(amount_decimal * self.SATOSHIS_PER_BITCOIN)
                 if satoshis > self.MAX_BITCOIN * self.SATOSHIS_PER_BITCOIN:
