@@ -28,6 +28,18 @@ PyPi installation includes prebuilt libraries for common platforms (win, macos, 
 
 If you want to build the lib yourself, see: [Building secp256k1 for `embit`](/secp256k1/README.md).
 
+### DNSSEC Prover Binaries
+
+`embit` includes prebuilt DNSSEC prover binaries for BIP-353 support. These binaries are generated from [dnssec-prover](https://github.com/TheBlueMatt/dnssec-prover) Rust tool and provide cross-platform DNSSEC validation capabilities.
+
+**Supported Platforms:**
+- macOS (ARM64, x86_64)
+- Linux (ARM64, ARMv6, ARMv7, x86_64)
+- Windows (AMD64)
+
+**Note:** MicroPython compatibility is uncertain and may need investigation for embedded platforms.
+
+For information on building these binaries yourself, see [Building DNSSEC Prover Binaries](./docs/recepies/dnssec-prover_build_instructions.md).
 
 ## Using non-English BIP39 wordlists
 [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md) defines wordlists for:
