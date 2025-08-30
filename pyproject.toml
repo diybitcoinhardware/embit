@@ -1,3 +1,16 @@
+[tool.poetry]
+name = "embit"
+version = "0.8.0"
+description="A minimal bitcoin library for MicroPython and Python3 with a focus on embedded systems."
+license="MIT"
+authors= ["Stepan Snigirev <snigirev.stepan@gmail.com>"]
+
+[tool.poetry.urls]
+repository = "https://github.com/diybitcoinhardware/embit"
+
+[tool.poetry.dependencies]
+python = "^3.0"
+
 [build-system]
 requires = ["setuptools>=42.0", "wheel"]
 build-backend = "setuptools.build_meta"
