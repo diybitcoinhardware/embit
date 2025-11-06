@@ -10,7 +10,7 @@ PBKDF2_ROUNDS = const(2048)
 def mnemonic_to_bytes(mnemonic: str, ignore_checksum: bool = False, wordlist=WORDLIST):
     # this function is copied from Jimmy Song's HDPrivateKey.from_mnemonic() method
 
-    words = mnemonic.strip().split()
+    words = mnemonic.split(" ")
     if len(words) % 3 != 0 or not 12 <= len(words) <= 24:
         raise ValueError("Invalid recovery phrase")
 
@@ -68,7 +68,7 @@ def mnemonic_is_valid(mnemonic: str, wordlist=WORDLIST):
     try:
         mnemonic_to_bytes(mnemonic, wordlist=wordlist)
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 
