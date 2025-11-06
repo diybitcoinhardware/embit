@@ -206,6 +206,21 @@ class Bip39Test(TestCase):
         seed = "0000000000000000000000000000000042"
         self.assertRaises(ValueError, lambda x: mnemonic_from_bytes(unhexlify(x)), seed)
 
+    def test_spaces(self):
+        """Test that mnemonic with leading / trailing / double spaces are invalid."""
+        # valid mnemonic
+        mnemonic = "abandon " * 11 + "about"
+        self.assertTrue(mnemonic_is_valid(mnemonic))
+        # leading / trailing space
+        self.assertFalse(mnemonic_is_valid(" " + mnemonic))
+        self.assertFalse(mnemonic_is_valid(mnemonic + " "))
+        # double space
+        mnemonic = "abandon " * 11 + " about"
+        self.assertFalse(mnemonic_is_valid(mnemonic))
+        # new line instead of space
+        mnemonic = "abandon\n" * 11 + "about"
+        self.assertFalse(mnemonic_is_valid(mnemonic))
+
     def test_find_candidates_happy(self):
         prefix = "a"
         exp_candidates = [
