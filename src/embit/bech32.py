@@ -33,6 +33,10 @@ class Encoding:
     BECH32M = 2
 
 
+class Bech32DecodeError(Exception):
+    pass
+
+
 def bech32_polymod(values):
     """Internal function that computes the Bech32 checksum."""
     generator = [0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3]
@@ -77,21 +81,28 @@ def bech32_encode(encoding, hrp, data):
 
 def bech32_decode(bech):
     """Validate a Bech32/Bech32m string, and determine HRP and data."""
-    if (any(ord(x) < 33 or ord(x) > 126 for x in bech)) or (
-        bech.lower() != bech and bech.upper() != bech
-    ):
-        return (None, None, None)
+    if any(ord(x) < 33 or ord(x) > 126 for x in bech):
+        raise Bech32DecodeError("Invalid character in input")
+    if bech.lower() != bech and bech.upper() != bech:
+        raise Bech32DecodeError("Mixed case strings not allowed")
     bech = bech.lower()
     pos = bech.rfind("1")
-    if pos < 1 or pos + 7 > len(bech) or len(bech) > 90:
-        return (None, None, None)
-    if not all(x in CHARSET for x in bech[pos + 1 :]):
-        return (None, None, None)
+    if pos < 1:
+        raise Bech32DecodeError("Separator '1' not found or misplaced")
+    if pos > 83:
+        raise Bech32DecodeError("HRP too long (max 83 characters)")
+    if pos + 7 > len(bech):
+        raise Bech32DecodeError("Data part too short")
+    if len(bech) > 118:
+        raise Bech32DecodeError("String too long for SP address")
     hrp = bech[:pos]
-    data = [CHARSET.find(x) for x in bech[pos + 1 :]]
+    data_part = bech[pos + 1 :]
+    if not all(x in CHARSET for x in data_part):
+        raise Bech32DecodeError("Data part contains invalid characters")
+    data = [CHARSET.find(x) for x in data_part]
     encoding = bech32_verify_checksum(hrp, data)
     if encoding is None:
-        return (None, None, None)
+        raise Bech32DecodeError("Checksum verification failed")
     return (encoding, hrp, data[:-6])
 
 
@@ -104,7 +115,7 @@ def convertbits(data, frombits, tobits, pad=True):
     max_acc = (1 << (frombits + tobits - 1)) - 1
     for value in data:
         if value < 0 or (value >> frombits):
-            return None
+            raise Bech32DecodeError("Invalid input value for bit conversion")
         acc = ((acc << frombits) | value) & max_acc
         bits += frombits
         while bits >= tobits:
@@ -114,7 +125,7 @@ def convertbits(data, frombits, tobits, pad=True):
         if bits:
             ret.append((acc << (tobits - bits)) & maxv)
     elif bits >= frombits or ((acc << (tobits - bits)) & maxv):
-        return None
+        raise Bech32DecodeError("Invalid padding in bit conversion")
     return ret
 
 
@@ -122,25 +133,42 @@ def decode(hrp, addr):
     """Decode a segwit address."""
     encoding, hrpgot, data = bech32_decode(addr)
     if hrpgot != hrp:
-        return (None, None)
+        raise Bech32DecodeError(f"HRP mismatch: expected {hrp}, got {hrpgot}")
     decoded = convertbits(data[1:], 5, 8, False)
-    if decoded is None or len(decoded) < 2 or len(decoded) > 40:
-        return (None, None)
+    if len(decoded) < 2 or len(decoded) > 66:
+        raise Bech32DecodeError(f"Invalid witness program length")
     if data[0] > 16:
-        return (None, None)
-    if data[0] == 0 and len(decoded) != 20 and len(decoded) != 32:
-        return (None, None)
-    if (data[0] == 0 and encoding != Encoding.BECH32) or (
-        data[0] != 0 and encoding != Encoding.BECH32M
+        raise Bech32DecodeError("Invalid witness version")
+    if (
+        hrp not in ["sp", "tsp"]
+        and data[0] == 0
+        and len(decoded) != 20
+        and len(decoded) != 32
     ):
-        return (None, None)
+        raise Bech32DecodeError("Invalid witness program length for version 0")
+    if hrp not in ["sp", "tsp"] and (
+        (data[0] == 0 and encoding != Encoding.BECH32)
+        or (data[0] != 0 and encoding != Encoding.BECH32M)
+    ):
+        raise Bech32DecodeError("Invalid encoding for witness version")
     return (data[0], decoded)
 
 
 def encode(hrp, witver, witprog):
     """Encode a segwit address."""
+    if witver < 0 or witver > 16:
+        raise Bech32DecodeError("Invalid witness version")
+    if len(witprog) < 2 or len(witprog) > 40:
+        raise Bech32DecodeError("Invalid witness program length")
+    if witver == 0 and len(witprog) != 20 and len(witprog) != 32:
+        raise Bech32DecodeError("Invalid witness program length for version 0")
+
     encoding = Encoding.BECH32 if witver == 0 else Encoding.BECH32M
     ret = bech32_encode(encoding, hrp, [witver] + convertbits(witprog, 8, 5))
-    if decode(hrp, ret) == (None, None):
-        return None
+
+    try:
+        decode(hrp, ret)
+    except Bech32DecodeError:
+        raise Bech32DecodeError("Failed to encode valid segwit address")
+
     return ret
