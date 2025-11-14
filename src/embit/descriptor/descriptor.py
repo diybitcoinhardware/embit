@@ -91,7 +91,7 @@ class Descriptor(DescriptorBase):
 
     @property
     def is_wrapped(self):
-        return self.sh and self.is_segwit
+        return bool(self.sh and self.wpkh) or bool(self.sh and self.wsh)
 
     @property
     def is_legacy(self):
@@ -100,7 +100,9 @@ class Descriptor(DescriptorBase):
     @property
     def is_segwit(self):
         return (
-            (self.wsh and self.miniscript) or (self.wpkh and self.key) or self.taproot
+            bool(self.wsh and self.miniscript)
+            or bool(self.wpkh and self.key)
+            or bool(self.taproot)
         )
 
     @property
@@ -121,18 +123,28 @@ class Descriptor(DescriptorBase):
     def is_sorted(self) -> bool:
         return bool(self.is_basic_multisig and isinstance(self.miniscript, Sortedmulti))
 
+    @property
+    def is_miniscript(self) -> bool:
+        return bool(
+            self.miniscript and not isinstance(self.miniscript, (Multi, Sortedmulti))
+        )
+
     def scriptpubkey_type(self):
         if self.is_taproot:
             return "p2tr"
         if self.sh:
+            if self.wpkh:
+                return "p2sh-p2wpkh"
+            if self.wsh:
+                return "p2sh-p2wsh"
             return "p2sh"
+        if self.wsh:
+            return "p2wsh"
         if self.is_pkh:
             if self.is_legacy:
                 return "p2pkh"
             if self.is_segwit:
                 return "p2wpkh"
-        else:
-            return "p2wsh"
 
     @property
     def brief_policy(self):
@@ -207,7 +219,7 @@ class Descriptor(DescriptorBase):
         if psbt_scope.script_pubkey is None:
             return False
         # quick check of script_pubkey type
-        if psbt_scope.script_pubkey.script_type() != self.scriptpubkey_type():
+        if psbt_scope.script_pubkey.script_type() not in self.scriptpubkey_type():
             return False
         for pub, der in psbt_scope.bip32_derivations.items():
             # check of the fingerprints
@@ -217,9 +229,30 @@ class Descriptor(DescriptorBase):
                 res = k.check_derivation(der)
                 if res:
                     idx, branch_idx = res
-                    sc = self.derive(idx, branch_index=branch_idx).script_pubkey()
-                    # if derivation is found but scriptpubkey doesn't match - fail
-                    return sc == psbt_scope.script_pubkey
+
+                    # get the script from the scope,
+                    # it can be either legacy, wrapped segwit or segwit v0
+                    sc = self.derive(idx, branch_index=branch_idx)
+
+                    # If derivation is found but scriptpubkey doesn't match - fail.
+                    # In case of wrapped segwit we need to check redeem script too.
+                    # In case of non-wrapped segwit we can check script_pubkey directly.
+                    if sc.is_wrapped:
+                        redeem_sc = sc.redeem_script()
+
+                        # you can check script_type of both
+                        # script_pubkey and redeem_script
+                        # to make sure they match the psbt_scope
+                        # print("%s-%s" % (sc.script_pubkey().script_type(), redeem_sc.script_type()))
+                        return (
+                            sc.script_pubkey() == psbt_scope.script_pubkey
+                            and redeem_sc.script_type() == psbt_scope.redeem_script.script_type()
+                        )
+                    else:
+                        # you can check script_type
+                        # to make sure they match the psbt_scope
+                        # print("%s" % sc.script_pubkey().script_type())
+                        return sc.script_pubkey() == psbt_scope.script_pubkey
         for pub, (leafs, der) in psbt_scope.taproot_bip32_derivations.items():
             # check of the fingerprints
             for k in self.keys:
