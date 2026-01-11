@@ -151,6 +151,49 @@ class TestDLEQProofVerification:
 
         assert verify_dleq_proof(A, B, C, invalid_proof) is False
 
+    def test_e_greater_than_order_fails(self):
+        """Proof with e >= curve order fails."""
+        a = urandom(32)
+        B = ec.PrivateKey(urandom(32)).get_public_key().sec()
+
+        A, C, proof = generate_dleq_proof(a, B)
+
+        # Create invalid proof with e = curve order
+        invalid_e = SECP256K1_ORDER.to_bytes(32, 'big')
+        s = proof[32:]
+        invalid_proof = invalid_e + s
+
+        assert verify_dleq_proof(A, B, C, invalid_proof) is False
+
+
+class TestDLEQProofGenerationEdgeCases:
+    """Test edge cases in proof generation."""
+
+    def test_private_key_zero_fails(self):
+        """Private key of zero should fail."""
+        a = b'\x00' * 32
+        B = ec.PrivateKey(urandom(32)).get_public_key().sec()
+
+        with pytest.raises(ValueError, match="Private key must be in range"):
+            generate_dleq_proof(a, B)
+
+    def test_private_key_at_order_fails(self):
+        """Private key >= curve order should fail."""
+        a = SECP256K1_ORDER.to_bytes(32, 'big')
+        B = ec.PrivateKey(urandom(32)).get_public_key().sec()
+
+        with pytest.raises(ValueError, match="Private key must be in range"):
+            generate_dleq_proof(a, B)
+
+    def test_nonce_zero_fails(self):
+        """Nonce that reduces to zero should fail."""
+        a = urandom(32)
+        B = ec.PrivateKey(urandom(32)).get_public_key().sec()
+        k = b'\x00' * 32  # Will reduce to zero
+
+        with pytest.raises(ValueError, match="Nonce reduced to zero"):
+            generate_dleq_proof(a, B, k)
+
 
 class TestDLEQRoundTrip:
     """Test generate -> verify round trip."""
