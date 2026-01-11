@@ -83,8 +83,8 @@ def verify_dleq_proof(
         e = int.from_bytes(proof[:32], 'big')
         s = int.from_bytes(proof[32:], 'big')
 
-        # Reject if s >= curve order (invalid proof)
-        if s >= SECP256K1_ORDER:
+        # Reject if e or s >= curve order (invalid proof)
+        if e >= SECP256K1_ORDER or s >= SECP256K1_ORDER:
             return False
 
         # Parse the input points
