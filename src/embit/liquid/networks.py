@@ -4,10 +4,21 @@ const = lambda x: x
 
 
 def get_network(name):
+    """
+    Get network configuration by name.
+    
+    Checks liquid networks first (liquidv1, elementsregtest, liquidtestnet),
+    then falls back to Bitcoin networks (main, test, regtest, signet, testnet4).
+    Only defaults to elementsregtest for truly unknown networks.
+    """
     if name in NETWORKS:
         return NETWORKS[name]
-    else:
-        return NETWORKS["elementsregtest"]
+    # Check if it's a known Bitcoin network (added after NETWORKS is defined)
+    # This handles testnet4 and other Bitcoin networks correctly
+    if name in networks.NETWORKS:
+        return networks.NETWORKS[name]
+    # Only fall back to elementsregtest for unknown networks
+    return NETWORKS["elementsregtest"]
 
 
 NETWORKS = {

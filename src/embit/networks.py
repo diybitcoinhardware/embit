@@ -73,4 +73,24 @@ NETWORKS = {
         "Zpub": b"\x02\x57\x54\x83",
         "bip32": const(1),
     },
+    # testnet4 uses the same address formats as testnet3
+    # Added for Bitcoin Core 28.0+ compatibility (getblockchaininfo returns "testnet4")
+    "testnet4": {
+        "name": "Testnet4",
+        "wif": b"\xEF",
+        "p2pkh": b"\x6F",
+        "p2sh": b"\xC4",
+        "bech32": "tb",
+        "xprv": b"\x04\x35\x83\x94",
+        "xpub": b"\x04\x35\x87\xcf",
+        "yprv": b"\x04\x4a\x4e\x28",
+        "zprv": b"\x04\x5f\x18\xbc",
+        "Yprv": b"\x02\x42\x85\xb5",
+        "Zprv": b"\x02\x57\x50\x48",
+        "ypub": b"\x04\x4a\x52\x62",
+        "zpub": b"\x04\x5f\x1c\xf6",
+        "Ypub": b"\x02\x42\x89\xef",
+        "Zpub": b"\x02\x57\x54\x83",
+        "bip32": const(1),
+    },
 }
