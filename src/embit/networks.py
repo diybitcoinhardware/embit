@@ -1,5 +1,20 @@
 from .misc import const
 
+
+def get_network(name):
+    """
+    Get network by name with testnet4 fallback.
+    Bitcoin Core 28.0+ uses 'testnet4' as the network name,
+    which has the same address parameters as testnet3.
+    """
+    if name in NETWORKS:
+        return NETWORKS[name]
+    # testnet4 uses same parameters as testnet3
+    if name == "testnet4":
+        return NETWORKS["test"]
+    return None
+
+
 NETWORKS = {
     "main": {
         "name": "Mainnet",
@@ -57,6 +72,26 @@ NETWORKS = {
     },
     "signet": {
         "name": "Signet",
+        "wif": b"\xEF",
+        "p2pkh": b"\x6F",
+        "p2sh": b"\xC4",
+        "bech32": "tb",
+        "xprv": b"\x04\x35\x83\x94",
+        "xpub": b"\x04\x35\x87\xcf",
+        "yprv": b"\x04\x4a\x4e\x28",
+        "zprv": b"\x04\x5f\x18\xbc",
+        "Yprv": b"\x02\x42\x85\xb5",
+        "Zprv": b"\x02\x57\x50\x48",
+        "ypub": b"\x04\x4a\x52\x62",
+        "zpub": b"\x04\x5f\x1c\xf6",
+        "Ypub": b"\x02\x42\x89\xef",
+        "Zpub": b"\x02\x57\x54\x83",
+        "bip32": const(1),
+    },
+    # testnet4: Bitcoin Core 28.0+ replacement for testnet3
+    # Uses identical address parameters (bech32 "tb", same xpub/xprv versions)
+    "testnet4": {
+        "name": "Testnet4",
         "wif": b"\xEF",
         "p2pkh": b"\x6F",
         "p2sh": b"\xC4",
