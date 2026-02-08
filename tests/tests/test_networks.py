@@ -1,10 +1,10 @@
 """Tests for network definitions and get_network function."""
 
-import unittest
 from embit import networks
+from unittest import TestCase
 
 
-class TestNetworks(unittest.TestCase):
+class TestNetworks(TestCase):
     """Test Bitcoin network definitions."""
 
     def test_all_networks_present(self):
@@ -63,7 +63,3 @@ class TestNetworks(unittest.TestCase):
     def test_regtest_bech32(self):
         """Regtest should use 'bcrt' prefix."""
         self.assertEqual(networks.NETWORKS["regtest"]["bech32"], "bcrt")
-
-
-if __name__ == "__main__":
-    unittest.main()
