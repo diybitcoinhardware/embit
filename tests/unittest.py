@@ -8,6 +8,7 @@ class SkipTest(Exception):
 class AssertRaisesContext:
     def __init__(self, exc):
         self.expected = exc
+        self.exception = None
 
     def __enter__(self):
         return self
@@ -16,6 +17,7 @@ class AssertRaisesContext:
         if exc_type is None:
             assert False, "%r not raised" % self.expected
         if issubclass(exc_type, self.expected):
+            self.exception = exc_value
             return True
         return False
 
