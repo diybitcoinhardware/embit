@@ -901,7 +901,7 @@ class T(Wrapper):
 
     def __len__(self):
         return len(self.arg) + 1
-    
+
     def verify(self):
         super().verify()
         if self.arg.type != "V":

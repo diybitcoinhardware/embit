@@ -132,16 +132,29 @@ class DescriptorTest(TestCase):
                 2,
             ),
             (
-                "wsh(sortedmulti(2,%s,%s,%s))" % tuple(key.replace("<0;1>", "0") for key in keys[:3]),
+                "wsh(sortedmulti(2,%s,%s,%s))"
+                % tuple(key.replace("<0;1>", "0") for key in keys[:3]),
                 "522103801b3a4e3ca0d61d469445621561c47f6c1424d0fd353a44c2c3ebb84ae78f592103b8fa5d5959fa4027ccbf0736a86ccde4242e3051ea363437b4ff0d52598d7cec2103e7d285b4817f83f724cd29394da75dfc84fe639ed147a944e7e6064703b1413053ae",
                 1,
             ),
-            ("wpkh(%s)" % keys[0], "0014f8f93df2160de8fd3ca716e2f905c74da3f9839f", 2,),
-            ("sh(wpkh(%s))" % keys[0], "0014f8f93df2160de8fd3ca716e2f905c74da3f9839f", 2,),
-            ("pkh(%s)" % keys[0], "76a914f8f93df2160de8fd3ca716e2f905c74da3f9839f88ac", 2,),
+            (
+                "wpkh(%s)" % keys[0],
+                "0014f8f93df2160de8fd3ca716e2f905c74da3f9839f",
+                2,
+            ),
+            (
+                "sh(wpkh(%s))" % keys[0],
+                "0014f8f93df2160de8fd3ca716e2f905c74da3f9839f",
+                2,
+            ),
+            (
+                "pkh(%s)" % keys[0],
+                "76a914f8f93df2160de8fd3ca716e2f905c74da3f9839f88ac",
+                2,
+            ),
         ]
 
-        error_cases = [1,2,3,4,5,6,7,8,11]
+        error_cases = [1, 2, 3, 4, 5, 6, 7, 8, 11]
         for i, (d, a, n_branches) in enumerate(dd):
             if i in error_cases:
                 self.assertRaises(DescriptorError, Descriptor.from_string, d)
@@ -164,74 +177,53 @@ class DescriptorTest(TestCase):
         keys = [
             # # LIANA_MINISCRIPT_DESCRIPTOR
             "wsh(or_d(pk([55f8fc5d/48'/0'/0'/2']xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/<0;1>/*),and_v(v:pkh([3e15470d/48'/0'/0'/2']xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/<0;1>/*),older(6))))#x09nw3rv",
-
             # # LIANA_TAPROOT_MINISCRIPT_DESCRIPTOR
             "tr([55f8fc5d/48'/0'/0'/2']xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/<0;1>/*,and_v(v:pk([3e15470d/48'/0'/0'/2']xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/<4;2>/*),older(6)))#qjluv5ue",
-
             # # LIANA_TAP_EXPANDING_MINISCRIPT_DESCRIPTOR
             "tr(xpub661MyMwAqRbcFHMDceyRcHhEfeDBXneBmbTnqujM6EumzeNcd8wrs3SHGzkETt7dDwqSCmDJx2rz6uKEddXRcYUWuAu6rkaj4L2QuVxqNUS/<0;1>/*,{and_v(v:multi_a(2,[55f8fc5d/48'/0'/0'/2']xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/<2;3>/*,[3e15470d/48'/0'/0'/2']xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/<2;3>/*,[d3a80c8b/48'/0'/0'/2']xpub6FKYY6y3oVi7ihSCszFKRSeZj5SzrfSsUFXhKqjMV4iigrLhxwMX3mrjioNyLTZ5iD3u4wU9S3tyzpJGxhd5geaXoQ68jGz2M6dfh2zJrUv/<0;1>/*),older(65535)),multi_a(2,[55f8fc5d/48'/0'/0'/2']xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/<0;1>/*,[3e15470d/48'/0'/0'/2']xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/<0;1>/*)})#uyj29ygt",
-
             # # UNSORTED_MULTISIG_DESCRIPTOR
             "wsh(multi(2,[3e15470d/48h/0h/0h/2h]xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/<0;1>/*,[55f8fc5d/48h/0h/0h/2h]xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/<0;1>/*,[d3a80c8b/48h/0h/0h/2h]xpub6FKYY6y3oVi7ihSCszFKRSeZj5SzrfSsUFXhKqjMV4iigrLhxwMX3mrjioNyLTZ5iD3u4wU9S3tyzpJGxhd5geaXoQ68jGz2M6dfh2zJrUv/<0;1>/*))",
-
             # # UNRELATED_TAP_MINISCRIPT_DESCRIPTOR
             "tr(tpubD6NzVbkrYhZ4Y18xhod7E8V6Sy3YF36bge8HJb4ww1QgTrdkNvCEzcvUmFGQkTJA32gqr3j94iE8vsUzYpv8Pn29JezD9YiYnxgUREhN3QR/<0;1>/*,{and_v(v:multi_a(2,[1f280825/48'/1'/0'/2']tpubDEx7EkaqE8rG5NsCrijASmBjWiNv6teugndQCs4YN6JDS4hpJ3QtSC4ifPAcE7LQXtjRgB96trmEucoLbsiYYMuvLthymAhssZQpEPPb1pU/<2;3>/*,[e1efb2e7/48'/1'/0'/2']tpubDFhm1JYGdsR6Uv7SvXVd6JfjVkYimPDizEwwXRR9EhESpMhx3qL9nVjpfbtPRLzicWhYkMF4mn4AuZ4zYDjNMvuWSqugFBEJnYsMJurmbLM/<2;3>/*,[b32caab5/48'/1'/0'/2']tpubDEwY4xag4eQabW74PwS8BZb3aYy9mBzBffzBKqS74NjxzaDHodGGqfFLumwQGM5JYExNjs1mG3u8MaeEr94HNmxTaBPHERkoJXEcZ12aPdF/<0;1>/*),older(144)),multi_a(2,[1f280825/48'/1'/0'/2']tpubDEx7EkaqE8rG5NsCrijASmBjWiNv6teugndQCs4YN6JDS4hpJ3QtSC4ifPAcE7LQXtjRgB96trmEucoLbsiYYMuvLthymAhssZQpEPPb1pU/<0;1>/*,[e1efb2e7/48'/1'/0'/2']tpubDFhm1JYGdsR6Uv7SvXVd6JfjVkYimPDizEwwXRR9EhESpMhx3qL9nVjpfbtPRLzicWhYkMF4mn4AuZ4zYDjNMvuWSqugFBEJnYsMJurmbLM/<0;1>/*)})#u5clzmqy",
-
             # # UNRELATED_MINISCRIPT_DESCRIPTOR
             "wsh(or_d(multi(2,[1f280825/48'/1'/0'/2']tpubDEx7EkaqE8rG5NsCrijASmBjWiNv6teugndQCs4YN6JDS4hpJ3QtSC4ifPAcE7LQXtjRgB96trmEucoLbsiYYMuvLthymAhssZQpEPPb1pU/<0;1>/*,[e1efb2e7/48'/1'/0'/2']tpubDFhm1JYGdsR6Uv7SvXVd6JfjVkYimPDizEwwXRR9EhESpMhx3qL9nVjpfbtPRLzicWhYkMF4mn4AuZ4zYDjNMvuWSqugFBEJnYsMJurmbLM/<0;1>/*),and_v(v:thresh(2,pkh([1f280825/48'/1'/0'/2']tpubDEx7EkaqE8rG5NsCrijASmBjWiNv6teugndQCs4YN6JDS4hpJ3QtSC4ifPAcE7LQXtjRgB96trmEucoLbsiYYMuvLthymAhssZQpEPPb1pU/<2;3>/*),a:pkh([e1efb2e7/48'/1'/0'/2']tpubDFhm1JYGdsR6Uv7SvXVd6JfjVkYimPDizEwwXRR9EhESpMhx3qL9nVjpfbtPRLzicWhYkMF4mn4AuZ4zYDjNMvuWSqugFBEJnYsMJurmbLM/<2;3>/*),a:pkh([b32caab5/48'/1'/0'/2']tpubDEwY4xag4eQabW74PwS8BZb3aYy9mBzBffzBKqS74NjxzaDHodGGqfFLumwQGM5JYExNjs1mG3u8MaeEr94HNmxTaBPHERkoJXEcZ12aPdF/<0;1>/*)),older(144))))#tfk3syfj",
-
             # # UNAMBIGUOUS_MULTISIG_DESCRIPTOR
             "wsh(sortedmulti(2,[55f8fc5d/48h/0h/0h/2h]xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/<0;1>/*,[3e15470d/48h/0h/0h/2h]xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/<0;1>/*,[d3a80c8b/48h/0h/0h/2h]xpub6FKYY6y3oVi7ihSCszFKRSeZj5SzrfSsUFXhKqjMV4iigrLhxwMX3mrjioNyLTZ5iD3u4wU9S3tyzpJGxhd5geaXoQ68jGz2M6dfh2zJrUv/<0;1>/*))",
-
             # # UNAMBIGUOUS_SINGLESIG_DESCRIPTOR
             "wpkh([55f8fc5d/84h/0h/0h]xpub6DPMTPxGMqdtzMwpqT1dDQaVdyaEppEm2qYSaJ7ANsuES7HkNzrXJst1Ed8D7NAnijUdgSDUFgph1oj5LKKAD5gyxWNhNP2AuDqaKYqzphA/<0;1>/*)",
-
             # # MULTIPLE BRANCHES UNAMBIGUOUS_SINGLESIG_DESCRIPTOR
             "wpkh([55f8fc5d/84h/0h/0h]xpub6DPMTPxGMqdtzMwpqT1dDQaVdyaEppEm2qYSaJ7ANsuES7HkNzrXJst1Ed8D7NAnijUdgSDUFgph1oj5LKKAD5gyxWNhNP2AuDqaKYqzphA/<0;1;4;2;0;5>/*)",
-
             # # UR_BYTES_MULTISIG_DESCRIPTOR
             "wsh(sortedmulti(2,[55f8fc5d/48h/0h/0h/2h]xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/0/*,[3e15470d/48h/0h/0h/2h]xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/0/*,[d3a80c8b/48h/0h/0h/2h]xpub6FKYY6y3oVi7ihSCszFKRSeZj5SzrfSsUFXhKqjMV4iigrLhxwMX3mrjioNyLTZ5iD3u4wU9S3tyzpJGxhd5geaXoQ68jGz2M6dfh2zJrUv/0/*))",
-
             # # MULTIPLE BRANCHES UR_BYTES_MULTISIG_DESCRIPTOR
             "wsh(sortedmulti(2,[55f8fc5d/48h/0h/0h/2h]xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/0/2/4/1/0/*,[3e15470d/48h/0h/0h/2h]xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/0/*,[d3a80c8b/48h/0h/0h/2h]xpub6FKYY6y3oVi7ihSCszFKRSeZj5SzrfSsUFXhKqjMV4iigrLhxwMX3mrjioNyLTZ5iD3u4wU9S3tyzpJGxhd5geaXoQ68jGz2M6dfh2zJrUv/0/1/*))",
-
             # # UR_OUTPUT_MULTISIG_DESCRIPTOR
             "wsh(multi(1,xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB/1/0/*,xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH/0/0/*))",
-
             # # MULTIPLE BRANCHES UR_OUTPUT_MULTISIG_DESCRIPTOR
             "wsh(multi(1,xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB/1/0/2/1/0/2/1/1/*,xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH/0/0/1/1/*))",
-
             # # BLUEWALLET_MULTISIG_DESCRIPTOR
             "wsh(sortedmulti(2,[55f8fc5d/48h/0h/0h/2h]xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy,[3e15470d/48h/0h/0h/2h]xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu,[d3a80c8b/48h/0h/0h/2h]xpub6FKYY6y3oVi7ihSCszFKRSeZj5SzrfSsUFXhKqjMV4iigrLhxwMX3mrjioNyLTZ5iD3u4wU9S3tyzpJGxhd5geaXoQ68jGz2M6dfh2zJrUv))",
-
             # # SPECTER_SINGLESIG_DESCRIPTOR
             "wpkh([55f8fc5d/84h/0h/0h]xpub6DPMTPxGMqdtzMwpqT1dDQaVdyaEppEm2qYSaJ7ANsuES7HkNzrXJst1Ed8D7NAnijUdgSDUFgph1oj5LKKAD5gyxWNhNP2AuDqaKYqzphA/0/*)",
-
             # # SPECTER_MULTISIG_DESCRIPTOR
             "wsh(sortedmulti(2,[55f8fc5d/48h/0h/0h/2h]xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/0/*,[3e15470d/48h/0h/0h/2h]xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/0/*,[d3a80c8b/48h/0h/0h/2h]xpub6FKYY6y3oVi7ihSCszFKRSeZj5SzrfSsUFXhKqjMV4iigrLhxwMX3mrjioNyLTZ5iD3u4wU9S3tyzpJGxhd5geaXoQ68jGz2M6dfh2zJrUv/0/*))",
-
             # # liana miniscript primary tapkey anytime, else 1of2 after 3 confirmations recovery taproot
             "tr([d63dc4a7/48'/1'/0'/2']tpubDEXCvh2aPYzMz2xfgsh9ZM6dQZxioYfCafUgw16keqschYbED4VeS46Qhr7EoonDHNr9dSsKPEGeRP5WRzDGdY3aazneR7wKmtDVNTf6qic/<0;1>/*,and_v(v:multi_a(1,[c98cbe58/48'/1'/0'/2']tpubDFXZ3rcRyvU6AvNrb4kRQFomJbtCTCyMX9jDJmfN5XfHLEAZq7a8h3CrYDZYtdexk6XWfT5DB8PYgySWA5GSdyWdzWwveQcbrzvVQw3u7bV/<0;1>/*,[9590b69a/48'/1'/0'/2']tpubDEgtrNHQ68KvQPABjV4Ah39MpUH6aniH8gbHKygJSwNwbsQpnzPJMcssdqjwPtNshjAj8nP35iZisEFchFdZtPG4rXi7FW35dsCtQSj93Qv/<0;1>/*),older(3)))#9550ke77",
-
             # # liana miniscript wsh single primary key anytime, else a secondary key after 6 confirmations
             "wsh(or_d(pk([d63dc4a7/48'/1'/0'/2']tpubDEXCvh2aPYzMz2xfgsh9ZM6dQZxioYfCafUgw16keqschYbED4VeS46Qhr7EoonDHNr9dSsKPEGeRP5WRzDGdY3aazneR7wKmtDVNTf6qic/<0;1>/*),and_v(v:pkh([c98cbe58/48'/1'/0'/2']tpubDFXZ3rcRyvU6AvNrb4kRQFomJbtCTCyMX9jDJmfN5XfHLEAZq7a8h3CrYDZYtdexk6XWfT5DB8PYgySWA5GSdyWdzWwveQcbrzvVQw3u7bV/<0;1>/*),older(6))))#szdmyf2d",
-
             # # liana expanding multisig taproot w/ NUMS tapkey and 2 taproot paths, primary 2of2 anytime else 2of3 after 36 confirmations.
-            "tr(tpubD6NzVbkrYhZ4X6BRkDMxFyZxfUCQdjpK27dNgqwDqsQ2PUbMmjjPPFxfcTJiGEjeNz2zLbZ1PRmgCAzXn4pE6tEuQPScXyUbuAgdcec6pMN/<0;1>/*,{and_v(v:multi_a(2,[07fd816d/48'/1'/0'/2']tpubDDvFWduSiwhW7hUbL1oMyUfcNgeSyZgHbooe1WjHyRaXYH3uUjm1xdxWXAGbQFn8QGScDg4b4a6WMGNiEAq2uQdmPDhDKPE5Dr8DX24mwd5/<2;3>/*,[da855a1f/48'/1'/0'/2']tpubDEHRt73d4guqR5BLGQud4XMW8vDCGHUj54qDTFtsdFstF6PAYx1oAy3jfKg1PffqLUWuSsXmnetKeTJFKfKLXeJR97yUuqvvojnoBcUDHg5/<2;3>/*,[cdef7cd9/48'/1'/0'/2']tpubDEzdWp7365AFAExeUsHiwRmkZN5it3sSAZsd6GKUXvUiJBytXnZrRKMAt9UgCkWB2mP3K9WujLuTjrRLBn51Y18pMVyg2v18un4ivqWSAk2/<0;1>/*),older(36)),multi_a(2,[07fd816d/48'/1'/0'/2']tpubDDvFWduSiwhW7hUbL1oMyUfcNgeSyZgHbooe1WjHyRaXYH3uUjm1xdxWXAGbQFn8QGScDg4b4a6WMGNiEAq2uQdmPDhDKPE5Dr8DX24mwd5/<0;1>/*,[da855a1f/48'/1'/0'/2']tpubDEHRt73d4guqR5BLGQud4XMW8vDCGHUj54qDTFtsdFstF6PAYx1oAy3jfKg1PffqLUWuSsXmnetKeTJFKfKLXeJR97yUuqvvojnoBcUDHg5/<0;1>/*)})#tvh3u2lu"
+            "tr(tpubD6NzVbkrYhZ4X6BRkDMxFyZxfUCQdjpK27dNgqwDqsQ2PUbMmjjPPFxfcTJiGEjeNz2zLbZ1PRmgCAzXn4pE6tEuQPScXyUbuAgdcec6pMN/<0;1>/*,{and_v(v:multi_a(2,[07fd816d/48'/1'/0'/2']tpubDDvFWduSiwhW7hUbL1oMyUfcNgeSyZgHbooe1WjHyRaXYH3uUjm1xdxWXAGbQFn8QGScDg4b4a6WMGNiEAq2uQdmPDhDKPE5Dr8DX24mwd5/<2;3>/*,[da855a1f/48'/1'/0'/2']tpubDEHRt73d4guqR5BLGQud4XMW8vDCGHUj54qDTFtsdFstF6PAYx1oAy3jfKg1PffqLUWuSsXmnetKeTJFKfKLXeJR97yUuqvvojnoBcUDHg5/<2;3>/*,[cdef7cd9/48'/1'/0'/2']tpubDEzdWp7365AFAExeUsHiwRmkZN5it3sSAZsd6GKUXvUiJBytXnZrRKMAt9UgCkWB2mP3K9WujLuTjrRLBn51Y18pMVyg2v18un4ivqWSAk2/<0;1>/*),older(36)),multi_a(2,[07fd816d/48'/1'/0'/2']tpubDDvFWduSiwhW7hUbL1oMyUfcNgeSyZgHbooe1WjHyRaXYH3uUjm1xdxWXAGbQFn8QGScDg4b4a6WMGNiEAq2uQdmPDhDKPE5Dr8DX24mwd5/<0;1>/*,[da855a1f/48'/1'/0'/2']tpubDEHRt73d4guqR5BLGQud4XMW8vDCGHUj54qDTFtsdFstF6PAYx1oAy3jfKg1PffqLUWuSsXmnetKeTJFKfKLXeJR97yUuqvvojnoBcUDHg5/<0;1>/*)})#tvh3u2lu",
         ]
 
         for d in keys:
             Descriptor.from_string(d)
 
-
         # invalid
         keys = [
             # # LIANA_MINISCRIPT_DESCRIPTOR
             "wsh(or_d(pk([55f8fc5d/48'/0'/0'/2']xpub6EKmKYGYc1WY6t9d3d9SksR8keSaPZbFa6tqsGiH4xVxx8d2YyxSX7WG6yXEX3CmG54dPCxaapDw1XsjwCmfoqP7tbsAeqMVfKvqSAu4ndy/<0;1;2>/*),and_v(v:pkh([3e15470d/48'/0'/0'/2']xpub6F2P6Pz5KLPgCc6pTBd2xxCunaSYWc8CdkL28W5z15pJrN3aCYY7mCUAkCMtqrgT2wdhAGgRnJxAkCCUpGKoXKxQ57yffEGmPwtYA3DEXwu/<0;1>/*),older(6))))#x09nw3rv",
-
             # # UNRELATED_MINISCRIPT_DESCRIPTOR
             "wsh(or_d(multi(2,[1f280825/48'/1'/0'/2']tpubDEx7EkaqE8rG5NsCrijASmBjWiNv6teugndQCs4YN6JDS4hpJ3QtSC4ifPAcE7LQXtjRgB96trmEucoLbsiYYMuvLthymAhssZQpEPPb1pU/<0;1>/*,[e1efb2e7/48'/1'/0'/2']tpubDFhm1JYGdsR6Uv7SvXVd6JfjVkYimPDizEwwXRR9EhESpMhx3qL9nVjpfbtPRLzicWhYkMF4mn4AuZ4zYDjNMvuWSqugFBEJnYsMJurmbLM/<0;1>/*),and_v(v:thresh(2,pkh([1f280825/48'/1'/0'/2']tpubDEx7EkaqE8rG5NsCrijASmBjWiNv6teugndQCs4YN6JDS4hpJ3QtSC4ifPAcE7LQXtjRgB96trmEucoLbsiYYMuvLthymAhssZQpEPPb1pU/<2;3>/*),a:pkh([e1efb2e7/48'/1'/0'/2']tpubDFhm1JYGdsR6Uv7SvXVd6JfjVkYimPDizEwwXRR9EhESpMhx3qL9nVjpfbtPRLzicWhYkMF4mn4AuZ4zYDjNMvuWSqugFBEJnYsMJurmbLM/<2;3>/*),a:pkh([b32caab5/48'/1'/0'/2']tpubDEwY4xag4eQabW74PwS8BZb3aYy9mBzBffzBKqS74NjxzaDHodGGqfFLumwQGM5JYExNjs1mG3u8MaeEr94HNmxTaBPHERkoJXEcZ12aPdF/<0;1;2>/*)),older(144))))#tfk3syfj",
-
             # # liana miniscript wsh single primary key anytime, else a secondary key after 6 confirmations
             "wsh(or_d(pk([d63dc4a7/48'/1'/0'/2']tpubDEXCvh2aPYzMz2xfgsh9ZM6dQZxioYfCafUgw16keqschYbED4VeS46Qhr7EoonDHNr9dSsKPEGeRP5WRzDGdY3aazneR7wKmtDVNTf6qic/<0;1>/*),and_v(v:pkh([c98cbe58/48'/1'/0'/2']tpubDFXZ3rcRyvU6AvNrb4kRQFomJbtCTCyMX9jDJmfN5XfHLEAZq7a8h3CrYDZYtdexk6XWfT5DB8PYgySWA5GSdyWdzWwveQcbrzvVQw3u7bV/*),older(6))))#szdmyf2d",
         ]
@@ -344,36 +336,11 @@ class DescriptorTest(TestCase):
         keys = tuple([ec.PrivateKey(bytes([i + 1] * 32)).to_public() for i in range(4)])
         descriptors = [
             # descriptor: str, is_basic_multisig: bool, is_sorted: bool
-            (
-                "wsh(c:andor(multi(1,%s,%s),pk_k(%s),pk_k(%s)))" % keys,
-                False,
-                False,
-                1
-            ),
-            (
-                "wsh(multi(2,%s,%s,%s,%s))" % keys,
-                True,
-                False,
-                1
-            ),
-            (
-                "wsh(sortedmulti(2,%s,%s,%s,%s))" % keys,
-                True,
-                True,
-                1
-            ),
-            (
-                "tr(%s,multi_a(2,%s,%s,%s))" % keys,
-                False,
-                False,
-                1
-            ),
-            (
-                "tr(%s,sortedmulti_a(2,%s,%s,%s))" % keys,
-                False,
-                False,
-                1
-            ),
+            ("wsh(c:andor(multi(1,%s,%s),pk_k(%s),pk_k(%s)))" % keys, False, False, 1),
+            ("wsh(multi(2,%s,%s,%s,%s))" % keys, True, False, 1),
+            ("wsh(sortedmulti(2,%s,%s,%s,%s))" % keys, True, True, 1),
+            ("tr(%s,multi_a(2,%s,%s,%s))" % keys, False, False, 1),
+            ("tr(%s,sortedmulti_a(2,%s,%s,%s))" % keys, False, False, 1),
         ]
         for dstr, is_basic, is_sorted, n_branches in descriptors:
             d = Descriptor.from_string(dstr)

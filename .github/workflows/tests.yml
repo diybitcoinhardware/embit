@@ -1,0 +1,128 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - run: uv sync --dev
+      - name: Unit tests
+        run: uv run poe tests --coverage
+
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      - run: uv sync --dev
+
+      - name: Export daemon versions
+        run: grep -v '^#' tests/integration/daemon-versions.env | grep -v '^$' >> "$GITHUB_ENV"
+
+      - name: Restore daemon cache
+        id: daemon-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/embit-test-src-bin-cache
+          key: embit-daemons-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tests/integration/daemon-versions.env') }}
+          restore-keys: |
+            embit-daemons-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Check if daemon binaries are present
+        id: need_toolchain
+        run: |
+          set -euo pipefail
+          HOST_ID="$(uname -s)-$(uname -m)"
+          B="${BITCOIN_REVISION:?}"; B="${B#v}"
+          E="${ELEMENTS_REVISION:?}"
+          ROOT="${GITHUB_WORKSPACE}/.cache/embit-test-src-bin-cache"
+          BC="${ROOT}/${HOST_ID}/bitcoin-v${B}/bitcoind"
+          EL="${ROOT}/${HOST_ID}/elements-${E}/elementsd"
+          if [[ -f "$BC" && -f "$EL" ]]; then
+            echo "Both daemons found in cache."
+            echo "install=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "install=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install runtime libs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libevent-dev \
+            libboost-system-dev \
+            libboost-filesystem-dev \
+            libboost-thread-dev \
+            libdb-dev \
+            libsqlite3-dev
+
+      - name: Install build toolchain (Linux)
+        if: steps.need_toolchain.outputs.install == 'true' && runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libtool \
+            autotools-dev \
+            automake \
+            cmake \
+            git \
+            curl \
+            libssl-dev \
+            libboost-test-dev \
+            libboost-program-options-dev \
+            zlib1g-dev
+
+      - name: Install runtime libs (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install \
+            boost \
+            libevent \
+            openssl@3 \
+            berkeley-db@4 \
+            sqlite
+
+      - name: Install build toolchain (macOS)
+        if: steps.need_toolchain.outputs.install == 'true' && runner.os == 'macOS'
+        run: |
+          brew install \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            cmake
+
+      - name: Integration tests
+        run: uv run poe integration-tests
+
+      - name: Save daemon cache
+        if: always() && steps.daemon-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/embit-test-src-bin-cache
+          key: embit-daemons-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tests/integration/daemon-versions.env') }}

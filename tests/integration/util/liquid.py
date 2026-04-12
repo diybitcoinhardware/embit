@@ -1,30 +1,45 @@
 import os
+
 from .bitcoin import Bitcoind
 
 
 class Elementsd(Bitcoind):
-    datadir = os.path.abspath("./chain/elements")
     rpcport = 18998
     port = 18999
     rpcuser = "liquid"
     rpcpassword = "secret"
     name = "Elements Core"
-    binary = "elementsd"
+
+    @property
+    def datadir(self):
+        return os.path.join(self._temp_dir(), "data", "elements")
+
+    @property
+    def binary(self):
+        return os.path.join(self._temp_dir(), "binaries", "elementsd")
 
     @property
     def cmd(self):
-        return f"{self.binary} -datadir={self.datadir} -chain=elreg -fallbackfee=0.000001 -rpcuser={self.rpcuser} -rpcpassword={self.rpcpassword} -rpcport={self.rpcport} -port={self.port} -validatepegin=0 -initialfreecoins=2100000000000000"
+        return (
+            f"{self.binary}"
+            f" -datadir={self.datadir}"
+            f" -chain=elreg"
+            f" -fallbackfee=0.000001"
+            f" -rpcuser={self.rpcuser}"
+            f" -rpcpassword={self.rpcpassword}"
+            f" -rpcport={self.rpcport}"
+            f" -port={self.port}"
+            f" -validatepegin=0"
+            f" -con_blocksubsidy=5000000000"
+        )
 
     def get_coins(self):
         # create default wallet
         if "" not in self.rpc.listwallets():
-            self.rpc.createwallet("")
-        self.rpc.rescanblockchain(wallet="")
-        self.mine(10)
-        balance = self.rpc.getbalance(wallet="")
-        addr = self.rpc.getnewaddress(wallet="")
-        self.rpc.sendtoaddress(addr, balance["bitcoin"] // 2)
-        self.mine(1)
+            # createwallet(name, disable_private_keys,
+            #   blank, passphrase, avoid_reuse, descriptors)
+            self.rpc.createwallet("", False, False, "", False, True)
+        self.mine(101)
         assert self.rpc.getbalance(wallet="").get("bitcoin", 0) > 0
 
 

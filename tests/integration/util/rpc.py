@@ -1,7 +1,8 @@
+import os
 import logging
-import requests, json, os
-import os, sys, errno
-import time
+import requests
+import json
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +323,7 @@ class BitcoinRPC:
     def clone(self):
         """
         Returns a clone of self.
-        Usefull if you want to mess with the properties
+        Useful if you want to mess with the properties
         """
         return BitcoinRPC(
             self.user,
@@ -360,6 +361,8 @@ class BitcoinRPC:
         url = self.url
         if "wallet" in kwargs:
             url = url + "/wallet/{}".format(kwargs["wallet"])
+
+        logger.debug("POST %s: %s", url, payload)
         r = self.session.post(
             url, data=json.dumps(payload), headers=headers, timeout=timeout
         )
@@ -373,10 +376,11 @@ class BitcoinRPC:
 
     def __getattr__(self, method):
         def fn(*args, **kwargs):
-            r = self.multi([(method, *args)], **kwargs)[0]
-            if r["error"] is not None:
-                raise RpcError("Request error: %s" % r["error"]["message"], r)
-            return r["result"]
+            res = self.multi([(method, *args)], **kwargs)[0]
+            if "error" in res and res["error"] is not None:
+                logger.debug("RPC error: %s", res)
+                raise RpcError("Request error: %s" % res["error"]["message"], res)
+            return res["result"]
 
         return fn
 

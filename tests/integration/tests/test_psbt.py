@@ -1,11 +1,16 @@
-from unittest import TestCase, skip
-from util.bitcoin import daemon
 import random
+from unittest import TestCase
+
+import pytest
+
 from embit.descriptor import Descriptor
 from embit.descriptor.checksum import add_checksum
 from embit.bip32 import HDKey
 from embit.networks import NETWORKS
 from embit.psbt import PSBT
+from util.bitcoin import daemon
+
+pytestmark = [pytest.mark.integration, pytest.mark.bitcoin]
 
 wallet_prefix = "test" + random.randint(0, 0xFFFFFFFF).to_bytes(4, "big").hex()
 root = HDKey.from_string(
@@ -36,26 +41,27 @@ class PSBTTest(TestCase):
         # to add checksums
         d1 = add_checksum(str(d1))
         d2 = add_checksum(str(d2))
-        rpc.createwallet(wname, True, True)
+        # createwallet(name, disable_private_keys, blank,
+        #   passphrase, avoid_reuse, descriptors)
+        rpc.createwallet(wname, True, True, "", False, True)
         w = daemon.wallet(wname)
-        res = w.importmulti(
+        res = w.importdescriptors(
             [
                 {
                     "desc": d1,
                     "internal": False,
                     "timestamp": "now",
-                    "watchonly": True,
+                    "active": True,
                     "range": 10,
                 },
                 {
                     "desc": d2,
                     "internal": True,
                     "timestamp": "now",
-                    "watchonly": True,
+                    "active": True,
                     "range": 10,
                 },
             ],
-            {"rescan": False},
         )
         self.assertTrue(all([k["success"] for k in res]))
         wdefault = daemon.wallet()

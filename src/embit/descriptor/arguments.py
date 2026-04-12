@@ -114,6 +114,11 @@ class AllowedDerivation(DescriptorBase):
                 return True
         return False
 
+    @property
+    def has_hardend(self):
+        """Deprecated: use has_hardened instead."""
+        return self.has_hardened
+
     @classmethod
     def from_string(cls, der: str, allow_hardened=False, allow_set=True):
         if len(der) == 0:

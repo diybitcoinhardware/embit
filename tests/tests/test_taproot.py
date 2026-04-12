@@ -171,9 +171,9 @@ class TaprootTest(TestCase):
             # remove final scriptwitness to test signing with root
             inp.final_scriptwitness = None
             # populate derivation; Taproot signing expects X-only pubkeys
-            inp.bip32_derivations[
-                PublicKey.from_xonly(prv.key.xonly())
-            ] = DerivationPath(ROOT.my_fingerprint, [0, i])
+            inp.bip32_derivations[PublicKey.from_xonly(prv.key.xonly())] = (
+                DerivationPath(ROOT.my_fingerprint, [0, i])
+            )
 
         # test signing with root key
         counter = unsigned.sign_with(ROOT, SIGHASH.ALL)
