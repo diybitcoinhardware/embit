@@ -29,7 +29,7 @@ pub.schnorr_verify(sig, msg)
 SchnorrSig(sig)`
 ```
 
-> This constructor is not very useful, probably better to instatiate this class by parsing serialized signature or creating it using private key `.schnorr_sign()` method.
+> This constructor is not very useful, probably better to instantiate this class by parsing serialized signature or creating it using private key `.schnorr_sign()` method.
 
 - `sig` - `64`-bytes internal representation of a Schnorr signature used by `libsecp256k1`.
 

@@ -28,9 +28,10 @@ PyPi installation includes prebuilt libraries for common platforms (win, macos, 
 
 If you want to build the lib yourself, see: [Building secp256k1 for `embit`](/secp256k1/README.md).
 
-
 ## Using non-English BIP39 wordlists
+
 [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md) defines wordlists for:
+
 * English
 * Japanese
 * Korean
@@ -45,6 +46,7 @@ If you want to build the lib yourself, see: [Building secp256k1 for `embit`](/se
 `embit` assumes English and does not include the other wordlists in order to keep this as slim as possible.
 
 However, you can override this default by providing an alternate wordlist to any of the mnemonic-handling methods:
+
 ```
 spanish_wordlist = [
     "ábaco",
@@ -65,7 +67,6 @@ mnemonic_to_seed(mnemonic, wordlist=spanish_wordlist)
 mnemonic_to_bytes(mnemonic, wordlist=spanish_wordlist)
 mnemonic_from_bytes(bytes_data, wordlist=spanish_wordlist)
 ```
-
 
 # Development
 
@@ -149,7 +150,30 @@ Unit tests:
 uv run poe tests
 ```
 
-Run tests with desktop python:
+## Building
+
+Build the package (outputs to `dist/`):
+
+```bash
+poetry build
+```
+
+Install from the built wheel:
+
+```bash
+pip install dist/embit-*.whl
+```
+
+The integration tests will compile `bitcoind` and `elementsd` in `/tmp`. You'll
+need only install `berkeley-db@4` for `elementsd`.
+
+## Pre-commit tools
+
+Before commit your changes, perform some `pre-commit` check
+(formatting, linting and test). If you do a commit without this check, you'll
+need to wait a little (because it will run anyways).
+
+First assert that you have `pre-commit` dependencies installed:
 
 ```sh
 uv run poe integration-tests

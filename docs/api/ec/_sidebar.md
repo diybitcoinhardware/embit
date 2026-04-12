@@ -22,4 +22,4 @@
 	- [hashes](/api/hashes.md)
 	- [liquid](/api/liquid/README.md)
 	- [slip39](/api/slip39.md)
-- [Recepies](/recepies/README.md)
+- [Recipes](/recipes/README.md)

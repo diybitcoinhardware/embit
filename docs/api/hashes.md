@@ -85,7 +85,7 @@ Different tags are used for different application, for example in taproot `"BIP0
 
 This allows reusing of the hash function without worrying about getting the same hashes for different applications.
 
-Internaly does `sha256(sha256(tag) + sha256(tag) + data)`
+Internally does `sha256(sha256(tag) + sha256(tag) + data)`
 
 **Arguments**
 
@@ -105,7 +105,7 @@ Initializes a tagged hash object for more data.
 - `tag` - a tag string uniquie for your application
 - `msg` - first bytes to hash, `b""` by default
 
-**Retuns**
+**Returns**
 
 a hash object that can be used to `.update()` with more data and `digest()` at the end.
 

@@ -41,7 +41,7 @@ pub = PublicKey.from_string("02018a768541c946e907bd6961f403edd820e76cddb40cefb3c
 
 ## Modules
 
-Library is splitted into modules, list of modules sorted by topic:
+Library is split into modules, list of modules sorted by topic:
 
 **Keys:**
 

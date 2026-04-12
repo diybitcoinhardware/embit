@@ -42,7 +42,7 @@ print(pub)
 # sign a message
 msg = b"5"*32 # should be a 32-byte hash of the message
 
-# ECDSA siganture:
+# ECDSA signature:
 sig = pk.sign(msg)
 # serialization - DER encoding
 # string repr - hex of DER serialization
