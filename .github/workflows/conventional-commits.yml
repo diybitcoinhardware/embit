@@ -1,0 +1,57 @@
+name: Conventional commits
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: conventional-commits-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  commit-messages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install checker
+        run: pip install "conventional-pre-commit==4.4.0"
+
+      - name: Verify pushed commits
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          before="${{ github.event.before }}"
+          after="${{ github.event.after }}"
+          check() {
+            git log -1 --format=%B "$1" > /tmp/commit-msg.txt
+            conventional-pre-commit /tmp/commit-msg.txt
+          }
+          if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            check "$after"
+            exit 0
+          fi
+          for rev in $(git rev-list --no-merges "${before}..${after}"); do
+            check "$rev"
+          done
+
+      - name: Fetch PR base (for range)
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin ${{ github.event.pull_request.base.sha }}
+
+      - name: Verify PR commits
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          for rev in $(git rev-list --no-merges "${base}..HEAD"); do
+            git log -1 --format=%B "$rev" > /tmp/commit-msg.txt
+            conventional-pre-commit /tmp/commit-msg.txt
+          done
