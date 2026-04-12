@@ -1,7 +1,7 @@
-# Mnemonic convertion to seed and to/from bytes
+# Mnemonic conversion to seed and to/from bytes
 import hashlib
-from .misc import const
 
+from .misc import const
 from .wordlists.bip39 import WORDLIST
 
 PBKDF2_ROUNDS = const(2048)

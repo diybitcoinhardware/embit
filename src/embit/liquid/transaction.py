@@ -1,11 +1,11 @@
-import sys
-import io
-from .. import compact
-from ..script import Script, Witness
-from .. import hashes
-from ..transaction import *
-from ..base import EmbitBase
 import hashlib
+import io
+import sys
+
+from .. import compact, hashes
+from ..base import EmbitBase
+from ..script import Script, Witness
+from ..transaction import *
 
 if sys.implementation.name == "micropython":
     import secp256k1

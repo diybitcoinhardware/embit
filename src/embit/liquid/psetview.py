@@ -1,6 +1,7 @@
+import hashlib
+
 from ..psbtview import *
 from .pset import *
-import hashlib
 
 
 def skip_commitment(stream):

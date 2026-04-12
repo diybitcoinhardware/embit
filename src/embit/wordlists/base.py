@@ -4,7 +4,7 @@ class WordlistBase:
 
     def __getitem__(self, n):
         if isinstance(n, slice):
-            (start, stop, step) = (
+            start, stop, step = (
                 n.start or 0,
                 n.stop if n.stop is not None else len(self),
                 n.step or 1,

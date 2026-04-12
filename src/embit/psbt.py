@@ -1,15 +1,11 @@
+from binascii import a2b_base64, b2a_base64, hexlify, unhexlify
 from collections import OrderedDict
-from .transaction import Transaction, TransactionOutput, TransactionInput, SIGHASH
-from . import compact
-from . import bip32
-from . import ec
-from . import hashes
-from . import script
-from .script import Script, Witness
-from .base import EmbitBase, EmbitError
-
-from binascii import b2a_base64, a2b_base64, hexlify, unhexlify
 from io import BytesIO
+
+from . import bip32, compact, ec, hashes, script
+from .base import EmbitBase, EmbitError
+from .script import Script, Witness
+from .transaction import SIGHASH, Transaction, TransactionInput, TransactionOutput
 
 
 class PSBTError(EmbitError):
@@ -888,6 +884,7 @@ class PSBT(EmbitBase):
         inp = inp or self.inputs[input_index]
         if not inp.is_taproot:
             return 0
+
         # check if key is internal key
         pk = key.taproot_tweak(inp.taproot_merkle_root or b"")
         if pk.xonly() in inp.utxo.script_pubkey.data:
@@ -904,9 +901,11 @@ class PSBT(EmbitBase):
             # no need to sign anything else
             return 1
         counter = 0
+
         # negate if necessary
         pub = ec.PublicKey.from_xonly(key.xonly())
-        # iterate over leafs and sign
+
+        # iterate over leaves and sign
         for ctrl, sc in inp.taproot_scripts.items():
             if pub.xonly() not in sc:
                 continue
@@ -996,7 +995,7 @@ class PSBT(EmbitBase):
             if fingerprint:
                 # if taproot derivations are present add them
                 for pub in inp.taproot_bip32_derivations:
-                    (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
+                    _leaves, derivation = inp.taproot_bip32_derivations[pub]
                     if derivation.fingerprint == fingerprint:
                         # Add only if not already present
                         if (pub, derivation) not in bip32_derivations:

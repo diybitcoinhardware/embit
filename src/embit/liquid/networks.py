@@ -33,8 +33,8 @@ NETWORKS = {
     },
     "elementsregtest": {
         "name": "Liquid Regtest",
-        "wif": b"\xEF",
-        "p2pkh": b"\x6F",
+        "wif": b"\xef",
+        "p2pkh": b"\x6f",
         "p2sh": b"\x4b",
         "bp2sh": b"\x04\x4b",
         "bech32": "ert",
@@ -54,7 +54,7 @@ NETWORKS = {
     # config: https://liquidtestnet.com/
     "liquidtestnet": {
         "name": "Liquid Testnet",
-        "wif": b"\xEF",
+        "wif": b"\xef",
         "p2pkh": b"\x24",
         "p2sh": b"\x13",
         "bp2sh": b"\x17\x13",

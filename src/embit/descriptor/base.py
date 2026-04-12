@@ -1,4 +1,5 @@
 from io import BytesIO
+
 from ..base import EmbitBase
 
 

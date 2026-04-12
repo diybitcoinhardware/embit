@@ -1,10 +1,11 @@
 from io import BytesIO
+
 from .. import script
 from ..networks import NETWORKS
-from .errors import DescriptorError
-from .base import DescriptorBase
-from .miniscript import Miniscript, Multi, Sortedmulti
 from .arguments import Key
+from .base import DescriptorBase
+from .errors import DescriptorError
+from .miniscript import Miniscript, Multi, Sortedmulti
 from .taptree import TapTree
 
 
@@ -220,7 +221,7 @@ class Descriptor(DescriptorBase):
                     sc = self.derive(idx, branch_index=branch_idx).script_pubkey()
                     # if derivation is found but scriptpubkey doesn't match - fail
                     return sc == psbt_scope.script_pubkey
-        for pub, (leafs, der) in psbt_scope.taproot_bip32_derivations.items():
+        for pub, (leaves, der) in psbt_scope.taproot_bip32_derivations.items():
             # check of the fingerprints
             for k in self.keys:
                 if not k.is_extended:

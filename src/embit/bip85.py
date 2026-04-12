@@ -1,6 +1,7 @@
+import hmac
+
 from . import bip32, bip39, ec
 from .bip32 import HARDENED_INDEX
-import hmac
 
 BIP85_MAGIC = b"bip-entropy-from-k"
 

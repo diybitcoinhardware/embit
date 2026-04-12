@@ -1,7 +1,7 @@
 from ..misc import read_until
-from .errors import MiniscriptError
+from .arguments import Key, KeyHash, Number, Raw20, Raw32
 from .base import DescriptorBase
-from .arguments import Key, KeyHash, Number, Raw32, Raw20
+from .errors import MiniscriptError
 
 
 class Miniscript(DescriptorBase):

@@ -1,5 +1,5 @@
 from . import ec
-from .script import Witness, Script
+from .script import Script, Witness
 from .transaction import Transaction
 
 

@@ -1,8 +1,10 @@
 """BIP-32 for blinding keys. Non-standard yet!!!"""
+
+import hmac
 import sys
+
 from .. import bip32, ec
 from .networks import NETWORKS
-import hmac
 
 
 class BlindingHDKey(bip32.HDKey):

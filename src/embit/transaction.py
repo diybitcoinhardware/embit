@@ -1,9 +1,9 @@
 import hashlib
-from . import compact
-from . import hashes
+
+from . import compact, hashes
 from .base import EmbitBase, EmbitError
-from .script import Script, Witness
 from .misc import const
+from .script import Script, Witness
 
 
 class TransactionError(EmbitError):

@@ -1,10 +1,11 @@
 """Misc utility functions used across embit"""
+
 import sys
 
 # implementation-specific functions and libraries:
 if sys.implementation.name == "micropython":
-    from micropython import const
     import secp256k1
+    from micropython import const
 else:
     from .util import secp256k1
 

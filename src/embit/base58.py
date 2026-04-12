@@ -4,6 +4,7 @@
 """Base58 encoding and decoding"""
 
 import binascii
+
 from . import hashes
 
 B58_DIGITS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"

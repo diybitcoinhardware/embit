@@ -1,4 +1,4 @@
-from .. import bech32, ec, script, base58
+from .. import base58, bech32, ec, script
 from . import blech32
 from .networks import NETWORKS
 

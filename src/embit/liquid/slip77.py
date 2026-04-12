@@ -1,4 +1,5 @@
 import hmac
+
 from ..ec import PrivateKey
 
 DOMAIN = b"Symmetric key seed"

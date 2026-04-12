@@ -1,22 +1,22 @@
-import ctypes, os
+import ctypes
 import ctypes.util
+import os
 import platform
 import threading
-
 from ctypes import (
-    cast,
-    byref,
-    c_char,
-    c_byte,
-    c_int,
-    c_uint,
-    c_char_p,
-    c_size_t,
-    c_void_p,
-    c_uint64,
-    create_string_buffer,
     CFUNCTYPE,
     POINTER,
+    byref,
+    c_byte,
+    c_char,
+    c_char_p,
+    c_int,
+    c_size_t,
+    c_uint,
+    c_uint64,
+    c_void_p,
+    cast,
+    create_string_buffer,
 )
 
 _lock = threading.Lock()

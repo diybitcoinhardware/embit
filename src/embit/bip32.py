@@ -1,11 +1,10 @@
-from . import ec
-from .base import EmbitKey, EmbitError
-from .misc import copy, const, secp256k1
-from .networks import NETWORKS
-from . import base58
-from . import hashes
 import hmac
 from binascii import hexlify
+
+from . import base58, ec, hashes
+from .base import EmbitError, EmbitKey
+from .misc import const, copy, secp256k1
+from .networks import NETWORKS
 
 HARDENED_INDEX = const(0x80000000)
 

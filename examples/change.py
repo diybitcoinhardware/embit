@@ -5,6 +5,7 @@ Multisig transaction verification example:
 - checks that change output is from the same wallet as well
 - prints out transaction information for the user
 """
+
 from embit import bip39, bip32, psbt, script, ec
 from binascii import a2b_base64, b2a_base64
 from io import BytesIO
