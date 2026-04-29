@@ -125,12 +125,6 @@ def _iter_resolved_library_candidates():
         yield resolved
 
 
-def _find_library():
-    for library_path in _iter_resolved_library_candidates():
-        return library_path
-    return None
-
-
 @locked
 def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
     preferred_symbols = (
@@ -146,7 +140,6 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
 
     fallback = None
     secp256k1 = None
-    library_path = None
 
     for candidate in _iter_resolved_library_candidates():
         try:
@@ -162,20 +155,17 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
                 break
         if has_preferred:
             secp256k1 = loaded
-            library_path = candidate
             break
         if fallback is None:
-            fallback = (loaded, candidate)
+            fallback = loaded
 
     if secp256k1 is None and fallback is not None:
-        secp256k1, library_path = fallback
+        secp256k1 = fallback
 
     if secp256k1 is None:
         raise RuntimeError(
             "Can't find libsecp256k1 library. Make sure to compile and install it."
         )
-
-    secp256k1._embit_library_path = library_path
 
     secp256k1.secp256k1_context_create.argtypes = [c_uint]
     secp256k1.secp256k1_context_create.restype = c_void_p
