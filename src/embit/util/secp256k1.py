@@ -1,6 +1,11 @@
 # ruff: noqa: F403, E722
 try:
     # if it's micropython
+    # `from micropython import const` is the discriminator: it raises ImportError on
+    # CPython, forcing the fallback branch. Without it, `from secp256k1 import *`
+    # can resolve to the repo-local `secp256k1/` libsecp256k1 build directory as an
+    # implicit namespace package and silently succeed with an empty namespace.
+    from micropython import const  # noqa: F401
     from secp256k1 import *
 except:
     # we are in python
