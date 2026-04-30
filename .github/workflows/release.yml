@@ -71,6 +71,13 @@ jobs:
       - name: Verify artifacts
         run: python tools/verify_package_artifacts.py --inspection-log release-metadata/release-package-inspection.md
 
+      - name: Smoke install from local artifacts
+        run: |
+          python -m venv "$RUNNER_TEMP/venv-smoke"
+          . "$RUNNER_TEMP/venv-smoke/bin/activate"
+          python -m pip install --no-index --find-links dist embit
+          python -c "import embit; print(embit.__file__)"
+
       - name: Generate release SBOM
         run: python tools/generate_release_sbom.py --output release-metadata/embit-sbom.cdx.json
 
