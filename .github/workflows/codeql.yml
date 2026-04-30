@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   analyze:
-    name: Analyze
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,10 +37,13 @@ jobs:
       - uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
-          output: ${{ runner.temp }}/sarif-results
+          upload: always
+          post-processed-sarif-path: ${{ runner.temp }}/sarif-results
 
       - name: Upload SARIF artifact
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: codeql-sarif-${{ matrix.language }}
           path: ${{ runner.temp }}/sarif-results
+          if-no-files-found: warn
