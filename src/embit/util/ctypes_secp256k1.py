@@ -1,4 +1,5 @@
-import ctypes, os
+import ctypes
+import os
 import ctypes.util
 import platform
 import threading
@@ -7,14 +8,12 @@ from ctypes import (
     cast,
     byref,
     c_char,
-    c_byte,
     c_int,
     c_uint,
     c_char_p,
     c_size_t,
     c_void_p,
     c_uint64,
-    create_string_buffer,
     CFUNCTYPE,
     POINTER,
 )
@@ -730,7 +729,7 @@ def ecdh(pubkey, scalar, hashfn=None, data=None, context=_secp.ctx):
             y = ctypes.string_at(y, 32)
             try:
                 res = hashfn(x, y, data)
-            except Exception as e:
+            except Exception:
                 return 0
             out = cast(out, POINTER(c_char * 32))
             out.contents.value = res

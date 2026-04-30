@@ -32,7 +32,7 @@ Here is a list of keys for `NETWORKS['main']`:
 }
 ```
 
-> If you are using Liquid you should also check out [`liquid.networks`](./liquid/networks.md) module.
+> If you are using Liquid you should also check out the `embit.ext.liquid.networks` module.
 
 If you want to add any bitcoin-compatible altcoin (doge, litecoin, whatever) - just add a new network dict to `embit.networks.NETWORKS`.
 

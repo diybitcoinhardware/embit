@@ -20,6 +20,6 @@
 	- [bech32](/api/bech32.md)
 	- [compact](/api/compact.md)
 	- [hashes](/api/hashes.md)
-	- [liquid](/api/liquid/README.md)
-	- [slip39](/api/slip39.md)
+	- [liquid](/api/ext/liquid/README.md)
+	- [slip39](/api/ext/slip39.md)
 - [Recepies](/recepies/README.md)

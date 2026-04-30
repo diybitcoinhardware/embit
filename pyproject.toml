@@ -52,12 +52,13 @@ embit = ["util/prebuilt/*"]
 [tool.pytest.ini_options]
 addopts = "--cov=embit"
 testpaths = [
-    "tests/tests",
+    "tests/core",
+    "tests/ext",
 ]
 
 [tool.coverage.run]
 omit = [
-    "*/liquid/*",
+    "*/ext/liquid/*",
 ]
 
 [tool.mypy]
@@ -74,4 +75,3 @@ warn_return_any = true
 warn_unreachable = true
 warn_unused_configs = true
 no_implicit_reexport = false
-

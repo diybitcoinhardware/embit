@@ -4,9 +4,9 @@ import sys
 # implementation-specific functions and libraries:
 if sys.implementation.name == "micropython":
     from micropython import const
-    import secp256k1
+    import secp256k1 as secp256k1
 else:
-    from .util import secp256k1
+    from .util import secp256k1 as secp256k1
 
     def const(x):
         return x

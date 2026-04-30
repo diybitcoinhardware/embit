@@ -282,7 +282,7 @@ class Transaction(EmbitBase):
         h.update(script_pubkey.serialize())
         h.update(int(value).to_bytes(8, "little"))
         h.update(inp.sequence.to_bytes(4, "little"))
-        if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
+        if sh not in [SIGHASH.NONE, SIGHASH.SINGLE]:
             h.update(hashlib.sha256(self.hash_outputs()).digest())
         elif sh == SIGHASH.SINGLE and input_index < len(self.vout):
             h.update(

@@ -125,7 +125,7 @@ Verifies Schnorr signature against the message.
 
 **Arguments**
 
-- `sig` - Instance of [`SchnorrSig`](./shcnorr_sig.md) to verify
+- `sig` - Instance of [`SchnorrSig`](./schnorr_sig.md) to verify
 - `msg` - `32`-byte hash of the message to verify against.
 
 **Returns**

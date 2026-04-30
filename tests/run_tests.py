@@ -6,4 +6,4 @@ if sys.implementation.name == "micropython":
 import unittest
 
 if __name__ == "__main__":
-    unittest.main("tests")
+    unittest.main("core")

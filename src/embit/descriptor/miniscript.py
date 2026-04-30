@@ -87,7 +87,7 @@ class Miniscript(DescriptorBase):
     def read_arguments(cls, s, taproot=False):
         args = []
         if cls.NARGS is None:
-            if type(cls.ARGCLS) == tuple:
+            if isinstance(cls.ARGCLS, tuple):
                 firstcls, nextcls = cls.ARGCLS
             else:
                 firstcls, nextcls = cls.ARGCLS, cls.ARGCLS
@@ -901,7 +901,7 @@ class T(Wrapper):
 
     def __len__(self):
         return len(self.arg) + 1
-    
+
     def verify(self):
         super().verify()
         if self.arg.type != "V":

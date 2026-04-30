@@ -1,1 +1,0 @@
-# Shamir Secret Sharing scheme

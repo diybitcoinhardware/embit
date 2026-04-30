@@ -45,7 +45,7 @@ Library is splitted into modules, list of modules sorted by topic:
 
 **Keys:**
 
-- [ec](./ec.md) - individual elliptic curve keys (`PrivateKey`, `PublicKey`) and signatures (`Signature`, `SchnorrSig`)
+- [ec](./ec/README.md) - individual elliptic curve keys (`PrivateKey`, `PublicKey`) and signatures (`Signature`, `SchnorrSig`)
 - [bip39](./bip39.md) - helper functions for mnemonics
 - [bip32](./bip32.md) - extended private and public keys (`HDKey`)
 
@@ -69,5 +69,5 @@ Library is splitted into modules, list of modules sorted by topic:
 - [hashes](./hashes.md) - common bitcoin hash functions like `tagged_hash`, `double_sha256` etc
 
 **Extensions / experimental:**
-- [liquid](./liquid/README.md) - support for confidential assets, liquid transactions, blinded descriptors and psets (elements version of psbt)
-- [slip39](./slip39.md) - shamir secret sharing scheme
+- [liquid](./ext/liquid/README.md) - `embit.ext.liquid` support for confidential assets, liquid transactions, blinded descriptors and psets (elements version of psbt)
+- [slip39](./ext/slip39.md) - `embit.ext.slip39` shamir secret sharing scheme

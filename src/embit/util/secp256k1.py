@@ -1,6 +1,5 @@
 try:
     # if it's micropython
-    from micropython import const
     from secp256k1 import *
 except:
     # we are in python

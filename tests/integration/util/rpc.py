@@ -1,7 +1,8 @@
 import logging
-import requests, json, os
-import os, sys, errno
-import time
+import requests
+import json
+import os
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +208,7 @@ def autodetect_rpc_confs(
             try:
                 rpc.getmininginfo()
                 available_conf_arr.append(conf)
-            except requests.exceptions.RequestException as e:
+            except requests.exceptions.RequestException:
                 pass
                 # no point in reporting that here
             except RpcError:
@@ -234,13 +235,13 @@ class RpcError(Exception):
         try:
             self.status_code = response.status_code
             error = response.json()
-        except Exception as e:
+        except Exception:
             # it's a dict already
             error = response
         try:
             self.error_code = error["error"]["code"]
             self.error_msg = error["error"]["message"]
-        except Exception as e:
+        except Exception:
             self.error = "UNKNOWN API-ERROR:%s" % response.text
 
 

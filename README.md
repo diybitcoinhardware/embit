@@ -4,6 +4,9 @@ A minimal bitcoin library for MicroPython and Python3 with a focus on embedded s
 
 Should remain minimal to fit in a microcontroller. Also easy to audit.
 
+The core package stays focused on Bitcoin primitives and wallet formats. Optional
+features live under `embit.ext`, including Liquid support and SLIP-39.
+
 Examples can be found in [`examples/`](./examples) folder.
 
 Documentation: https://embit.rocks/
@@ -16,7 +19,9 @@ Support the project: `bc1qd4flfrxjctls9ya244u39hd67pcprhvka723gv`
 
 Requires a custom MicroPython build with extended [`hashlib`](https://github.com/diybitcoinhardware/f469-disco/tree/master/usermods/uhashlib) module and [`secp256k1`](https://github.com/diybitcoinhardware/secp256k1-embedded) bindings.
 
-To install copy the content of `embit` folder to the board. To save some space you can remove files `embit/util/ctypes_secp256k1.py` and `embit/util/pyhashlib.py` - they are used only in Python3.
+To install, copy the content of the `embit` folder to the board. For a core-only
+deployment you can omit `embit/ext`. To save some space you can also remove
+`embit/util/ctypes_secp256k1.py` - it is used only in Python3.
 
 ## Python 3
 
@@ -26,7 +31,7 @@ To install in development mode (editable) clone and run `pip3 install -e .` from
 
 PyPi installation includes prebuilt libraries for common platforms (win, macos, linux, raspi) - see [`src/embit/util/prebuilt/`](./src/embit/util/prebuilt/) folder. Library is built from [libsecp-zkp](https://github.com/ElementsProject/secp256k1-zkp) fork for Liquid support, but will work with pure [libsecp256k1](https://github.com/bitcoin-core/secp256k1) as well - just Liquid functionality doesn't work. If it fails to use the prebuilt or system library it will fallback to pure python implementation.
 
-If you want to build the lib yourself, see: [Building secp256k1 for `embit`](/secp256k1/README.md).
+If you want to build the lib yourself, see: [Building secp256k1 for `embit`](./secp256k1/README.md).
 
 
 ## Using non-English BIP39 wordlists
@@ -85,6 +90,13 @@ Run tests with desktop python:
 
 ```sh
 pytest
+```
+
+Run only the core or extension suites:
+
+```sh
+pytest tests/core
+pytest tests/ext
 ```
 
 Run tests with micropython:
