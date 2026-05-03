@@ -1,3 +1,4 @@
+from io import BytesIO
 import hashlib
 from . import compact
 from . import hashes
@@ -146,17 +147,25 @@ class Transaction(EmbitBase):
     def read_from(cls, stream):
         ver = int.from_bytes(stream.read(4), "little")
         num_vin = compact.read_from(stream)
-        # if num_vin is zero it is a segwit transaction
-        is_segwit = num_vin == 0
-        if is_segwit:
-            marker = stream.read(1)
-            if marker != b"\x01":
-                raise TransactionError("Invalid segwit marker")
-            num_vin = compact.read_from(stream)
+        num_vout = None
+        is_segwit = False
+        if num_vin == 0:
+            # Could be either:
+            #   (a) BIP-144 segwit standalone tx → next byte must be flag 0x01
+            #   (b) BIP-174 PSBT-embedded unsigned tx with no inputs yet (legacy, no flag)
+            # Peek the next byte; only treat as segwit if it's exactly 0x01.
+            flag = stream.read(1)
+            if flag == b"\x01":
+                is_segwit = True
+                num_vin = compact.read_from(stream)
+            else:
+                # legacy with 0 inputs — the byte we just read is num_vout
+                num_vout = compact.read_from(BytesIO(flag))
         vin = []
         for i in range(num_vin):
             vin.append(TransactionInput.read_from(stream))
-        num_vout = compact.read_from(stream)
+        if num_vout is None:
+            num_vout = compact.read_from(stream)
         vout = []
         for i in range(num_vout):
             vout.append(TransactionOutput.read_from(stream))
