@@ -1,9 +1,7 @@
-from embit import script
-from embit import ec
-from embit.networks import NETWORKS
-from binascii import unhexlify, hexlify
+from binascii import hexlify, unhexlify
+
+from embit import ec, script
 from embit.transaction import Transaction, TransactionInput, TransactionOutput
-from embit import compact
 
 
 def main():

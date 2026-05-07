@@ -1,12 +1,8 @@
-from embit import script
-from embit import bip32
-from embit import bip39
-from embit.networks import NETWORKS
-from embit import psbt
-from binascii import unhexlify, hexlify
-
 # base64 encoding
-from binascii import a2b_base64, b2a_base64
+from binascii import a2b_base64, b2a_base64, hexlify
+
+from embit import bip32, bip39, psbt, script
+from embit.networks import NETWORKS
 
 # example of key and address derivations from mnemonic
 # you can check that everything works right
