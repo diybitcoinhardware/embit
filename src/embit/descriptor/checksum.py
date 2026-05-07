@@ -18,7 +18,7 @@ def polymod(c: int, val: int) -> int:
 
 
 def checksum(desc: str) -> str:
-    """Calculate checksum of desciptor string"""
+    """Calculate checksum of descriptor string"""
     INPUT_CHARSET = (
         "0123456789()[],'/*abcdefgh@:$%{}IJKLMNOPQRSTUVW"
         'XYZ&+-.;<=>?!^_|~ijklmnopqrstuvwxyzABCDEFGH`#"\\ '

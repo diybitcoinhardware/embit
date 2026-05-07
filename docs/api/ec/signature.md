@@ -27,7 +27,7 @@ pub.verify(sig, msg)
 Signature(sig)`
 ```
 
-> This constructor is not very useful, probably better to instatiate this class by parsing serialized signature or creating it using private key `.sign()` method.
+> This constructor is not very useful, probably better to instantiate this class by parsing serialized signature or creating it using private key `.sign()` method.
 
 - `sig` - `64`-bytes internal representation of a ECDSA signature used by `libsecp256k1`.
 

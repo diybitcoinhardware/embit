@@ -1,18 +1,20 @@
-from unittest import TestCase, skip
-from util.liquid import daemon
-import random
-import time
 import os
+import random
+from unittest import TestCase
 
-from embit.liquid.descriptor import LDescriptor as Descriptor
+import pytest
+
 from embit.descriptor.checksum import add_checksum
 from embit.bip32 import HDKey
+from embit.ec import PrivateKey
+from embit.liquid.addresses import addr_decode
+from embit.liquid.descriptor import LDescriptor as Descriptor
+from embit.liquid.finalizer import finalize_psbt
 from embit.liquid.networks import get_network
 from embit.liquid.pset import PSET as PSBT
-from embit.liquid.transaction import LSIGHASH
-from embit.liquid.finalizer import finalize_psbt
-from embit.liquid.addresses import addr_decode
-from embit.ec import PrivateKey
+from util.liquid import daemon
+
+pytestmark = [pytest.mark.integration, pytest.mark.liquid]
 
 wallet_prefix = "test" + random.randint(0, 0xFFFFFFFF).to_bytes(4, "big").hex()
 root = HDKey.from_string(

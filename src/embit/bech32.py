@@ -19,6 +19,7 @@
 # THE SOFTWARE.
 
 """Reference implementation for Bech32 and segwit addresses."""
+
 from .misc import const
 
 CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"

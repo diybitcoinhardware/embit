@@ -48,12 +48,29 @@ VECTORS_HEX = [
 
 
 class Bip85Test(TestCase):
-
     def test_derive_entropy(self):
         for app_index, path, expected in [
-            (39, [0, 12, 0], unhexlify("6250b68daf746d12a24d58b4787a714bf1b58d69e4c2a466276fb16fe93dc52b6fac6b756894072241447cad56f6405ee326dbb473d2f5e943543590082927c0")),
-            (2, [0], unhexlify("7040bb53104f27367f317558e78a994ada7296c6fde36a364e5baf206e502bb1f988080b7dd814e7ae7d6d83edbb6689886a560e165f4a740877cdf3beecacf8")),
-            (32, [0], unhexlify("52405cd0dd21c5be78314a7c1a3c65ffd8d896536cc7dee3157db5824f0c92e2ead0b33988a616cf6a497f1c169d9e92562604e38305ccd3fc96f2252c177682")),
+            (
+                39,
+                [0, 12, 0],
+                unhexlify(
+                    "6250b68daf746d12a24d58b4787a714bf1b58d69e4c2a466276fb16fe93dc52b6fac6b756894072241447cad56f6405ee326dbb473d2f5e943543590082927c0"
+                ),
+            ),
+            (
+                2,
+                [0],
+                unhexlify(
+                    "7040bb53104f27367f317558e78a994ada7296c6fde36a364e5baf206e502bb1f988080b7dd814e7ae7d6d83edbb6689886a560e165f4a740877cdf3beecacf8"
+                ),
+            ),
+            (
+                32,
+                [0],
+                unhexlify(
+                    "52405cd0dd21c5be78314a7c1a3c65ffd8d896536cc7dee3157db5824f0c92e2ead0b33988a616cf6a497f1c169d9e92562604e38305ccd3fc96f2252c177682"
+                ),
+            ),
         ]:
             result = bip85.derive_entropy(ROOT, app_index, path)
             self.assertEqual(result, expected)

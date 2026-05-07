@@ -1,58 +1,399 @@
-[tool.poetry]
-name = "embit"
-version = "0.8.0"
-description="A minimal bitcoin library for MicroPython and Python3 with a focus on embedded systems."
-license="MIT"
-authors= ["Stepan Snigirev <snigirev.stepan@gmail.com>"]
-
-[tool.poetry.urls]
-repository = "https://github.com/diybitcoinhardware/embit"
-
-[tool.poetry.dependencies]
-python = "^3.0"
-
 [build-system]
-requires = ["setuptools>=42.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "embit"
 version = "0.8.0"
-description="A minimal bitcoin library for MicroPython and Python3 with a focus on embedded systems."
-readme = "README.md"
+description = "A minimal bitcoin library for MicroPython and Python3 with a focus on embedded systems."
 authors = [
     {name = "Stepan Snigirev", email = "snigirev.stepan@gmail.com"},
 ]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">3.10,<=3.14.4"
 classifiers = [
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
 ]
+dependencies = []
 
-[project.optional-dependencies]
+[project.urls]
+Repository = "https://github.com/diybitcoinhardware/embit"
+
+# Hatchling (PEP 517): `uv build` / pip install produce wheels from src/embit/.
+[tool.hatch.build.targets.wheel]
+packages = ["src/embit"]
+
+[dependency-groups]
 dev = [
-    "pytest",
-    "pytest-cov",
-    "requests", # for integration tests
-    "mypy",
-    "black",
-    "pre-commit",
-    "mkdocs",
-    "mkdocs-material",
-    "mkdocstrings[python]",
+    "poethepoet>=0.45.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.9.0",
+    "pylint>=3.3.0",
+    "isort>=5.13.0",
+    "pre-commit>=3.7.0",
+    "requests>=2.33.1",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.poe.tasks.tests]
+help = "Unit tests under tests/tests/ (no chain daemons)."
+cmd = "pytest ${_catch:+ -W error::${_catch}} ${_cov:+ --cache-clear --cov embit --cov-report html --cov-report xml } tests/tests ${_verbose:+ --show-capture all --capture tee-sys} ${_cov:+ --cov-context=test --cov-report term-missing}"
+args = [
+    { name = "_verbose", options = ["-v", "--verbose"], type = "boolean" },
+    { name = "_cov", options = ["-c", "--coverage"], type = "boolean" },
+    { name = "_catch", options = ["--catch"], help = "Promote a warning class to error (e.g. ResourceWarning, DeprecationWarning)." },
+]
 
-[tool.setuptools.package-data]
-embit = ["util/prebuilt/*"]
+[tool.poe.tasks.prepare-integration-daemons]
+help = "Build or restore bitcoind/elementsd and clean integration data under EMBIT_TEMP_DIR (does not run pytest)."
+args = [{ name = "force_build", options = ["--build"], type = "boolean" }]
+shell = '''
+set -euo pipefail
+FORCE_BUILD=0
+case "${force_build:-}" in
+    1|True|true) FORCE_BUILD=1 ;;
+esac
 
+check_installed() {
+    if ! command -v "$1" &>/dev/null; then
+        echo "You must have $1 installed!"
+        exit 1
+    fi
+}
+
+check_installed_compiler() {
+    if command -v gcc &>/dev/null \
+        || command -v clang &>/dev/null; then
+        return 0
+    fi
+    echo "You must have GCC or Clang installed!"
+    exit 1
+}
+
+check_installed git
+
+EMBIT_PROJ_DIR=$(git rev-parse --show-toplevel)
+cd "$EMBIT_PROJ_DIR"
+
+GIT_DESCRIBE=$(git describe --tags --always)
+
+if [[ -z "${EMBIT_TEMP_DIR:-}" ]]; then
+    export EMBIT_TEMP_DIR="/tmp/embit.${GIT_DESCRIBE}"
+fi
+
+mkdir -p "$EMBIT_TEMP_DIR/binaries"
+
+BITCOIN_REV="${BITCOIN_REVISION:-30.2}"
+BITCOIN_REV="${BITCOIN_REV#v}"
+ELEMENTS_REV="${ELEMENTS_REVISION:-23.3.2}"
+export BITCOIN_REV ELEMENTS_REV
+
+HOST_ID="$(uname -s)-$(uname -m)"
+if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
+    BIN_CACHE_ROOT="${GITHUB_WORKSPACE}/.cache/embit-test-src-bin-cache"
+else
+    BIN_CACHE_ROOT="${EMBIT_BIN_SRC_CACHE_ROOT:-/tmp/embit-test-src-bin-cache}"
+fi
+BIN_CACHE="${BIN_CACHE_ROOT}/${HOST_ID}"
+BTC_CACHE="${BIN_CACHE}/bitcoin-v${BITCOIN_REV}/bitcoind"
+ELM_CACHE="${BIN_CACHE}/elements-${ELEMENTS_REV}/elementsd"
+
+if [[ -n "${BUILD_BITCOIND_NPROCS:-}" ]]; then
+    BUILD_PARALLEL="$BUILD_BITCOIND_NPROCS"
+elif command -v nproc >/dev/null 2>&1; then
+    BUILD_PARALLEL="$(nproc)"
+elif command -v sysctl >/dev/null 2>&1; then
+    BUILD_PARALLEL="$(sysctl -n hw.ncpu)"
+else
+    BUILD_PARALLEL="${BUILD_PARALLEL:-4}"
+fi
+export BUILD_PARALLEL
+
+copy_cached_binary() {
+    [ -f "$1" ] || return 1
+    echo "Restoring $3 from cache: $1"
+    cp -f "$1" "$2"
+    chmod +x "$2"
+}
+
+update_binary_cache() {
+    mkdir -p "$(dirname "$2")"
+    cp -f "$1" "$2"
+    chmod +x "$2"
+}
+
+if [[ "$FORCE_BUILD" -eq 0 ]] \
+    && [[ -f "$BTC_CACHE" ]] \
+    && [[ -f "$ELM_CACHE" ]]; then
+    echo "Cached daemons present; skipping build."
+else
+    check_installed_compiler
+    check_installed make
+    check_installed cmake
+    check_installed autoconf
+    check_installed automake
+    check_installed libtool
+fi
+
+DEST="$EMBIT_TEMP_DIR/binaries"
+
+echo "Cleaning data at $EMBIT_TEMP_DIR/data"
+rm -rf "$EMBIT_TEMP_DIR/data"
+
+echo "Ensuring bitcoind (Bitcoin Core)"
+if [ "$FORCE_BUILD" -eq 1 ]; then
+    uv run poe build-core
+    update_binary_cache "$DEST/bitcoind" "$BTC_CACHE"
+elif [ -f "$DEST/bitcoind" ]; then
+    echo "Bitcoind already at $EMBIT_TEMP_DIR, skip"
+elif copy_cached_binary "$BTC_CACHE" "$DEST/bitcoind" Bitcoind; then
+    :
+else
+    uv run poe build-core
+    update_binary_cache "$DEST/bitcoind" "$BTC_CACHE"
+fi
+
+echo "Ensuring elementsd (Elements Core)"
+if [ "$FORCE_BUILD" -eq 1 ]; then
+    uv run poe build-elements
+    update_binary_cache "$DEST/elementsd" "$ELM_CACHE"
+elif [ -f "$DEST/elementsd" ]; then
+    echo "Elementsd already at $EMBIT_TEMP_DIR, skip"
+elif copy_cached_binary "$ELM_CACHE" "$DEST/elementsd" Elementsd; then
+    :
+else
+    uv run poe build-elements
+    update_binary_cache "$DEST/elementsd" "$ELM_CACHE"
+fi
+
+echo "Integration daemon binaries ready at $EMBIT_TEMP_DIR/binaries"
+'''
+
+[tool.poe.tasks.integration-tests]
+help = "prepare-integration-daemons, then pytest Bitcoin and Liquid integration slices (sets EMBIT_TEMP_DIR if unset)."
+shell = """
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+GIT_DESCRIBE=$(git describe --tags --always)
+export EMBIT_TEMP_DIR="${EMBIT_TEMP_DIR:-/tmp/embit.${GIT_DESCRIBE}}"
+uv run poe prepare-integration-daemons
+pytest tests/integration/tests -m "integration and bitcoin"
+pytest tests/integration/tests -m "integration and liquid"
+rm -rf "$EMBIT_TEMP_DIR/data"
+"""
+
+[tool.poe.tasks.build-core]
+help = "Compile bitcoind into $EMBIT_TEMP_DIR/binaries/bitcoind. Requires env: EMBIT_TEMP_DIR, BITCOIN_REV (see prepare-integration-daemons / BITCOIN_REVISION), BUILD_PARALLEL."
+shell = '''
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+: "${EMBIT_TEMP_DIR:?}"
+: "${BITCOIN_REV:?}"
+: "${BUILD_PARALLEL:?}"
+PROJ=$(pwd)
+
+clone_and_checkout_tag() {
+    url=$1 dir=$2 tag=$3 label=$4
+    git clone "$url" "$dir"
+    cd "$dir" || exit 1
+    if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+        echo "${label} '${tag}' is not a valid tag."
+        exit 1
+    fi
+    git checkout "$tag"
+}
+
+rm -rf "$EMBIT_TEMP_DIR/binaries/build"
+mkdir -p "$EMBIT_TEMP_DIR/binaries/build"
+cd "$EMBIT_TEMP_DIR/binaries/build" || exit 1
+
+echo "Building Bitcoin Core..."
+clone_and_checkout_tag \
+    https://github.com/bitcoin/bitcoin \
+    bitcoin "v${BITCOIN_REV}" bitcoin
+
+if [[ "$BITCOIN_REV" =~ ^([0-9]+) ]]; then
+    major_version="${BASH_REMATCH[1]}"
+else
+    major_version=999
+fi
+if [ "$major_version" -ge 29 ]; then
+    cmake -S . -B build \
+        -DENABLE_IPC=OFF \
+        -DBUILD_CLI=OFF \
+        -DBUILD_TESTS=OFF \
+        -DENABLE_WALLET=ON \
+        -DCMAKE_BUILD_TYPE=MinSizeRel \
+        -DENABLE_EXTERNAL_SIGNER=OFF \
+        -DINSTALL_MAN=OFF
+    cmake --build build \
+        --target bitcoind \
+        -j"${BUILD_PARALLEL}"
+    BTC_BIN="build/bitcoin/build/bin/bitcoind"
+else
+    ./autogen.sh
+    ./configure \
+        --without-gui \
+        --disable-tests \
+        --disable-bench
+    make -j"${BUILD_PARALLEL}"
+    BTC_BIN="build/bitcoin/src/bitcoind"
+fi
+mv "$EMBIT_TEMP_DIR/binaries/${BTC_BIN}" \
+    "$EMBIT_TEMP_DIR/binaries/bitcoind"
+
+rm -rf "$EMBIT_TEMP_DIR/binaries/build"
+cd "$PROJ" || exit 1
+'''
+
+[tool.poe.tasks.build-elements]
+help = "Compile elementsd into $EMBIT_TEMP_DIR/binaries/elementsd. Requires env: EMBIT_TEMP_DIR, ELEMENTS_REV (see prepare-integration-daemons / ELEMENTS_REVISION), BUILD_PARALLEL."
+shell = '''
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+: "${EMBIT_TEMP_DIR:?}"
+: "${ELEMENTS_REV:?}"
+: "${BUILD_PARALLEL:?}"
+PROJ=$(pwd)
+
+clone_and_checkout_tag() {
+    url=$1 dir=$2 tag=$3 label=$4
+    git clone "$url" "$dir"
+    cd "$dir" || exit 1
+    if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+        echo "${label} '${tag}' is not a valid tag."
+        exit 1
+    fi
+    git checkout "$tag"
+}
+
+check_berkeley_db() {
+    if command -v pkg-config >/dev/null 2>&1; then
+        for _bdb_pc in libdb libdb-4.8 db48; do
+            if pkg-config --exists "${_bdb_pc}" 2>/dev/null; then
+                return 0
+            fi
+        done
+    fi
+    for _bdb_prefix in \
+        "/opt/homebrew/opt/berkeley-db@4" \
+        "/usr/local/opt/berkeley-db@4" \
+        "/opt/homebrew/opt/berkeley-db" \
+        "/usr/local/opt/berkeley-db"; do
+        if [ -f "${_bdb_prefix}/include/db.h" ]; then
+            return 0
+        fi
+    done
+    for _db_h in \
+        /usr/include/db.h \
+        /usr/include/db4/db.h \
+        /usr/include/db4.8/db.h \
+        /usr/include/db5.3/db.h; do
+        if [ -f "${_db_h}" ]; then
+            return 0
+        fi
+    done
+    echo "elementsd needs Berkeley DB dev files."
+    echo "  macOS:  brew install berkeley-db@4"
+    echo "  Debian: sudo apt install libdb-dev"
+    echo "  Fedora: sudo dnf install libdb-devel"
+    exit 1
+}
+
+check_berkeley_db
+
+rm -rf "$EMBIT_TEMP_DIR/binaries/build"
+mkdir -p "$EMBIT_TEMP_DIR/binaries/build"
+cd "$EMBIT_TEMP_DIR/binaries/build" || exit 1
+
+echo "Building Elements Core..."
+clone_and_checkout_tag \
+    https://github.com/ElementsProject/elements \
+    elements "elements-${ELEMENTS_REV}" elements
+
+./autogen.sh
+./configure \
+    --disable-tests \
+    --disable-bench
+make -j"${BUILD_PARALLEL}"
+ELM_BIN="build/elements/src/elementsd"
+mv "$EMBIT_TEMP_DIR/binaries/${ELM_BIN}" \
+    "$EMBIT_TEMP_DIR/binaries/elementsd"
+rm -rf "$EMBIT_TEMP_DIR/binaries/build"
+cd "$PROJ" || exit 1
+'''
+
+[tool.poe.tasks.isort]
+help = "Sort imports (default). Pass --check to verify without modifying."
+shell = '''
+if [ -n "${_check:-}" ]; then
+    isort --check-only --diff src tests
+else
+    isort src tests
+fi
+'''
+args = [
+    { name = "_check", options = ["-c", "--check"], type = "boolean" },
+]
+
+[tool.poe.tasks.format]
+help = "Format with ruff (default). Pass --check to verify without modifying."
+shell = '''
+if [ -n "${_check:-}" ]; then
+    ruff format --check src tests
+else
+    ruff format src tests
+fi
+'''
+args = [
+    { name = "_check", options = ["-c", "--check"], type = "boolean" },
+]
+
+[tool.poe.tasks.pylint]
+help = "Run pylint over the library under src/embit/ (errors only; matches legacy CI gate)."
+cmd = "pylint --errors-only src/embit"
+
+[tool.isort]
+profile = "black"
+src_paths = ["src"]
+known_first_party = ["embit"]
+
+[tool.pylint.MASTER]
+init-hook = "import sys; sys.path.insert(0, 'src')"
+ignore-paths = ["build/.*", ".venv/.*"]
+
+[tool.pylint."MESSAGES CONTROL"]
+disable = [
+    # project convention: %s formatting (microcontroller-friendly via embit/micropython)
+    "consider-using-f-string",
+    "missing-module-docstring",
+    "missing-function-docstring",
+    "missing-class-docstring",
+    "redefined-outer-name",
+    "import-outside-toplevel",
+    "too-few-public-methods",
+    "duplicate-code",
+    "protected-access",
+    # micropython / secp256k1 / uembit are optional or platform-specific imports
+    "import-error",
+]
+
+[tool.pylint.DESIGN]
+max-args = 8
+max-positional-arguments = 8
+max-locals = 25
+max-attributes = 12
 
 [tool.pytest.ini_options]
-addopts = "--cov=embit"
-testpaths = [
-    "tests/tests",
+pythonpath = [".", "src", "tests/integration"]
+python_files = ["test_*.py", "*_test.py"]
+markers = [
+    "integration: chain RPC tests (EMBIT_TEMP_DIR; bitcoind OR elementsd per `bitcoin`/`liquid` markers)",
+    "bitcoin: Bitcoin Core regtest RPC",
+    "liquid: Elements elreg RPC",
 ]
 
 [tool.coverage.run]
@@ -60,18 +401,7 @@ omit = [
     "*/liquid/*",
 ]
 
-[tool.mypy]
-mypy_path = "src"
-namespace_packages = true
-check_untyped_defs = true
-disallow_any_generics = true
-ignore_missing_imports = true
-no_implicit_optional = true
-show_error_codes = true
-strict_equality = true
-warn_redundant_casts = true
-warn_return_any = true
-warn_unreachable = true
-warn_unused_configs = true
-no_implicit_reexport = false
-
+[tool.pylint.TYPECHECK]
+generated-members = [
+    "^\\.Miniscript\\.(inner_compile|PROPS|TYPE)$",
+]

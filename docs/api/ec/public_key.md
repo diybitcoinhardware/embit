@@ -8,7 +8,7 @@ Individual public key class.
 PublicKey(point, compressed=True)`
 ```
 
-> This constructor is not very useful, probably better to instatiate this class by parsing serialized public key or creating it from private key.
+> This constructor is not very useful, probably better to instantiate this class by parsing serialized public key or creating it from private key.
 
 - `point` - `64`-bytes internal representation of a point used by `libsecp256k1`.
 - `compressed = True` - whether to use compressed or uncompressed public keys. For any modern applications always use compressed keys (default).

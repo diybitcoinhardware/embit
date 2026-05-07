@@ -65,7 +65,7 @@ Class method, converts a seed to an instance of `HDKey` (private key).
 **Arguments**
 
 - `seed` - bytes sequence to use. Normally `32`-byte or `64`-byte seeds are used.
-- `version` - version to use, by default it's `NETOWRKS['main']['xprv']`
+- `version` - version to use, by default it's `NETWORKS['main']['xprv']`
 
 **Returns**
 
@@ -328,7 +328,7 @@ Converts list of indexes to human-readable path.
 **Arguments**
 
 - `path` - a list of indexes
-- `fingerprint = None` - `4`-byte fingeprint to prepend to the derivation path
+- `fingerprint = None` - `4`-byte fingerprint to prepend to the derivation path
 
 **Returns**
 

@@ -13,27 +13,26 @@ where SD card MCU can trick you to sign a wrong transactions.
 
 Makes sense to run gc.collect() after processing of each scope to free memory.
 """
+
 # TODO: refactor, a lot of code is duplicated here from transaction.py
 from collections import OrderedDict
-import hashlib
-from . import compact
-from . import ec
-from . import script
-from .script import Script, Witness
-from . import hashes
+from hashlib import sha256
+
+from . import compact, ec, hashes, script
 from .psbt import (
-    PSBTError,
     CompressMode,
     InputScope,
     OutputScope,
+    PSBTError,
     read_string,
     ser_string,
     skip_string,
 )
+from .script import Script, Witness
 from .transaction import (
-    TransactionOutput,
-    TransactionInput,
     SIGHASH,
+    TransactionInput,
+    TransactionOutput,
     hash_amounts,
     hash_script_pubkeys,
 )
@@ -144,8 +143,8 @@ class GlobalTransactionView:
     def _skip_output(self):
         """Seeks over one output"""
         self.stream.seek(8, 1)
-        l = compact.read_from(self.stream)
-        self.stream.seek(l, 1)
+        script_len = compact.read_from(self.stream)
+        self.stream.seek(script_len, 1)
 
     def vout(self, i):
         if i < 0 or i >= self.num_vout:
@@ -341,7 +340,7 @@ class PSBTView:
         vout = int.from_bytes(v, "little")
 
         self.seek_to_scope(i)
-        v = self.get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
+        v = self.get_value(b"\x10", from_current=True) or b"\xff\xff\xff\xff"
         sequence = int.from_bytes(v, "little")
 
         return TransactionInput(txid, vout, sequence=sequence)
@@ -407,7 +406,7 @@ class PSBTView:
 
     def hash_prevouts(self):
         if self._hash_prevouts is None:
-            h = hashlib.sha256()
+            h = sha256()
             for i in range(self.num_inputs):
                 inp = self.vin(i)
                 h.update(bytes(reversed(inp.txid)))
@@ -417,7 +416,7 @@ class PSBTView:
 
     def hash_sequence(self):
         if self._hash_sequence is None:
-            h = hashlib.sha256()
+            h = sha256()
             for i in range(self.num_inputs):
                 inp = self.vin(i)
                 h.update(inp.sequence.to_bytes(4, "little"))
@@ -426,7 +425,7 @@ class PSBTView:
 
     def hash_outputs(self):
         if self._hash_outputs is None:
-            h = hashlib.sha256()
+            h = sha256()
             for i in range(self.num_outputs):
                 out = self.vout(i)
                 h.update(out.serialize())
@@ -511,34 +510,32 @@ class PSBTView:
             sh = SIGHASH.ALL
         inp = self.vin(input_index)
         zero = b"\x00" * 32  # for sighashes
-        h = hashlib.sha256()
+        h = sha256()
         h.update(self.tx_version.to_bytes(4, "little"))
         if anyonecanpay:
             h.update(zero)
         else:
-            h.update(hashlib.sha256(self.hash_prevouts()).digest())
+            h.update(sha256(self.hash_prevouts()).digest())
         if anyonecanpay or sh in [SIGHASH.NONE, SIGHASH.SINGLE]:
             h.update(zero)
         else:
-            h.update(hashlib.sha256(self.hash_sequence()).digest())
+            h.update(sha256(self.hash_sequence()).digest())
         h.update(bytes(reversed(inp.txid)))
         h.update(inp.vout.to_bytes(4, "little"))
         h.update(script_pubkey.serialize())
         h.update(int(value).to_bytes(8, "little"))
         h.update(inp.sequence.to_bytes(4, "little"))
         if sh not in {SIGHASH.NONE, SIGHASH.SINGLE}:
-            h.update(hashlib.sha256(self.hash_outputs()).digest())
+            h.update(sha256(self.hash_outputs()).digest())
         elif sh == SIGHASH.SINGLE and input_index < self.num_outputs:
             h.update(
-                hashlib.sha256(
-                    hashlib.sha256(self.vout(input_index).serialize()).digest()
-                ).digest()
+                sha256(sha256(self.vout(input_index).serialize()).digest()).digest()
             )
         else:
             h.update(zero)
         h.update(self.locktime.to_bytes(4, "little"))
         h.update(sighash.to_bytes(4, "little"))
-        return hashlib.sha256(h.digest()).digest()
+        return sha256(h.digest()).digest()
 
     def sighash_legacy(self, input_index, script_pubkey, sighash=SIGHASH.ALL):
         if input_index < 0 or input_index >= self.num_inputs:
@@ -551,7 +548,7 @@ class PSBTView:
         if sh == SIGHASH.SINGLE and input_index >= self.num_outputs:
             return b"\x00" * 31 + b"\x01"
 
-        h = hashlib.sha256()
+        h = sha256()
         h.update(self.tx_version.to_bytes(4, "little"))
         # ANYONECANPAY - only one input is serialized
         if anyonecanpay:
@@ -587,7 +584,7 @@ class PSBTView:
             raise PSBTError("Invalid sighash")
         h.update(self.locktime.to_bytes(4, "little"))
         h.update(sighash.to_bytes(4, "little"))
-        return hashlib.sha256(h.digest()).digest()
+        return sha256(h.digest()).digest()
 
     def sighash(self, i, sighash=SIGHASH.ALL, input_scope=None, **kwargs):
         inp = self.input(i) if input_scope is None else input_scope
@@ -661,7 +658,7 @@ class PSBTView:
         counter = 0
         # negate if necessary
         pub = ec.PublicKey.from_xonly(key.xonly())
-        # iterate over leafs and sign
+        # iterate over leaves and sign
         for ctrl, sc in inp.taproot_scripts.items():
             if pub.xonly() not in sc:
                 continue
@@ -749,7 +746,7 @@ class PSBTView:
         if fingerprint:
             # if taproot derivations are present add them
             for pub in inp.taproot_bip32_derivations:
-                (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
+                _leaves, derivation = inp.taproot_bip32_derivations[pub]
                 if derivation.fingerprint == fingerprint:
                     # Add only if not already present
                     if (pub, derivation) not in bip32_derivations:
@@ -867,7 +864,7 @@ class PSBTView:
         are streams with extra per-input and per-output data that should be written to stream as well.
         For example they can contain signatures or extra derivations.
 
-        If compressed flag is used then only minimal number of fields will be writen:
+        If compressed flag is used then only minimal number of fields will be written:
         For psbtv0 it will have global tx and partial sigs for all inputs
         For psbtv2 it will have version, tx_version, locktime, per-vin data, per-vout data and partial sigs
         """

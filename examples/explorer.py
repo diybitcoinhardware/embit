@@ -3,6 +3,7 @@ This example shows how to fetch utxos from mempool.space
 and build PSBT transaction for signing.
 Requires `requests` module (`pip3 install requests`)
 """
+
 import requests
 from embit.descriptor import Descriptor
 from embit.networks import NETWORKS
@@ -117,9 +118,11 @@ for branch in [0]:  # range(len(desc.num_branches)):
                     "witness_script": ws,
                     "redeem_script": rs,
                     "bip32_derivations": bip32_derivations,
-                    "witness_utxo": TransactionOutput(utxo["value"], script_pubkey)
-                    if d.is_segwit
-                    else None,
+                    "witness_utxo": (
+                        TransactionOutput(utxo["value"], script_pubkey)
+                        if d.is_segwit
+                        else None
+                    ),
                 }
                 for utxo in utxoarr
             ]

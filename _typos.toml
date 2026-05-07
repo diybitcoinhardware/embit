@@ -1,0 +1,26 @@
+# https://github.com/crate-ci/typos — spell check (Rust). Run: typos
+#
+# Excluded paths: test vectors, non-English BIP39 fixtures, bundled wordlists,
+# prebuilt binaries. Typos assumes English; i18n wordlists are not typos.
+#
+# Pre-commit passes explicit filenames; use `typos --force-exclude` there (see
+# .pre-commit-config.yaml) or excludes in this file are ignored for those paths.
+
+[files]
+extend-exclude = [
+  "tests/**",
+  "examples/**",
+  "src/embit/wordlists/**",
+  "src/embit/util/prebuilt/**",
+]
+
+[default.extend-words]
+# Bitcoin wire / miniscript tokens
+ser = "ser"
+nd = "nd"
+# Legacy API name (TODO: deprecate in follow-up)
+hardend = "hardend"
+
+[default]
+# xpub fixture strings contain "Fo" as a substring (e.g. …L2nFo17Xc).
+extend-ignore-re = ["L2nFo17Xc"]

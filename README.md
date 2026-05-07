@@ -28,9 +28,10 @@ PyPi installation includes prebuilt libraries for common platforms (win, macos, 
 
 If you want to build the lib yourself, see: [Building secp256k1 for `embit`](/secp256k1/README.md).
 
-
 ## Using non-English BIP39 wordlists
+
 [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039/bip-0039-wordlists.md) defines wordlists for:
+
 * English
 * Japanese
 * Korean
@@ -45,6 +46,7 @@ If you want to build the lib yourself, see: [Building secp256k1 for `embit`](/se
 `embit` assumes English and does not include the other wordlists in order to keep this as slim as possible.
 
 However, you can override this default by providing an alternate wordlist to any of the mnemonic-handling methods:
+
 ```
 spanish_wordlist = [
     "ábaco",
@@ -66,25 +68,115 @@ mnemonic_to_bytes(mnemonic, wordlist=spanish_wordlist)
 mnemonic_from_bytes(bytes_data, wordlist=spanish_wordlist)
 ```
 
-
 # Development
 
-Install in developer mode with dev dependencies:
+Install [uv](https://docs.astral.sh/uv/), then sync dev dependencies (see `pyproject.toml`):
 
-```sh
-pip install -e .[dev]
+```bash
+uv sync --dev
 ```
 
-Install pre-commit hook:
+Run tooling via Poe tasks (same layout as the `embln` reference project):
 
-```sh
-pre-commit install
+```bash
+uv run poe tests              # unit tests
+uv run poe integration-tests # chain daemons + integration tests
+uv run poe isort
+uv run poe format
+uv run poe pylint
 ```
 
-Run tests with desktop python:
+## Building
+
+Build the package (outputs to `dist/`):
+
+```bash
+uv build
+```
+
+Install from the built wheel:
+
+```bash
+pip install dist/embit-*.whl
+```
+
+The integration tests will compile `bitcoind` and `elementsd` in `/tmp`. You'll
+need only install `berkeley-db@4` for `elementsd`.
+
+## Pre-commit tools
+
+Before commit your changes, perform some `pre-commit` check
+(formatting, linting and test). If you do a commit without this check, you'll
+need to wait a little (because it will run anyways).
+
+First assert that you have `pre-commit` on your PATH (via `uv sync --dev`):
 
 ```sh
-pytest
+uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
+```
+
+Then run:
+
+```bash
+# First run git add to update the checklist
+git add <...>
+
+# Pre-commit hooks
+uv run pre-commit run --all-files
+
+# The command above will run automatically when committing:
+git commit -m <...> -S
+
+# If you need to do a lot of rebases
+# we recommend that you commit without verifying:
+git commit -m <...> -S --no-verify
+```
+
+The commit commands will trigger some code quality checks:
+
+- `isort` (sort python imports);
+- `ruff format` (formatting);
+- `pylint` (linter);
+- `unit-tests` (`poe tests`);
+- `integration-tests` (validate `embit` against `bitcoin-core` and
+  `elements-core`);
+- `conventional-commits` (validate commit messages).
+
+## Tests
+
+Unit tests:
+
+```sh
+uv run poe tests
+```
+
+## Building
+
+Build the package (outputs to `dist/`):
+
+```bash
+poetry build
+```
+
+Install from the built wheel:
+
+```bash
+pip install dist/embit-*.whl
+```
+
+The integration tests will compile `bitcoind` and `elementsd` in `/tmp`. You'll
+need only install `berkeley-db@4` for `elementsd`.
+
+## Pre-commit tools
+
+Before commit your changes, perform some `pre-commit` check
+(formatting, linting and test). If you do a commit without this check, you'll
+need to wait a little (because it will run anyways).
+
+First assert that you have `pre-commit` dependencies installed:
+
+```sh
+uv run poe integration-tests
 ```
 
 Run tests with micropython:

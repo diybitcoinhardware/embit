@@ -41,7 +41,7 @@ VALID_CHECKSUM = [
 
 INVALID_CHECKSUM = [
     " 1nwldj5",
-    "\x7F" + "1axkwrx",
+    "\x7f" + "1axkwrx",
     "an84characterslonghumanreadablepartthatcontainsthenumber1andtheexcludedcharactersbio1569pvx",
     "pzry9x0s0muk",
     "1pzry9x0s0muk",

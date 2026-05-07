@@ -1,6 +1,81 @@
+# Two hooks (approach 1): unit-only is fast; integration still builds/restores
+# daemons.
+#
+# Skip when needed:
+#
+# SKIP=conventional-pre-commit,isort,ruff-format,pylint,shellcheck,typos,unit-test,integration-test git commit ...
+#
+# Typos uses --force-exclude so _typos.toml extend-exclude (tests, wordlists,
+# i18n fixtures) applies when hooks pass explicit paths.
+#
+# Mirrors .github/workflows/code-quality.yml
+# (isort → ruff → pylint → shellcheck → typos) and tests.yml.
+#
+# After changing this file: pre-commit install --install-hooks  (installs
+# pre-commit + commit-msg hooks).
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+
 repos:
--   repo: https://github.com/psf/black
-    rev: 22.3.0
+  - repo: https://github.com/PyCQA/isort
+    rev: 6.0.1
     hooks:
-    - id: black
-      language_version: python3
+      - id: isort
+        name: isort (black profile)
+        args: [--settings-path=pyproject.toml]
+        files: ^src/embit/
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff-format
+        files: ^(src/embit|tests)/
+
+  - repo: https://github.com/pylint-dev/pylint
+    rev: v3.3.8
+    hooks:
+      - id: pylint
+        name: pylint
+        args: [--errors-only, --rcfile=pyproject.toml]
+        additional_dependencies: []
+        files: ^src/embit/
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.45.0
+    hooks:
+      - id: typos
+        name: typos (spell check)
+        args: [--force-exclude]
+
+  - repo: local
+    hooks:
+      - id: test-clean
+        name: test-clean
+        entry: python -c 'import shutil, os; os.path.exists("htmlcov") and shutil.rmtree("htmlcov")'
+        language: system
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+      - id: unit-test
+        name: unit-test
+        entry: uv run poe tests
+        language: system
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+      - id: integration-test
+        name: integration-test
+        entry: bash -c 'ulimit -n 10240 2>/dev/null; uv run poe integration-tests'
+        language: system
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        name: conventional-commit-1.0
+        stages: [commit-msg]
+        args: []

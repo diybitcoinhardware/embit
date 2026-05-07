@@ -1,9 +1,6 @@
-from .networks import NETWORKS
-from . import base58
-from . import bech32
-from . import hashes
-from . import compact
+from . import base58, bech32, compact, hashes
 from .base import EmbitBase, EmbitError
+from .networks import NETWORKS
 
 SIGHASH_ALL = 1
 

@@ -1,9 +1,10 @@
 from binascii import hexlify, unhexlify
-from .base import DescriptorBase
-from .errors import ArgumentError
-from .. import bip32, ec, compact, hashes
+
+from .. import bip32, compact, ec, hashes
 from ..bip32 import HARDENED_INDEX
 from ..misc import read_until
+from .base import DescriptorBase
+from .errors import ArgumentError
 
 
 class KeyOrigin:
@@ -103,7 +104,7 @@ class AllowedDerivation(DescriptorBase):
         return None
 
     @property
-    def has_hardend(self):
+    def has_hardened(self):
         for idx in self.indexes:
             if isinstance(idx, int) and idx >= HARDENED_INDEX:
                 return True
@@ -113,6 +114,11 @@ class AllowedDerivation(DescriptorBase):
             ):
                 return True
         return False
+
+    @property
+    def has_hardend(self):
+        """Deprecated: use has_hardened instead."""
+        return self.has_hardened
 
     @classmethod
     def from_string(cls, der: str, allow_hardened=False, allow_set=True):

@@ -1,9 +1,9 @@
-from . import base58
-from . import hashes
+from binascii import hexlify, unhexlify
+
+from . import base58, hashes
+from .base import EmbitBase, EmbitError, EmbitKey
 from .misc import secp256k1
 from .networks import NETWORKS
-from .base import EmbitBase, EmbitError, EmbitKey
-from binascii import hexlify, unhexlify
 
 
 class ECError(EmbitError):

@@ -1,8 +1,8 @@
-from .errors import MiniscriptError
-from .base import DescriptorBase
-from .miniscript import Miniscript
 from ..hashes import tagged_hash
 from ..script import Script
+from .base import DescriptorBase
+from .errors import MiniscriptError
+from .miniscript import Miniscript
 
 
 class TapLeaf(DescriptorBase):
@@ -147,5 +147,5 @@ class TapTree(DescriptorBase):
             return ""
         if isinstance(self.tree, TapLeaf):
             return str(self.tree)
-        (left, right) = self.tree
+        left, right = self.tree
         return "{%s,%s}" % (left, right)
