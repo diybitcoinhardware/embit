@@ -252,6 +252,41 @@ class Bip47Test(TestCase):
         self.assertTrue(bip47.get_payment_code_from_notification_tx(tx, other_root) is None)
 
 
+    def test_get_payment_code_from_notification_tx_rejects_invalid_payload(self):
+        """
+            Per BIP-47, if the unblinded x-coordinate is not a valid secp256k1 point the
+            payload must be ignored (return None).
+        """
+        # Sanity: unmodified vector tx still decodes correctly.
+        tx = Transaction.from_string(ALICE_NOTIFICATION_TX_FOR_BOB)
+        seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
+        recipient_root = bip32.HDKey.from_seed(seed_bytes)
+        self.assertEqual(
+            bip47.get_payment_code_from_notification_tx(tx, recipient_root),
+            ALICE_PAYMENT_CODE,
+        )
+
+        # Identify the OP_RETURN output and corrupt one byte of the blinded x-coordinate
+        # region. Layout of the 83-byte data field:
+        #   [0]=OP_RETURN [1]=OP_PUSHDATA1 [2]=0x50 (len=80)
+        #   [3]=ver [4]=0x00 [5]=sign [6:38]=x [38:70]=chain_code [70:83]=zeros
+        # Flipping a byte inside [6:38] alters the unblinded x-coordinate; with
+        # overwhelming probability the result is not on-curve.
+        tx2 = Transaction.from_string(ALICE_NOTIFICATION_TX_FOR_BOB)
+        op_return_vout = None
+        for vout in tx2.vout:
+            d = vout.script_pubkey.data
+            if d and d[0] == OPCODES.OP_RETURN:
+                op_return_vout = vout
+                break
+        self.assertIsNotNone(op_return_vout)
+        d = bytearray(op_return_vout.script_pubkey.data)
+        d[7] ^= 0xFF
+        op_return_vout.script_pubkey = Script(bytes(d))
+
+        self.assertIsNone(bip47.get_payment_code_from_notification_tx(tx2, recipient_root))
+
+
     def test_end_to_end_notification_tx(self):
         """Alice should be able to construct a psbt that uses the utxo being spent to
             blind her payment code and include it as an OP_RETURN output that Bob can

@@ -55,18 +55,14 @@ def get_derived_payment_code_node(payment_code: str, derivation_index: int) -> H
     return root.derive([derivation_index])
 
 
-def get_notification_address(payment_code: str, script_type: str = "p2pkh", network: str = NETWORKS["main"]) -> str:
-    """Returns the BIP-47 notification address associated with the given payment_code"""
+def get_notification_address(payment_code: str, network: str = NETWORKS["main"]) -> str:
+    """
+        Returns the BIP-47 notification address associated with the given payment_code.
+        Per the spec, this is always a p2pkh address.
+    """
     # Get the 0th public key derived from the payment_code
     pubkey = get_derived_payment_code_node(payment_code, derivation_index=0).get_public_key()
-
-    # TODO: Should we limit to just p2pkh?
-    if script_type == "p2pkh":
-        return script.p2pkh(pubkey).address(network)
-    elif script_type == "p2wpkh":
-        return script.p2wpkh(pubkey).address(network)
-    else:
-        raise EmbitError("Unsupported script_type: " + script_type)
+    return script.p2pkh(pubkey).address(network)
 
 
 def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: int, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"], script_type: str = "p2wpkh") -> str:
@@ -88,7 +84,6 @@ def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: i
 
     # If the value of s is not in the secp256k1 group, Alice MUST increment the index used to derive Bob's public key and try again.
     if not secp256k1.ec_seckey_verify(shared_secret):
-        # TODO: Is this a sufficient test???
         raise BIP47Exception("Shared secret was not valid for index {}. Try again with the next index value.".format(index))
 
     # Alice uses the scalar shared secret to calculate the ephemeral public key used to generate the P2PKH address for this transaction (B' = B + sG)
@@ -128,7 +123,6 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
 
     # If the value of s is not in the secp256k1 group, increment the index and try again.
     if not secp256k1.ec_seckey_verify(shared_secret):
-        # TODO: Is this a sufficient test???
         raise BIP47Exception("Shared secret was not valid for index {}. Try again with the next index value.".format(index))
 
     # Bob uses the scalar shared secret to calculate the ephemeral public key used to generate the P2PKH address for this transaction (B' = B + sG)
@@ -246,8 +240,19 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     recipient_notification_node = recipient_root.derive("m/47'/{}'/{}'/0".format(coin, account))
     b = recipient_notification_node.secret
 
-    utxo_outpoint = vin.to_string()[:72]  # TODO: Is there a better way to get the outpoint?
+    # Build the 36-byte outpoint as hex: 32-byte txid in reversed (little-endian)
+    # byte order, followed by the 4-byte vout index in little-endian.
+    utxo_outpoint = (bytes(reversed(vin.txid)) + vin.vout.to_bytes(4, "little")).hex()
 
     # Unblind the payload using the reversible `blinding_function`.
     raw_unblinded_payload = blinding_function(b, A, utxo_outpoint=utxo_outpoint, payload=payload)
+
+    # Per spec: if the reconstructed x-coordinate isn't a valid secp256k1 point, the
+    # payload must be ignored.
+    # Layout: 0x01 0x00 <sign:1> <x:32> <chain_code:32> <13 zeros>
+    try:
+        ec.PublicKey.parse(raw_unblinded_payload[2:35])
+    except Exception:
+        return None
+
     return base58.encode_check(b'\x47' + raw_unblinded_payload)
