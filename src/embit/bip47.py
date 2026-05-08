@@ -4,8 +4,6 @@ import sys
 
 from binascii import hexlify, unhexlify
 from io import BytesIO
-from typing import Tuple
-
 from . import base58, ec, script
 from .base import EmbitError
 from .bip32 import HDKey
@@ -101,10 +99,11 @@ def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: i
         raise EmbitError("Unsupported script_type: " + script_type)
 
 
-def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: int, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"], script_type: str = "p2wpkh") -> Tuple[str, ec.PrivateKey]:
+def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: int, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"], script_type: str = "p2wpkh") -> tuple:
     """Called by the recipient, generates the nth receive address between the payer and recipient.
-    
-        Returns the payment address and its associated private key."""
+
+        Returns a 2-tuple `(payment_address: str, spending_key: ec.PrivateKey)`.
+    """
 
     # Using the 0th public key derived from Alice's payment code...
     payer_payment_code_node = get_derived_payment_code_node(payer_payment_code, derivation_index=0)
@@ -169,9 +168,11 @@ def blinding_function(private_key: bytes, counterparty_pubkey: ec.PublicKey, utx
 
 
 def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec.PrivateKey, input_utxo_outpoint: str, recipient_payment_code: str) -> str:
-    """Called by the payer, returns the blinded payload for the payer's notification tx
+    """
+        Called by the payer, returns the blinded payload for the payer's notification tx
         that is sent to the recipient while spending the input_utxo. The blinded payload
-        should be inserted as OP_RETURN data."""
+        should be inserted as OP_RETURN data.
+    """
     # TODO: method signature was made to easily match the BIP-47 test vector data, but
     # isn't necessarily what might be ideal for real-world usage.
 
@@ -189,9 +190,11 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
     return hexlify(raw_blinded_payload).decode()
 
 
-def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"]) -> str:
-    """If the tx is a BIP-47 notification tx for the recipient, return the new payer's
-        embedded payment_code, else None."""
+def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"]):
+    """
+        If the tx is a BIP-47 notification tx for the recipient, return the new payer's
+        embedded payment_code as a `str`, else `None`.
+    """
     # Notification txs have one output sent to the recipient's notification addr
     # and another containing the payer's payment code in an OP_RETURN payload.
     if len(tx.vout) < 2:
