@@ -13,7 +13,7 @@ from .networks import NETWORKS
 from .script import OPCODES
 from .transaction import Transaction
 if sys.implementation.name == "micropython":
-    import secp256k1
+    import secp256k1  # pragma: no cover
 else:
     from .util import secp256k1
 
@@ -55,7 +55,7 @@ def get_derived_payment_code_node(payment_code: str, derivation_index: int) -> H
     return root.derive([derivation_index])
 
 
-def get_notification_address(payment_code: str, network: str = NETWORKS["main"]) -> str:
+def get_notification_address(payment_code: str, network: dict = NETWORKS["main"]) -> str:
     """
         Returns the BIP-47 notification address associated with the given payment_code.
         Per the spec, this is always a p2pkh address.
@@ -219,21 +219,28 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     if not matches_notification_addr or payload is None:
         return None
     
-    # Bob selects the designated pubkey ("A")
-    # (the first tx input that exposes a pubkey in scriptsig or witness)
+    # Bob selects the designated pubkey ("A"): the first input that exposes a 33-byte
+    # compressed pubkey in scriptsig (P2PKH) or witness (P2WPKH). Other script types
+    # (P2SH, P2WSH, P2TR, etc.) don't expose a bare pubkey at the canonical position and
+    # are skipped per BIP-47 v1.
+    A = None
     for vin in tx.vin:
-        if not vin.is_segwit:
-            # data = (1byte len of sig) <sig> (1byte len of pubkey) <pubkey>
-            sig_len = vin.script_sig.data[0]
-            A = ec.PublicKey.from_string(hexlify(vin.script_sig.data[sig_len + 2:]))
+        try:
+            if not vin.is_segwit:
+                # script_sig: (1byte len of sig) <sig> (1byte len of pubkey) <pubkey>
+                sig_len = vin.script_sig.data[0]
+                candidate = ec.PublicKey.from_string(hexlify(vin.script_sig.data[sig_len + 2:]))
+            else:
+                # Witness should have [sig, pubkey]
+                candidate = ec.PublicKey.from_string(hexlify(vin.witness.items[1]))
+        except Exception:
+            continue
+
+        if len(candidate.serialize()) == 33:
+            A = candidate
             break
 
-        else:
-            # Witness should have [sig, pubkey]
-            A = ec.PublicKey.from_string(hexlify(vin.witness.items[1]))
-            break
-
-    if not A or len(A.serialize()) != 33:
+    if A is None:
         return None
     
     # Bob selects the private key associated with his notification address (0th child)

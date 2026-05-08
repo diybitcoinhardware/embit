@@ -1,10 +1,12 @@
 from unittest import TestCase
+from unittest.mock import patch
 
 from embit import bip32, bip39, bip47, ec, compact, finalizer
+from embit.base import EmbitError
 from embit.networks import NETWORKS
 from embit.psbt import PSBT, OutputScope
 from embit.script import OPCODES, Script, p2wpkh
-from embit.transaction import Transaction
+from embit.transaction import Transaction, TransactionInput, TransactionOutput, Witness
 from binascii import unhexlify
 
 
@@ -196,6 +198,15 @@ class Bip47Test(TestCase):
                     )
                     self.assertEqual(addr, payment_addr)
 
+        # Unsupported script_type should raise
+        with self.assertRaises(EmbitError):
+            bip47.get_payment_address(
+                payer_root=payer_root,
+                recipient_payment_code=BOB_PAYMENT_CODE,
+                index=0,
+                script_type="p2tr",
+            )
+
 
     def test_get_receive_address(self):
         """ Bob (the recipient) should be able to use Alice's payment code to generate the
@@ -222,6 +233,54 @@ class Bip47Test(TestCase):
                         script_type=script_type,
                     )
                     self.assertEqual(addr, payment_addr)
+
+        # Unsupported script_type should raise
+        with self.assertRaises(EmbitError):
+            bip47.get_receive_address(
+                recipient_root=recipient_root,
+                payer_payment_code=ALICE_PAYMENT_CODE,
+                index=0,
+                script_type="p2tr",
+            )
+
+
+    def test_payment_address_raises_on_invalid_shared_secret(self):
+        """Per BIP-47, if the derived shared secret SHA256(Sx) isn't a valid
+            secp256k1 scalar, the function must raise BIP47Exception so the
+            caller can retry with the next index.
+
+            We can't trigger this with a hardcoded "bad" index: failure region
+            is ~2^-128 of the SHA256 output space — cosmologically infeasible
+            to brute-force. Instead, mock ec_seckey_verify with a side_effect
+            that lets the 4 derivation-time calls (m/47'/coin'/account'/0)
+            succeed, then forces False on the 5th call — the BIP-47 check."""
+        seed_bytes = bip39.mnemonic_to_seed(ALICE_MNEMONIC)
+        payer_root = bip32.HDKey.from_seed(seed_bytes)
+
+        with patch.object(bip47.secp256k1, "ec_seckey_verify",
+                          side_effect=[True] * 4 + [False]):
+            with self.assertRaises(bip47.BIP47Exception):
+                bip47.get_payment_address(
+                    payer_root=payer_root,
+                    recipient_payment_code=BOB_PAYMENT_CODE,
+                    index=0,
+                )
+
+
+    def test_receive_address_raises_on_invalid_shared_secret(self):
+        """Recipient-side mirror of the above; see that test for why we mock
+            instead of using a real triggering index."""
+        seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
+        recipient_root = bip32.HDKey.from_seed(seed_bytes)
+
+        with patch.object(bip47.secp256k1, "ec_seckey_verify",
+                          side_effect=[True] * 4 + [False]):
+            with self.assertRaises(bip47.BIP47Exception):
+                bip47.get_receive_address(
+                    recipient_root=recipient_root,
+                    payer_payment_code=ALICE_PAYMENT_CODE,
+                    index=0,
+                )
 
 
     def test_get_blinded_payment_code(self):
@@ -267,6 +326,89 @@ class Bip47Test(TestCase):
         self.assertEqual(len(tx.vout), 1)
 
         self.assertIsNone(bip47.get_payment_code_from_notification_tx(tx, recipient_root))
+
+
+    def test_get_payment_code_from_notification_tx_skips_non_extractable_input(self):
+        """The function must skip inputs that don't expose a 33-byte compressed
+            pubkey at the canonical position (e.g., P2SH/P2WSH/P2TR) and continue
+            searching the remaining inputs."""
+        tx = Transaction.from_string(ALICE_NOTIFICATION_TX_FOR_BOB)
+        seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
+        recipient_root = bip32.HDKey.from_seed(seed_bytes)
+
+        # Prepend a synthetic input that mimics a taproot key-path spend: a
+        # single-item witness, so witness.items[1] would IndexError. The original
+        # P2PKH input from the test vector is now second; the loop must skip the
+        # bad first input to find the good one (and use *its* outpoint when
+        # unblinding the payload).
+        bad_input = TransactionInput(
+            txid=b"\x11" * 32,
+            vout=0,
+            script_sig=Script(b""),
+            witness=Witness([b"\x00" * 64]),
+        )
+        tx.vin = [bad_input] + tx.vin
+
+        self.assertEqual(
+            bip47.get_payment_code_from_notification_tx(tx, recipient_root),
+            ALICE_PAYMENT_CODE,
+        )
+
+
+    def test_get_payment_code_from_notification_tx_no_extractable_input(self):
+        """If no input exposes a 33-byte compressed pubkey, the function returns
+            None rather than raising."""
+        tx = Transaction.from_string(ALICE_NOTIFICATION_TX_FOR_BOB)
+        seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
+        recipient_root = bip32.HDKey.from_seed(seed_bytes)
+
+        # Convert the only input to a taproot-key-path-style input (single-item
+        # witness, empty script_sig).
+        only_input = tx.vin[0]
+        only_input.script_sig = Script(b"")
+        only_input.witness = Witness([b"\x00" * 64])
+
+        self.assertIsNone(bip47.get_payment_code_from_notification_tx(tx, recipient_root))
+
+
+    def test_get_payment_code_from_notification_tx_rejects_unsupported_version(self):
+        """The OP_RETURN payload's first byte is a version byte; only version 1
+            is currently supported. A non-1 version must cause the payload to be
+            ignored (and with no payload identified, the function returns None).
+
+            Also verifies that if a *second* OP_RETURN output with a valid v1
+            payload is present, the loop continues past the unsupported one and
+            still returns the correct payment code."""
+        seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
+        recipient_root = bip32.HDKey.from_seed(seed_bytes)
+
+        tx = Transaction.from_string(ALICE_NOTIFICATION_TX_FOR_BOB)
+
+        # Locate the OP_RETURN output and overwrite the payload's version byte.
+        # data layout: [0]=OP_RETURN [1]=OP_PUSHDATA1 [2]=0x50 (len=80)
+        #              [3]=version  [4]=0x00 ...
+        original_op_return_script = None
+        for vout in tx.vout:
+            d = vout.script_pubkey.data
+            if d and d[0] == OPCODES.OP_RETURN:
+                original_op_return_script = vout.script_pubkey
+                d = bytearray(d)
+                d[3] = 2  # any value != 1
+                vout.script_pubkey = Script(bytes(d))
+                break
+        self.assertIsNotNone(original_op_return_script)
+
+        self.assertIsNone(bip47.get_payment_code_from_notification_tx(tx, recipient_root))
+
+        # Now append a second OP_RETURN with the valid v1 payload after the corrupted one.
+        # The loop must skip the unsupported version and pick up the valid payload,
+        # returning Alice's payment code.
+        tx.vout.append(TransactionOutput(value=0, script_pubkey=original_op_return_script))
+
+        self.assertEqual(
+            bip47.get_payment_code_from_notification_tx(tx, recipient_root),
+            ALICE_PAYMENT_CODE,
+        )
 
 
     def test_get_payment_code_from_notification_tx_rejects_invalid_payload(self):
