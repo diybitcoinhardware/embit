@@ -146,13 +146,15 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     return (receive_address, spending_key)
 
 
-def blinding_function(private_key: bytes, secret_point: HDKey, utxo_outpoint: str, payload: bytes) -> bytes:
+def blinding_function(private_key: bytes, counterparty_pubkey: ec.PublicKey, utxo_outpoint: str, payload: bytes) -> bytes:
     """Reversible blind/unblind function: blinds plaintext payloads and unblinds blinded payloads"""
-    S = secret_point._xonly()
+    # Compute the "secret point" S = private_key · counterparty_pubkey (an ECDH
+    # shared point); its x-coordinate seeds the blinding factor below.
+    S = counterparty_pubkey._xonly()
     secp256k1.ec_pubkey_tweak_mul(S, private_key)
 
     # Calculate a 64 byte blinding factor (s = HMAC-SHA512(x, o))
-    #   "x" is the x value of the secret point
+    #   "x" is the x value of the secret point S
     #   "o" is the outpoint being spent by the designated input
     x = secp256k1.ec_pubkey_serialize(S)[1:33]
     o = utxo_outpoint
