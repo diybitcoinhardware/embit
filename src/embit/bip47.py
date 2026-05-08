@@ -172,9 +172,16 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
         Called by the payer, returns the blinded payload for the payer's notification tx
         that is sent to the recipient while spending the input_utxo. The blinded payload
         should be inserted as OP_RETURN data.
+
+        `input_utxo_outpoint` must be the 36-byte outpoint as a 72-char hex string
+        (32-byte txid in reversed/little-endian byte order, then 4-byte vout in
+        little-endian). Anything else raises EmbitError; silent truncation would
+        produce a payload the recipient cannot unblind.
     """
-    # TODO: method signature was made to easily match the BIP-47 test vector data, but
-    # isn't necessarily what might be ideal for real-world usage.
+    if len(input_utxo_outpoint) != 72:
+        raise EmbitError(
+            "input_utxo_outpoint must be exactly 72 hex chars (36 bytes); got {}".format(len(input_utxo_outpoint))
+        )
 
     # Alice selects the private key ("a") corresponding to the designated pubkey
     a = input_utxo_private_key.secret
@@ -186,7 +193,7 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
     payment_code = base58.decode_check(payer_payment_code)[1:]  # omit the 0x47 leading byte
 
     # Blind the payment code
-    raw_blinded_payload = blinding_function(a, B, utxo_outpoint=input_utxo_outpoint[:72], payload=payment_code)
+    raw_blinded_payload = blinding_function(a, B, utxo_outpoint=input_utxo_outpoint, payload=payment_code)
     return hexlify(raw_blinded_payload).decode()
 
 

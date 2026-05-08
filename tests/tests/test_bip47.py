@@ -295,6 +295,17 @@ class Bip47Test(TestCase):
 
         self.assertEqual(blinded_payload, ALICE_NOTIFICATION_BLINDED_PAYLOAD)
 
+        # Wrong-length outpoint (e.g. a full vin serialization) must raise rather
+        # than silently truncate — silent truncation would yield a payload the
+        # recipient cannot unblind.
+        with self.assertRaises(EmbitError):
+            bip47.get_blinded_payment_code(
+                payer_payment_code=ALICE_PAYMENT_CODE,
+                input_utxo_private_key=input_utxo_private_key,
+                input_utxo_outpoint=ALICE_NOTIFICATION_INPUT_OUTPOINT + "deadbeef",
+                recipient_payment_code=BOB_PAYMENT_CODE,
+            )
+
 
     def test_get_payment_code_from_notification_tx(self):
         """Bob should be able to decode Alice's payment code from her notification tx"""
@@ -463,8 +474,11 @@ class Bip47Test(TestCase):
         # Verify that this psbt is spending to Bob's notification addr
         self.assertEqual(psbt.outputs[0].script_pubkey.address(NETWORKS["regtest"]), BOB_NOTIFICATION_ADDR_REGTEST)
 
-        # Extract the utxo that Alice will be spending
-        outpoint = psbt.inputs[0].vin.to_string()
+        # Extract the outpoint of the utxo Alice is spending: 32-byte txid in
+        # reversed (little-endian) byte order + 4-byte vout (little-endian),
+        # rendered as a 72-char hex string.
+        vin = psbt.inputs[0].vin
+        outpoint = (bytes(reversed(vin.txid)) + vin.vout.to_bytes(4, "little")).hex()
 
         # Derive Alice's private key for this utxo
         seed_bytes = bip39.mnemonic_to_seed(ALICE_MNEMONIC)
