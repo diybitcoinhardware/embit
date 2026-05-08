@@ -252,6 +252,23 @@ class Bip47Test(TestCase):
         self.assertTrue(bip47.get_payment_code_from_notification_tx(tx, other_root) is None)
 
 
+    def test_get_payment_code_from_notification_tx_rejects_too_few_outputs(self):
+        """A notification tx must have at least 2 outputs (notification address +
+            OP_RETURN); a tx with fewer should be rejected."""
+        tx = Transaction.from_string(ALICE_NOTIFICATION_TX_FOR_BOB)
+        seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
+        recipient_root = bip32.HDKey.from_seed(seed_bytes)
+
+        # Strip the OP_RETURN output, leaving only the notification address output
+        tx.vout = [
+            vout for vout in tx.vout
+            if not (vout.script_pubkey.data and vout.script_pubkey.data[0] == OPCODES.OP_RETURN)
+        ]
+        self.assertEqual(len(tx.vout), 1)
+
+        self.assertIsNone(bip47.get_payment_code_from_notification_tx(tx, recipient_root))
+
+
     def test_get_payment_code_from_notification_tx_rejects_invalid_payload(self):
         """
             Per BIP-47, if the unblinded x-coordinate is not a valid secp256k1 point the

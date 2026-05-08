@@ -193,7 +193,7 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     # Notification txs have one output sent to the recipient's notification addr
     # and another containing the payer's payment code in an OP_RETURN payload.
     if len(tx.vout) < 2:
-        return False
+        return None
     
     recipient_payment_code = get_payment_code(recipient_root, coin, account)
     
