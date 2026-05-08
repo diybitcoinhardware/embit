@@ -295,9 +295,7 @@ class Bip47Test(TestCase):
 
         self.assertEqual(blinded_payload, ALICE_NOTIFICATION_BLINDED_PAYLOAD)
 
-        # Wrong-length outpoint (e.g. a full vin serialization) must raise rather
-        # than silently truncate — silent truncation would yield a payload the
-        # recipient cannot unblind.
+        # Wrong-length outpoint (e.g. a full vin serialization) must raise EmbitError
         with self.assertRaises(EmbitError):
             bip47.get_blinded_payment_code(
                 payer_payment_code=ALICE_PAYMENT_CODE,
