@@ -236,6 +236,7 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     # (P2SH, P2WSH, P2TR, etc.) don't expose a bare pubkey at the canonical position and
     # are skipped per BIP-47 v1.
     A = None
+    designated_vin = None
     for vin in tx.vin:
         try:
             if not vin.is_segwit:
@@ -250,18 +251,19 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
 
         if len(candidate.serialize()) == 33:
             A = candidate
+            designated_vin = vin
             break
 
     if A is None:
         return None
-    
+
     # Bob selects the private key associated with his notification address (0th child)
     recipient_notification_node = recipient_root.derive("m/47'/{}'/{}'/0".format(coin, account))
     b = recipient_notification_node.secret
 
     # Build the 36-byte outpoint as hex: 32-byte txid in reversed (little-endian)
     # byte order, followed by the 4-byte vout index in little-endian.
-    utxo_outpoint = (bytes(reversed(vin.txid)) + vin.vout.to_bytes(4, "little")).hex()
+    utxo_outpoint = (bytes(reversed(designated_vin.txid)) + designated_vin.vout.to_bytes(4, "little")).hex()
 
     # Unblind the payload using the reversible `blinding_function`.
     raw_unblinded_payload = blinding_function(b, A, utxo_outpoint=utxo_outpoint, payload=payload)
