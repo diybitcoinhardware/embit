@@ -152,12 +152,15 @@ def blinding_function(private_key: bytes, counterparty_pubkey: ec.PublicKey, utx
     S = counterparty_pubkey._xonly()
     secp256k1.ec_pubkey_tweak_mul(S, private_key)
 
-    # Calculate a 64 byte blinding factor (s = HMAC-SHA512(x, o))
+    # Calculate a 64-byte blinding factor s = HMAC-SHA512(key=o, msg=x).
+    # Note: BIP-47 prose contradicts itself (sender side says "HMAC-SHA512(o, x)",
+    # recipient side says "HMAC-SHA512(x, o)") but reference test vectors and
+    # every known implementation use key=o, msg=x.
     #   "x" is the x value of the secret point S
     #   "o" is the outpoint being spent by the designated input
     x = secp256k1.ec_pubkey_serialize(S)[1:33]
     o = utxo_outpoint
-    s = unhexlify(hmac.new(unhexlify(o), x, hashlib.sha512).hexdigest())
+    s = unhexlify(hmac.new(key=unhexlify(o), msg=x, digestmod=hashlib.sha512).hexdigest())
 
     # Replace the x (pubkey) value with x' (x' = x XOR (first 32 bytes of s))
     # Replace the chain code with c' (c' = c XOR (last 32 bytes of s))
