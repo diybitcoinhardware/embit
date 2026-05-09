@@ -47,7 +47,7 @@ def get_derived_payment_code_node(payment_code: str, derivation_index: int) -> H
 
     # 81-byte payment code format:
     #   0x47 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
-    pubkey = ec.PublicKey.from_string(hexlify(raw_payment_code[3:36]))
+    pubkey = ec.PublicKey.parse(raw_payment_code[3:36])
     chain_code = raw_payment_code[36:68]
     root = HDKey(key=pubkey, chain_code=chain_code)
     return root.derive([derivation_index])
@@ -246,10 +246,10 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
             if not vin.is_segwit:
                 # script_sig: (1byte len of sig) <sig> (1byte len of pubkey) <pubkey>
                 sig_len = vin.script_sig.data[0]
-                candidate = ec.PublicKey.from_string(hexlify(vin.script_sig.data[sig_len + 2:]))
+                candidate = ec.PublicKey.parse(vin.script_sig.data[sig_len + 2:])
             else:
                 # Witness should have [sig, pubkey]
-                candidate = ec.PublicKey.from_string(hexlify(vin.witness.items[1]))
+                candidate = ec.PublicKey.parse(vin.witness.items[1])
         except Exception:
             continue
 
