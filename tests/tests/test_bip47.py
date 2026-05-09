@@ -420,6 +420,34 @@ class Bip47Test(TestCase):
         )
 
 
+    def test_get_payment_code_from_notification_tx_unsupported_version_does_not_clobber_valid(self):
+        """
+            If a valid v1 OP_RETURN appears earlier in the output list and a later
+            OP_RETURN carries an unsupported version, the unsupported one must not
+            overwrite the previously-found valid payload.
+        """
+        seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
+        recipient_root = bip32.HDKey.from_seed(seed_bytes)
+
+        tx = Transaction.from_string(ALICE_NOTIFICATION_TX_FOR_BOB)
+
+        # Build a v2-versioned copy of the original OP_RETURN script and append
+        # it after the original (v1) OP_RETURN. Iteration order: notification
+        # addr → valid v1 OP_RETURN → unsupported v2 OP_RETURN.
+        for vout in tx.vout:
+            d = vout.script_pubkey.data
+            if d and d[0] == OPCODES.OP_RETURN:
+                d2 = bytearray(d)
+                d2[3] = 2  # unsupported version
+                tx.vout.append(TransactionOutput(value=0, script_pubkey=Script(bytes(d2))))
+                break
+
+        self.assertEqual(
+            bip47.get_payment_code_from_notification_tx(tx, recipient_root),
+            ALICE_PAYMENT_CODE,
+        )
+
+
     def test_get_payment_code_from_notification_tx_rejects_invalid_payload(self):
         """
             Per BIP-47, if the unblinded x-coordinate is not a valid secp256k1 point the

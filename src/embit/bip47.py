@@ -221,11 +221,12 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
         #   data = OP_RETURN OP_PUSHDATA1 (len of payload) <payload>
         data = vout.script_pubkey.data
         if data is not None and len(data) == 83 and data[0] == OPCODES.OP_RETURN and data[1] == OPCODES.OP_PUSHDATA1 and data[2] == 80:
-            payload = data[3:]
-
-            if payload[0] != 1:
-                # Only version 1 currently supported
-                payload = None
+            candidate_payload = data[3:]
+            # Only v1 is currently supported. Assign only on a supported version
+            # so a later unsupported-version OP_RETURN can't clobber a valid
+            # payload found earlier in the loop.
+            if candidate_payload[0] == 1:
+                payload = candidate_payload
             continue
 
     if not matches_notification_addr or payload is None:
