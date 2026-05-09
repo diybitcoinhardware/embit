@@ -160,13 +160,13 @@ def blinding_function(private_key: bytes, counterparty_pubkey: ec.PublicKey, utx
     #   "o" is the outpoint being spent by the designated input
     x = secp256k1.ec_pubkey_serialize(S)[1:33]
     o = utxo_outpoint
-    s = unhexlify(hmac.new(key=unhexlify(o), msg=x, digestmod=hashlib.sha512).hexdigest())
+    s = hmac.new(key=unhexlify(o), msg=x, digestmod=hashlib.sha512).digest()
 
     # Replace the x (pubkey) value with x' (x' = x XOR (first 32 bytes of s))
     # Replace the chain code with c' (c' = c XOR (last 32 bytes of s))
     # payment code: 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
-    x_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(payload[3:35], s[:32])])
-    c_prime = b''.join([(a ^ b).to_bytes(1, byteorder='little') for (a,b) in zip(payload[35:67], s[-32:])])
+    x_prime = bytes(a ^ b for (a, b) in zip(payload[3:35], s[:32]))
+    c_prime = bytes(a ^ b for (a, b) in zip(payload[35:67], s[-32:]))
     return payload[0:3] + x_prime + c_prime + payload[-13:]
 
 
