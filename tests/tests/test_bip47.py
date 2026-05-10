@@ -441,6 +441,49 @@ class Bip47Test(TestCase):
         )
 
 
+    def test_get_payment_code_from_notification_tx_picks_up_p2sh_p2wpkh_witness_shape(self):
+        """The pubkey extraction is shape-based: any segwit input whose witness is
+            [sig, pubkey] is treated as the designated input. This includes nested
+            P2SH-P2WPKH (not just bare P2WPKH).
+
+            Prepend a synthetic input with both a non-empty script_sig (would-be
+            P2SH redeem-script push) and a [sig, 33-byte-pubkey] witness, placed
+            before the real P2PKH input. The loop selects the first input that
+            yields a 33-byte compressed pubkey, so the synthetic one wins. Its
+            (pubkey, outpoint) is unrelated to the actual blinding, so unblinding
+            produces a result that does NOT recover ALICE_PAYMENT_CODE — the
+            function returns either None (if the garbage x-coordinate isn't
+            on-curve) or a non-canonical payment code. Either way, the assertion
+            "not equal to ALICE_PAYMENT_CODE" proves the synthetic input was
+            selected; if it had been skipped (treating P2SH-P2WPKH as
+            unsupported), the loop would fall through to the real P2PKH input
+            and return ALICE_PAYMENT_CODE.
+        """
+        tx = Transaction.from_string(ALICE_NOTIFICATION_TX_FOR_BOB)
+        seed_bytes = bip39.mnemonic_to_seed(BOB_MNEMONIC)
+        recipient_root = bip32.HDKey.from_seed(seed_bytes)
+
+        # A valid 33-byte compressed pubkey unrelated to the actual notification tx.
+        fake_pubkey = ec.PrivateKey(secret=b"\x42" * 32).get_public_key().serialize()
+        self.assertEqual(len(fake_pubkey), 33)
+
+        # Build a synthetic input shaped like a P2SH-P2WPKH spend:
+        #   - script_sig: 22-byte push of the would-be P2WPKH redeem script
+        #     (0x00 0x14 <20-byte hash160>). Hash content is irrelevant; the
+        #     extraction code never inspects script_sig for segwit inputs.
+        #   - witness: [<sig>, <pubkey>], same shape as bare P2WPKH.
+        synthetic_input = TransactionInput(
+            txid=b"\x22" * 32,
+            vout=0,
+            script_sig=Script(b"\x16\x00\x14" + b"\x00" * 20),
+            witness=Witness([b"\x00" * 64, fake_pubkey]),
+        )
+        tx.vin = [synthetic_input] + tx.vin
+
+        result = bip47.get_payment_code_from_notification_tx(tx, recipient_root)
+        self.assertNotEqual(result, ALICE_PAYMENT_CODE)
+
+
     def test_get_payment_code_from_notification_tx_no_extractable_input(self):
         """If no input exposes a 33-byte compressed pubkey, the function returns
             None rather than raising."""

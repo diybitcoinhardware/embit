@@ -237,17 +237,19 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
         return None
     
     recipient_payment_code = get_payment_code(recipient_root, coin, account)
-    
+    recipient_notification_address = get_notification_address(recipient_payment_code, network=network)
+
     matches_notification_addr = False
     payload = None
     for vout in tx.vout:
         # Notification txs include a dust payment to the recipient's notification address
-        if vout.script_pubkey.script_type() is not None and vout.script_pubkey.address(network=network) == get_notification_address(recipient_payment_code, network=network):
+        if vout.script_pubkey.script_type() is not None and vout.script_pubkey.address(network=network) == recipient_notification_address:
             matches_notification_addr = True
             continue
 
-        # Payer's blinded payment code will be in an OP_RETURN w/exactly 80 bytes of data
-        #   data = OP_RETURN OP_PUSHDATA1 (len of payload) <payload>
+        # Payer's blinded payment code will be in an OP_RETURN w/exactly 80 bytes of data.
+        # data layout: OP_RETURN OP_PUSHDATA1 0x50 <payload:80>
+        #   (0x50 is the OP_PUSHDATA1 length byte: decimal 80, the payload length)
         data = vout.script_pubkey.data
         if data is not None and len(data) == 83 and data[0] == OPCODES.OP_RETURN and data[1] == OPCODES.OP_PUSHDATA1 and data[2] == 80:
             candidate_payload = data[3:]
@@ -262,9 +264,13 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
         return None
     
     # Bob selects the designated pubkey ("A"): the first input that exposes a 33-byte
-    # compressed pubkey in scriptsig (P2PKH) or witness (P2WPKH). Other script types
-    # (P2SH, P2WSH, P2TR, etc.) don't expose a bare pubkey at the canonical position and
-    # are skipped per BIP-47 v1.
+    # compressed pubkey at a canonical position. Specifically:
+    #   - non-segwit: script_sig parsed as <sig><pubkey> (matches P2PKH).
+    #   - segwit: witness.items[1] parsed as a pubkey (matches both bare P2WPKH
+    #     and nested P2SH-P2WPKH, since both share the [sig, pubkey] witness stack).
+    # Other shapes (P2PK, bare/wrapped multisig, P2WSH, P2TR, etc.) don't expose a
+    # 33-byte compressed pubkey at these positions and are skipped — PublicKey.parse
+    # either raises or yields something that fails the 33-byte check below.
     A = None
     designated_vin = None
     for vin in tx.vin:
