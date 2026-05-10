@@ -43,7 +43,7 @@ def _validate_payment_code(raw: bytes):
     try:
         ec.PublicKey.parse(raw[3:36])
     except Exception:
-        raise BIP47Exception("Invalid payment code: x-coordinate is not a valid secp256k1 point")
+        raise BIP47Exception("Invalid payment code: compressed pubkey is not a valid secp256k1 point")
     if raw[-13:] != b'\x00' * 13:
         raise BIP47Exception("Invalid payment code: 13 trailing bytes must be zero in v1")
 
