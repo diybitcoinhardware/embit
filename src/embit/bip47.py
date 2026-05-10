@@ -5,7 +5,6 @@ import sys
 from binascii import hexlify, unhexlify
 from io import BytesIO
 from . import base58, ec, script
-from .base import EmbitError
 from .bip32 import HDKey
 from .networks import NETWORKS
 from .script import OPCODES
@@ -24,6 +23,31 @@ class BIP47Exception(EmbitError):
     pass
 
 
+def _validate_payment_code(raw: bytes):
+    """Validates the 81-byte BIP-47 v1 canonical payment code (with 0x47 prefix).
+        Raises BIP47Exception on any mismatch.
+
+        Layout: 0x47 <version:1> <features:1> <sign:1> <x:32> <chain_code:32> <13 zeros>
+            * total length must be 81.
+            * prefix byte must be 0x47.
+            * version byte must be 0x01 (v1).
+            * features byte is the now-defunct Bitmessage notification flag; intentionally not validated.
+            * last 13 bytes must all be zero in v1.
+    """
+    if len(raw) != 81:
+        raise BIP47Exception("Invalid payment code: expected 81 bytes, got {}".format(len(raw)))
+    if raw[0] != 0x47:
+        raise BIP47Exception("Invalid payment code: expected 0x47 prefix, got 0x{:02x}".format(raw[0]))
+    if raw[1] != 0x01:
+        raise BIP47Exception("Invalid payment code: unsupported version {} (only v1 is supported)".format(raw[1]))
+    try:
+        ec.PublicKey.parse(raw[3:36])
+    except Exception:
+        raise BIP47Exception("Invalid payment code: x-coordinate is not a valid secp256k1 point")
+    if raw[-13:] != b'\x00' * 13:
+        raise BIP47Exception("Invalid payment code: 13 trailing bytes must be zero in v1")
+
+
 def get_payment_code(root: HDKey, coin: int = 0, account: int = 0) -> str:
     """
         Generates the recipient's BIP-47 shareable payment code (version 1)
@@ -31,22 +55,23 @@ def get_payment_code(root: HDKey, coin: int = 0, account: int = 0) -> str:
     """
     bip47_child = root.derive("m/47'/{}'/{}'".format(coin, account))
 
+    # Build the canonical 81-byte payment code directly.
     buf = BytesIO()
-    buf.write(b'\x01')      # bip47 version
-    buf.write(b'\x00')      # Bitmessage; always zero
+    buf.write(b'\x47')      # BIP-47 protocol prefix
+    buf.write(b'\x01')      # version
+    buf.write(b'\x00')      # features byte; Bitmessage notification flag (bit 0, defunct) intentionally not set
     buf.write(bip47_child.get_public_key().serialize())
     buf.write(bip47_child.chain_code)
     buf.write(b'\00' * 13)  # bytes reserved for future expansion
 
-    return base58.encode_check(b'\x47' + buf.getvalue())
+    return base58.encode_check(buf.getvalue())
 
 
 def get_derived_payment_code_node(payment_code: str, derivation_index: int) -> HDKey:
     """Returns the nth derived child for the payment_code"""
     raw_payment_code = base58.decode_check(payment_code)
+    _validate_payment_code(raw_payment_code)
 
-    # 81-byte payment code format:
-    #   0x47 0x01 0x00 (sign) (32-byte pubkey) (32-byte chain code) (13 0x00 bytes)
     pubkey = ec.PublicKey.parse(raw_payment_code[3:36])
     chain_code = raw_payment_code[36:68]
     root = HDKey(key=pubkey, chain_code=chain_code)
@@ -96,7 +121,7 @@ def get_payment_address(payer_root: HDKey, recipient_payment_code: str, index: i
     elif script_type == "p2sh-p2wpkh":
         return script.p2sh(script.p2wpkh(shared_node)).address(network=network)
     else:
-        raise EmbitError("Unsupported script_type: " + script_type)
+        raise BIP47Exception("Unsupported script_type: " + script_type)
 
 
 def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: int, coin: int = 0, account: int = 0, network: dict = NETWORKS["main"], script_type: str = "p2wpkh") -> tuple:
@@ -136,8 +161,8 @@ def get_receive_address(recipient_root: HDKey, payer_payment_code: str, index: i
     elif script_type == "p2sh-p2wpkh":
         receive_address = script.p2sh(script.p2wpkh(shared_node)).address(network=network)
     else:
-        raise EmbitError("Unsupported script_type: " + script_type)
-    
+        raise BIP47Exception("Unsupported script_type: " + script_type)
+
     # Bob calculates the private key for each ephemeral address as: b' = b + s
     prv_key = secp256k1.ec_privkey_add(recipient_key.secret, shared_secret)
     spending_key = ec.PrivateKey(secret=prv_key)
@@ -178,11 +203,11 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
 
         `input_utxo_outpoint` must be the 36-byte outpoint as a 72-char hex string
         (32-byte txid in reversed/little-endian byte order, then 4-byte vout in
-        little-endian). Anything else raises EmbitError; silent truncation would
-        produce a payload the recipient cannot unblind.
+        little-endian). Anything else raises BIP47Exception; silent truncation
+        would produce a payload the recipient cannot unblind.
     """
     if len(input_utxo_outpoint) != 72:
-        raise EmbitError(
+        raise BIP47Exception(
             "input_utxo_outpoint must be exactly 72 hex chars (36 bytes); got {}".format(len(input_utxo_outpoint))
         )
 
@@ -272,12 +297,14 @@ def get_payment_code_from_notification_tx(tx: Transaction, recipient_root: HDKey
     # Unblind the payload using the reversible `blinding_function`.
     raw_unblinded_payload = blinding_function(b, A, utxo_outpoint=utxo_outpoint, payload=payload)
 
-    # Per spec: if the reconstructed x-coordinate isn't a valid secp256k1 point, the
-    # payload must be ignored.
-    # Layout: 0x01 0x00 <sign:1> <x:32> <chain_code:32> <13 zeros>
+    # Re-attach the 0x47 BIP-47 protocol prefix that was stripped from the OP_RETURN payload
+    # to form the canonical 81-byte payment code, then validate.
+    raw_payment_code = b'\x47' + raw_unblinded_payload
+
+    # Per spec, an invalid payload (wrong shape, off-curve x-coordinate, etc.) must be silently ignored.
     try:
-        ec.PublicKey.parse(raw_unblinded_payload[2:35])
-    except Exception:
+        _validate_payment_code(raw_payment_code)
+    except BIP47Exception:
         return None
 
-    return base58.encode_check(b'\x47' + raw_unblinded_payload)
+    return base58.encode_check(raw_payment_code)
