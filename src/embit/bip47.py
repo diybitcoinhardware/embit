@@ -5,6 +5,7 @@ import sys
 from binascii import hexlify, unhexlify
 from io import BytesIO
 from . import base58, ec, script
+from .base import EmbitError
 from .bip32 import HDKey
 from .networks import NETWORKS
 from .script import OPCODES
