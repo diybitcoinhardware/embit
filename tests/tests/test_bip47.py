@@ -9,9 +9,7 @@ from embit.transaction import Transaction, TransactionInput, TransactionOutput, 
 from binascii import unhexlify
 
 
-"""
-    Test vectors from: https://gist.github.com/SamouraiDev/6aad669604c5930864bd
-"""
+# Test vectors from: https://gist.github.com/SamouraiDev/6aad669604c5930864bd
 ALICE_MNEMONIC = "response seminar brave tip suit recall often sound stick owner lottery motion"
 ALICE_PAYMENT_CODE = "PM8TJTLJbPRGxSbc8EJi42Wrr6QbNSaSSVJ5Y3E4pbCYiTHUskHg13935Ubb7q8tx9GVbh2UuRnBc3WSyJHhUrw8KhprKnn9eDznYGieTzFcwQRya4GA"
 ALICE_PAYMENT_CODE_REGTEST = "PM8TJcUtZbTqYoGWcNAnaYDkAzA1cLq6gQV4aPJ3N5jydgmTHUr5UFK74CU58mdL6V8pVo3JJ8JsJFJzriZSGMj27ujJ3jxwFUQwi49ox3Cfai4SG5rk"
@@ -21,10 +19,8 @@ ALICE_NOTIFICATION_INPUT_PRIVATE_KEY = "Kx983SRhAZpAhj7Aac1wUXMJ6XZeyJKqCxJJ49dx
 ALICE_NOTIFICATION_INPUT_OUTPOINT = "86f411ab1c8e70ae8a0795ab7a6757aea6e4d5ae1826fc7b8f00c597d500609c01000000"
 ALICE_NOTIFICATION_BLINDED_PAYLOAD = "010002063e4eb95e62791b06c50e1a3a942e1ecaaa9afbbeb324d16ae6821e091611fa96c0cf048f607fe51a0327f5e2528979311c78cb2de0d682c61e1180fc3d543b00000000000000000000000000"
 
-"""
-    Mainnet p2pkh from BIP-47 test vectors, remaining addrs generated from:
-    https://bitcoiner.guide/seed
-"""
+
+# Mainnet p2pkh from BIP-47 test vectors, remaining addrs generated from https://bitcoiner.guide/seed
 ALICE_PAYS_BOB_ADDRS = {
     "main": {
         "p2wpkh": [
@@ -378,6 +374,35 @@ class Bip47Test(TestCase):
                 payer_payment_code=ALICE_PAYMENT_CODE,
                 input_utxo_private_key=input_utxo_private_key,
                 input_utxo_outpoint=ALICE_NOTIFICATION_INPUT_OUTPOINT + "deadbeef",
+                recipient_payment_code=BOB_PAYMENT_CODE,
+            )
+
+
+    def test_get_blinded_payment_code_rejects_malformed_payer_payment_code(self):
+        """A Base58Check string with a valid checksum but non-canonical payload
+            (wrong length, wrong prefix, etc.) must be rejected before blinding.
+            Otherwise blinding_function silently produces a malformed payload
+            because its slices truncate via zip() to the shorter input."""
+        input_utxo_private_key = ec.PrivateKey.from_string(ALICE_NOTIFICATION_INPUT_PRIVATE_KEY)
+
+        # P2PKH address: valid Base58Check, but only 21 decoded bytes.
+        with self.assertRaises(bip47.BIP47Exception):
+            bip47.get_blinded_payment_code(
+                payer_payment_code=ALICE_NOTIFICATION_ADDR,
+                input_utxo_private_key=input_utxo_private_key,
+                input_utxo_outpoint=ALICE_NOTIFICATION_INPUT_OUTPOINT,
+                recipient_payment_code=BOB_PAYMENT_CODE,
+            )
+
+        # Right length, wrong 0x47 prefix.
+        raw = bytearray(base58.decode_check(ALICE_PAYMENT_CODE))
+        raw[0] = 0x48
+        bad_payment_code = base58.encode_check(bytes(raw))
+        with self.assertRaises(bip47.BIP47Exception):
+            bip47.get_blinded_payment_code(
+                payer_payment_code=bad_payment_code,
+                input_utxo_private_key=input_utxo_private_key,
+                input_utxo_outpoint=ALICE_NOTIFICATION_INPUT_OUTPOINT,
                 recipient_payment_code=BOB_PAYMENT_CODE,
             )
 

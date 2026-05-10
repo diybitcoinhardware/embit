@@ -1,3 +1,6 @@
+"""
+    BIP-47: https://github.com/bitcoin/bips/blob/master/bip-0047.mediawiki
+"""
 import hashlib
 import hmac
 import sys
@@ -15,10 +18,6 @@ if sys.implementation.name == "micropython":
 else:
     from .util import secp256k1
 
-
-"""
-    BIP-47: https://github.com/bitcoin/bips/blob/master/bip-0047.mediawiki
-"""
 
 class BIP47Exception(EmbitError):
     pass
@@ -219,7 +218,9 @@ def get_blinded_payment_code(payer_payment_code: str, input_utxo_private_key: ec
     B = get_derived_payment_code_node(recipient_payment_code, derivation_index=0).get_public_key()
 
     # Alice serializes her payment code in binary form
-    payment_code = base58.decode_check(payer_payment_code)[1:]  # omit the 0x47 leading byte
+    raw_payer_payment_code = base58.decode_check(payer_payment_code)
+    _validate_payment_code(raw_payer_payment_code)
+    payment_code = raw_payer_payment_code[1:]  # omit the 0x47 leading byte
 
     # Blind the payment code
     raw_blinded_payload = blinding_function(a, B, utxo_outpoint=input_utxo_outpoint, payload=payment_code)
