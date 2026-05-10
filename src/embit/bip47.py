@@ -20,7 +20,7 @@ else:
     BIP-47: https://github.com/bitcoin/bips/blob/master/bip-0047.mediawiki
 """
 
-class BIP47Exception(Exception):
+class BIP47Exception(EmbitError):
     pass
 
 
