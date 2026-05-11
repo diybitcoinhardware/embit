@@ -12,6 +12,9 @@ from binascii import b2a_base64, a2b_base64, hexlify, unhexlify
 from io import BytesIO
 
 
+LOCKTIME_THRESHOLD = 500000000
+
+
 class PSBTError(EmbitError):
     pass
 
@@ -89,7 +92,7 @@ class PSBTScope(EmbitBase):
             s.seek(0)
             self.read_value(s, k)
 
-    def read_value(self, stream, key, *args, **kwargs):
+    def read_value(self, stream, key, version=None):
         # separator
         if len(key) == 0:
             return
@@ -148,6 +151,8 @@ class InputScope(PSBTScope):
 
         self.final_scriptsig = None
         self.final_scriptwitness = None
+        self.required_time_locktime = None
+        self.required_height_locktime = None
         self.parse_unknowns()
 
     def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
@@ -193,6 +198,16 @@ class InputScope(PSBTScope):
         self.taproot_scripts.update(other.taproot_scripts)
         self.final_scriptsig = other.final_scriptsig or self.final_scriptsig
         self.final_scriptwitness = other.final_scriptwitness or self.final_scriptwitness
+        self.required_time_locktime = (
+            other.required_time_locktime
+            if other.required_time_locktime is not None
+            else self.required_time_locktime
+        )
+        self.required_height_locktime = (
+            other.required_height_locktime
+            if other.required_height_locktime is not None
+            else self.required_height_locktime
+        )
 
     @property
     def vin(self):
@@ -245,7 +260,7 @@ class InputScope(PSBTScope):
             raise PSBTError("Missing non_witness_utxo")
         return False
 
-    def read_value(self, stream, k):
+    def read_value(self, stream, k, version=None):
         # separator
         if len(k) == 0:
             return
@@ -345,12 +360,43 @@ class InputScope(PSBTScope):
             else:
                 raise PSBTError("Duplicated final scriptwitness")
 
+        # PSBTv2 fields
         elif k == b"\x0e":
             self.txid = bytes(reversed(v))
         elif k == b"\x0f":
             self.vout = int.from_bytes(v, "little")
         elif k == b"\x10":
             self.sequence = int.from_bytes(v, "little")
+
+        # PSBT_IN_REQUIRED_TIME_LOCKTIME
+        elif k[0] == 0x11:
+            if version != 2:
+                raise PSBTError("PSBT_IN_REQUIRED_TIME_LOCKTIME not allowed in PSBTv0")
+            if len(k) != 1:
+                raise PSBTError("Invalid required time locktime key")
+            if self.required_time_locktime is not None:
+                raise PSBTError("Duplicated required time locktime")
+            locktime = int.from_bytes(v, "little")
+            if locktime < LOCKTIME_THRESHOLD:
+                raise PSBTError(f"Time-based locktime must be >= {LOCKTIME_THRESHOLD}")
+            self.required_time_locktime = locktime
+
+        # PSBT_IN_REQUIRED_HEIGHT_LOCKTIME
+        elif k[0] == 0x12:
+            if version != 2:
+                raise PSBTError(
+                    "PSBT_IN_REQUIRED_HEIGHT_LOCKTIME not allowed in PSBTv0"
+                )
+            if len(k) != 1:
+                raise PSBTError("Invalid required height locktime key")
+            if self.required_height_locktime is not None:
+                raise PSBTError("Duplicated required height locktime")
+            locktime = int.from_bytes(v, "little")
+            if locktime >= LOCKTIME_THRESHOLD or locktime == 0:
+                raise PSBTError(
+                    f"Height-based locktime must be > 0 and < {LOCKTIME_THRESHOLD}"
+                )
+            self.required_height_locktime = locktime
 
         # PSBT_IN_TAP_KEY_SIG
         elif k[0] == 0x13:
@@ -444,6 +490,20 @@ class InputScope(PSBTScope):
                 r += ser_string(stream, b"\x10")
                 r += ser_string(stream, self.sequence.to_bytes(4, "little"))
 
+            # Add required time locktime if present
+            if self.required_time_locktime is not None:
+                r += ser_string(stream, b"\x11")
+                r += ser_string(
+                    stream, self.required_time_locktime.to_bytes(4, "little")
+                )
+
+            # Add required height locktime if present
+            if self.required_height_locktime is not None:
+                r += ser_string(stream, b"\x12")
+                r += ser_string(
+                    stream, self.required_height_locktime.to_bytes(4, "little")
+                )
+
         # PSBT_IN_TAP_KEY_SIG
         if self.taproot_key_sig is not None:
             r += ser_string(stream, b"\x13")
@@ -489,6 +549,17 @@ class InputScope(PSBTScope):
             r += stream.write(b"\x00")
         return r
 
+    @classmethod
+    def read_from(cls, stream, compress=CompressMode.KEEP_ALL, vin=None, version=None):
+        res = cls({}, vin=vin, compress=compress)
+        while True:
+            key = read_string(stream)
+            # separator
+            if len(key) == 0:
+                break
+            res.read_value(stream, key, version=version)
+        return res
+
 
 class OutputScope(PSBTScope):
     def __init__(self, unknown: dict = {}, vout=None, compress=CompressMode.KEEP_ALL):
@@ -531,7 +602,7 @@ class OutputScope(PSBTScope):
     def vout(self):
         return TransactionOutput(self.value, self.script_pubkey)
 
-    def read_value(self, stream, k):
+    def read_value(self, stream, k, version=None):
         # separator
         if len(k) == 0:
             return
@@ -562,6 +633,7 @@ class OutputScope(PSBTScope):
             else:
                 self.bip32_derivations[pub] = DerivationPath.parse(v)
 
+        # PSBTv2 fields
         elif k == b"\x03":
             self.value = int.from_bytes(v, "little")
         elif k == b"\x04":
@@ -632,6 +704,17 @@ class OutputScope(PSBTScope):
         if not skip_separator:
             r += stream.write(b"\x00")
         return r
+
+    @classmethod
+    def read_from(cls, stream, compress=CompressMode.KEEP_ALL, vout=None, version=None):
+        res = cls({}, vout=vout, compress=compress)
+        while True:
+            key = read_string(stream)
+            # separator
+            if len(key) == 0:
+                break
+            res.read_value(stream, key, version=version)
+        return res
 
 
 class PSBT(EmbitBase):

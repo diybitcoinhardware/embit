@@ -313,7 +313,9 @@ class PSBTView:
             raise PSBTError("Invalid input index")
         vin = self.tx.vin(i) if self.tx else None
         self.seek_to_scope(i)
-        return self.PSBTIN_CLS.read_from(self.stream, vin=vin, compress=compress)
+        return self.PSBTIN_CLS.read_from(
+            self.stream, vin=vin, compress=compress, version=self.version
+        )
 
     def output(self, i, compress=None):
         """Reads, parses and returns PSBT OutputScope #i"""
@@ -323,7 +325,9 @@ class PSBTView:
             raise PSBTError("Invalid output index")
         vout = self.tx.vout(i) if self.tx else None
         self.seek_to_scope(self.num_inputs + i)
-        return self.PSBTOUT_CLS.read_from(self.stream, vout=vout, compress=compress)
+        return self.PSBTOUT_CLS.read_from(
+            self.stream, vout=vout, compress=compress, version=self.version
+        )
 
     # compress is not used here, but may be used by subclasses (liquid)
     def vin(self, i, compress=None):
