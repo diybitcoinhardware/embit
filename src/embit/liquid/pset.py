@@ -503,6 +503,18 @@ class PSET(PSBT):
     PSBTOUT_CLS = LOutputScope
     TX_CLS = LTransaction
 
+    @classmethod
+    def _validate_v2_output(cls, out, i):
+        """PSET allows value_commitment as an alternative to value (blinded outputs)."""
+        if out.value is None and not getattr(out, "value_commitment", None):
+            raise PSBTError(
+                f"PSBTv2 output {i} missing required PSBT_OUT_AMOUNT (0x03)"
+            )
+        if out.script_pubkey is None:
+            raise PSBTError(
+                f"PSBTv2 output {i} missing required PSBT_OUT_SCRIPT (0x04)"
+            )
+
     def unblind(self, blinding_key):
         for inp in self.inputs:
             inp.unblind(blinding_key)
