@@ -11,7 +11,6 @@ from .base import EmbitBase, EmbitError
 from binascii import b2a_base64, a2b_base64, hexlify, unhexlify
 from io import BytesIO
 
-
 LOCKTIME_THRESHOLD = 500000000
 
 
@@ -1357,7 +1356,7 @@ class PSBT(EmbitBase):
             if fingerprint:
                 # if taproot derivations are present add them
                 for pub in inp.taproot_bip32_derivations:
-                    (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
+                    _leafs, derivation = inp.taproot_bip32_derivations[pub]
                     if derivation.fingerprint == fingerprint:
                         # Add only if not already present
                         if (pub, derivation) not in bip32_derivations:
@@ -1395,7 +1394,7 @@ class PSBT(EmbitBase):
             if inp.is_taproot:
                 # try to sign with individual private key (WIF)
                 # or with root without derivations
-                counter += self.sign_input_with_tapkey(
+                tap_sigs = self.sign_input_with_tapkey(
                     root,
                     i,
                     inp,
@@ -1403,12 +1402,15 @@ class PSBT(EmbitBase):
                 )
                 # sign with all derived keys
                 for prv, pub in derived_keypairs:
-                    counter += self.sign_input_with_tapkey(
+                    tap_sigs += self.sign_input_with_tapkey(
                         prv,
                         i,
                         inp,
                         sighash=inp_sighash,
                     )
+                if tap_sigs > 0:
+                    counter += tap_sigs
+                    self._update_tx_modifiable(inp_sighash)
                 continue
 
             # hash can be reused
@@ -1418,13 +1420,116 @@ class PSBT(EmbitBase):
             # check if root itself is included in the script
             if sec in sc.data or pkh in sc.data:
                 sig = root.sign(h)
-                # sig plus sighash flag
                 inp.partial_sigs[rootpub] = sig.serialize() + bytes([inp_sighash])
                 counter += 1
+                self._update_tx_modifiable(inp_sighash)
 
             for prv, pub in derived_keypairs:
                 sig = prv.sign(h)
-                # sig plus sighash flag
                 inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
                 counter += 1
+                self._update_tx_modifiable(inp_sighash)
+
         return counter
+
+    def _update_tx_modifiable(self, inp_sighash: int) -> None:
+        """
+        Update PSBT_GLOBAL_TX_MODIFIABLE after a signature is added.
+        BIP-370 Signer role: signer must update this field to reflect
+        the constraints imposed by the sighash type used.
+        """
+        if self.version != 2:
+            return
+
+        is_anyonecanpay = bool(inp_sighash & SIGHASH.ANYONECANPAY)
+        sighash_type = inp_sighash & 0x1F
+
+        if self.tx_modifiable_flags is None:
+            self.tx_modifiable_flags = 0
+
+        if not is_anyonecanpay:
+            self.tx_modifiable_flags &= ~TxModifiable.INPUTS
+        if sighash_type != SIGHASH.NONE:
+            self.tx_modifiable_flags &= ~TxModifiable.OUTPUTS
+        if sighash_type == SIGHASH.SINGLE:
+            self.tx_modifiable_flags |= TxModifiable.SIGHASH_SINGLE
+
+    def get_tx_modifiable(self):
+        return self.tx_modifiable_flags
+
+    def set_tx_modifiable(self, flags):
+        if self.version != 2:
+            raise PSBTError("GLOBAL_TX_MODIFIABLE only supported in PSBTv2")
+        self.tx_modifiable_flags = flags
+
+    def is_inputs_modifiable(self):
+        if self.version != 2:
+            return True
+        if self.tx_modifiable_flags is None:
+            return False
+        return bool(self.tx_modifiable_flags & TxModifiable.INPUTS)
+
+    def is_outputs_modifiable(self):
+        if self.version != 2:
+            return True
+        if self.tx_modifiable_flags is None:
+            return False
+        return bool(self.tx_modifiable_flags & TxModifiable.OUTPUTS)
+
+    def has_sighash_single(self):
+        if self.version != 2 or self.tx_modifiable_flags is None:
+            return False
+        return bool(self.tx_modifiable_flags & TxModifiable.SIGHASH_SINGLE)
+
+    @classmethod
+    def create_v2(cls, tx_version=2, fallback_locktime=None, tx_modifiable=None):
+        """Creator role convenience factory: initialise an empty PSBTv2.
+
+        BIP-370 Creator role: set PSBT_GLOBAL_VERSION=2, PSBT_GLOBAL_TX_VERSION,
+        and optionally PSBT_GLOBAL_FALLBACK_LOCKTIME and PSBT_GLOBAL_TX_MODIFIABLE
+        so the Constructor role can immediately begin adding inputs and outputs.
+        """
+        if tx_modifiable is None:
+            tx_modifiable = TxModifiable.INPUTS | TxModifiable.OUTPUTS
+        psbt = cls(tx=None, version=2)
+        psbt.tx_version = tx_version
+        psbt.locktime = fallback_locktime
+        psbt.tx_modifiable_flags = tx_modifiable
+        return psbt
+
+    def add_input(self, input_scope):
+        if not self.is_inputs_modifiable():
+            raise PSBTError("Inputs are not modifiable")
+        if self.version == 2:
+            # BIP370 Constructor role: validate required fields
+            if input_scope.txid is None:
+                raise PSBTError("PSBTv2 input must have PSBT_IN_PREVIOUS_TXID")
+            if input_scope.vout is None:
+                raise PSBTError("PSBTv2 input must have PSBT_IN_OUTPUT_INDEX")
+            # Validate locktime compatibility before mutating state
+            if (
+                input_scope.required_height_locktime is not None
+                or input_scope.required_time_locktime is not None
+            ):
+                self._validate_locktime_compatibility(self.inputs + [input_scope])
+            # SIGHASH_SINGLE: each added input must have a paired output
+            if self.has_sighash_single() and len(self.inputs) >= len(self.outputs):
+                raise PSBTError(
+                    "Cannot add input without a corresponding output when SIGHASH_SINGLE is set"
+                )
+        self.inputs.append(input_scope)
+        if self.version == 2:
+            self._raw_input_count_from_global = len(self.inputs)
+
+    def add_output(self, output_scope):
+        if not self.is_outputs_modifiable():
+            raise PSBTError("Outputs are not modifiable")
+        if self.version == 2:
+            # BIP370 Constructor role: validate required fields
+            if output_scope.value is None:
+                raise PSBTError("PSBTv2 output must have PSBT_OUT_AMOUNT")
+            if output_scope.script_pubkey is None:
+                raise PSBTError("PSBTv2 output must have PSBT_OUT_SCRIPT")
+        self.outputs.append(output_scope)
+        if self.version == 2:
+            self._raw_output_count_from_global = len(self.outputs)
