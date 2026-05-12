@@ -1,9 +1,11 @@
-from unittest import TestCase, skip
-from util.bitcoin import daemon
 import random
+from unittest import TestCase, skip
+
+from util.bitcoin import daemon
+
+from embit.bip32 import HDKey
 from embit.descriptor import Descriptor
 from embit.descriptor.checksum import add_checksum
-from embit.bip32 import HDKey
 from embit.networks import NETWORKS
 from embit.psbt import PSBT
 

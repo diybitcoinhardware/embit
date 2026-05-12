@@ -1,8 +1,9 @@
-import subprocess
 import os
-import time
-import signal
 import shutil
+import signal
+import subprocess
+import time
+
 from .rpc import BitcoinRPC
 
 

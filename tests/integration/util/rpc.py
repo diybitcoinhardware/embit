@@ -1,7 +1,11 @@
+import errno
+import json
 import logging
-import requests, json, os
-import os, sys, errno
+import os
+import sys
 import time
+
+import requests
 
 logger = logging.getLogger(__name__)
 
