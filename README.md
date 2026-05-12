@@ -80,7 +80,11 @@ mnemonic_from_bytes(bytes_data, wordlist=spanish_wordlist)
 Install in developer mode with dev dependencies:
 
 ```sh
+# sh, bash based environments
 pip install -e .[dev]
+
+# zsh based environments
+pip install -e ".[dev]"
 ```
 
 Install pre-commit hook:
