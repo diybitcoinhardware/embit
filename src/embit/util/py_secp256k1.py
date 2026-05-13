@@ -242,33 +242,35 @@ def ec_pubkey_add(pub, tweak, context=None):
     return Q[0].to_bytes(32, "little") + Q[1].to_bytes(32, "little")
 
 
-# def ec_privkey_tweak_mul(secret, tweak, context=None):
-#     if len(secret)!=32 or len(tweak)!=32:
-#         raise ValueError("Secret and tweak should both be 32 bytes long")
-#     s = int.from_bytes(secret, 'big')
-#     t = int.from_bytes(tweak, 'big')
-#     if t > _key.SECP256K1_ORDER or s > _key.SECP256K1_ORDER:
-#         raise ValueError("Failed to tweak the secret")
-#     r = pow(s, t, _key.SECP256K1_ORDER)
-#     res = r.to_bytes(32, 'big')
-#     for i in range(len(secret)):
-#         secret[i] = res[i]
+def ec_pubkey_tweak_mul(pub, tweak, context=None):
+    if len(pub) != 64:
+        raise ValueError("Public key should be 64 bytes long")
+    if len(tweak) != 32:
+        raise ValueError("Tweak should be 32 bytes long")
+    t = int.from_bytes(tweak, "big")
+    if t == 0 or t >= _key.SECP256K1_ORDER:
+        raise ValueError("Failed to tweak the public key")
+    pubkey = _pubkey_parse(pub)
+    Q = _key.SECP256K1.affine(_key.SECP256K1.mul([(pubkey.p, t)]))
+    if Q is None:
+        raise ValueError("Failed to tweak the public key")
+    res = Q[0].to_bytes(32, "little") + Q[1].to_bytes(32, "little")
+    for i in range(len(pub)):
+        pub[i] = res[i]
 
-# def ec_pubkey_tweak_mul(pub, tweak, context=None):
-#     if len(pub)!=64:
-#         raise ValueError("Public key should be 64 bytes long")
-#     if len(tweak)!=32:
-#         raise ValueError("Tweak should be 32 bytes long")
-#     if _secp.secp256k1_ec_pubkey_tweak_mul(context, pub, tweak) == 0:
-#         raise ValueError("Failed to tweak the public key")
 
-# def ec_pubkey_combine(*args, context=None):
-#     pub = bytes(64)
-#     pubkeys = (c_char_p * len(args))(*args)
-#     r = _secp.secp256k1_ec_pubkey_combine(context, pub, pubkeys, len(args))
-#     if r == 0:
-#         raise ValueError("Failed to negate pubkey")
-#     return pub
+def ec_pubkey_combine(*args, context=None):
+    if len(args) == 0:
+        raise ValueError("At least one pubkey is required")
+    acc = (0, 1, 0)
+    for pub in args:
+        if len(pub) != 64:
+            raise ValueError("Public key should be 64 bytes long")
+        acc = _key.SECP256K1.add(acc, _pubkey_parse(pub).p)
+    Q = _key.SECP256K1.affine(acc)
+    if Q is None:
+        raise ValueError("Failed to combine pubkeys")
+    return Q[0].to_bytes(32, "little") + Q[1].to_bytes(32, "little")
 
 # schnorrsig
 
