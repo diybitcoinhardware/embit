@@ -461,7 +461,8 @@ class PSBTView:
                 height_locktime = int.from_bytes(v_height, "little")
                 if height_locktime == 0 or height_locktime >= LOCKTIME_THRESHOLD:
                     raise PSBTError(
-                        f"Height-based locktime must be > 0 and < {LOCKTIME_THRESHOLD}"
+                        "Height-based locktime must be > 0 and < %d"
+                        % LOCKTIME_THRESHOLD
                     )
                 height_locktimes.append(height_locktime)
                 has_requirement = True
@@ -471,7 +472,7 @@ class PSBTView:
                 time_locktime = int.from_bytes(v_time, "little")
                 if time_locktime < LOCKTIME_THRESHOLD:
                     raise PSBTError(
-                        f"Time-based locktime must be >= {LOCKTIME_THRESHOLD}"
+                        "Time-based locktime must be >= %d" % LOCKTIME_THRESHOLD
                     )
                 time_locktimes.append(time_locktime)
                 has_requirement = True

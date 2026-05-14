@@ -508,11 +508,11 @@ class PSET(PSBT):
         """PSET allows value_commitment as an alternative to value (blinded outputs)."""
         if out.value is None and not getattr(out, "value_commitment", None):
             raise PSBTError(
-                f"PSBTv2 output {i} missing required PSBT_OUT_AMOUNT (0x03)"
+                "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
             )
         if out.script_pubkey is None:
             raise PSBTError(
-                f"PSBTv2 output {i} missing required PSBT_OUT_SCRIPT (0x04)"
+                "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
             )
 
     def unblind(self, blinding_key):

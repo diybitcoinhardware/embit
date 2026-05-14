@@ -403,7 +403,9 @@ class InputScope(PSBTScope):
                 raise PSBTError("PSBT_IN_REQUIRED_TIME_LOCKTIME must be 4 bytes")
             locktime = int.from_bytes(v, "little")
             if locktime < LOCKTIME_THRESHOLD:
-                raise PSBTError(f"Time-based locktime must be >= {LOCKTIME_THRESHOLD}")
+                raise PSBTError(
+                    "Time-based locktime must be >= %d" % LOCKTIME_THRESHOLD
+                )
             self.required_time_locktime = locktime
 
         # PSBT_IN_REQUIRED_HEIGHT_LOCKTIME
@@ -419,7 +421,8 @@ class InputScope(PSBTScope):
             locktime = int.from_bytes(v, "little")
             if locktime >= LOCKTIME_THRESHOLD or locktime == 0:
                 raise PSBTError(
-                    f"Height-based locktime must be > 0 and < {LOCKTIME_THRESHOLD}"
+                    "Height-based locktime must be > 0 and < %d"
+                    % LOCKTIME_THRESHOLD
                 )
             self.required_height_locktime = locktime
 
@@ -796,11 +799,11 @@ class PSBT(EmbitBase):
         Subclasses (e.g. PSET) may override this to accept alternative fields."""
         if out.value is None:
             raise PSBTError(
-                f"PSBTv2 output {i} missing required PSBT_OUT_AMOUNT (0x03)"
+                "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
             )
         if out.script_pubkey is None:
             raise PSBTError(
-                f"PSBTv2 output {i} missing required PSBT_OUT_SCRIPT (0x04)"
+                "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
             )
 
     def __init__(self, tx=None, unknown=None, version=None):
@@ -1033,7 +1036,9 @@ class PSBT(EmbitBase):
                 break
             value = read_string(stream)
             if key in global_kvs:
-                raise PSBTError(f"Duplicated global key: {hexlify(key).decode()}")
+                raise PSBTError(
+                    "Duplicated global key: %s" % hexlify(key).decode()
+                )
             global_kvs[key] = value
 
         # Determine PSBT version from PSBT_GLOBAL_VERSION (0xfb)
@@ -1050,7 +1055,7 @@ class PSBT(EmbitBase):
                 )
             else:
                 raise PSBTError(
-                    f"Unsupported PSBT_GLOBAL_VERSION value: {parsed_version}"
+                    "Unsupported PSBT_GLOBAL_VERSION value: %d" % parsed_version
                 )
 
         if version == 2:  # PSBTv2
@@ -1081,7 +1086,8 @@ class PSBT(EmbitBase):
             for k_v2_only in v2_only_global_keys:
                 if k_v2_only in global_kvs:
                     raise PSBTError(
-                        f"Global key {hexlify(k_v2_only).decode()} is not allowed in PSBTv0"
+                        "Global key %s is not allowed in PSBTv0"
+                        % hexlify(k_v2_only).decode()
                     )
 
             tx_bytes = global_kvs.pop(b"\x00")  # Remove so it's not in unknown
@@ -1107,11 +1113,13 @@ class PSBT(EmbitBase):
             for i, inp in enumerate(psbt.inputs):
                 if inp.txid is None:
                     raise PSBTError(
-                        f"PSBTv2 input {i} missing required PSBT_IN_PREVIOUS_TXID (0x0e)"
+                        "PSBTv2 input %d missing required "
+                        "PSBT_IN_PREVIOUS_TXID (0x0e)" % i
                     )
                 if inp.vout is None:
                     raise PSBTError(
-                        f"PSBTv2 input {i} missing required PSBT_IN_OUTPUT_INDEX (0x0f)"
+                        "PSBTv2 input %d missing required "
+                        "PSBT_IN_OUTPUT_INDEX (0x0f)" % i
                     )
 
             parsed_outputs = []
