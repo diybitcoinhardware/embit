@@ -40,6 +40,8 @@ from .transaction import (
     SIGHASH,
     hash_amounts,
     hash_script_pubkeys,
+    _signed_from_bytes,
+    _signed_to_bytes,
 )
 
 
@@ -411,7 +413,7 @@ class PSBTView:
 
         self.seek_to_scope(self.num_inputs + i)
         v = self.get_value(b"\x03", from_current=True)
-        value = int.from_bytes(v, "little")
+        value = _signed_from_bytes(v)
 
         self.seek_to_scope(self.num_inputs + i)
         v = self.get_value(b"\x04", from_current=True)
@@ -508,7 +510,7 @@ class PSBTView:
                 if len(v) != 4:
                     raise PSBTError("Invalid PSBT_GLOBAL_TX_VERSION length")
                 # BIP370: PSBT_GLOBAL_TX_VERSION is a signed int32
-                self._tx_version = int.from_bytes(v, "little", signed=True)
+                self._tx_version = _signed_from_bytes(v)
         return self._tx_version
 
     def seek_to_value(self, key_start, from_current=False):
@@ -598,7 +600,7 @@ class PSBTView:
         sh, anyonecanpay = SIGHASH.check(sighash)
         h = hashes.tagged_hash_init("TapSighash", b"\x00")
         h.update(bytes([sighash]))
-        h.update(self.tx_version.to_bytes(4, "little", signed=True))
+        h.update(_signed_to_bytes(self.tx_version, 4))
         h.update(self.locktime.to_bytes(4, "little"))
         if not anyonecanpay:
             h.update(self.hash_prevouts())
@@ -646,7 +648,7 @@ class PSBTView:
         inp = self.vin(input_index)
         zero = b"\x00" * 32  # for sighashes
         h = hashlib.sha256()
-        h.update(self.tx_version.to_bytes(4, "little", signed=True))
+        h.update(_signed_to_bytes(self.tx_version, 4))
         if anyonecanpay:
             h.update(zero)
         else:
@@ -686,7 +688,7 @@ class PSBTView:
             return b"\x00" * 31 + b"\x01"
 
         h = hashlib.sha256()
-        h.update(self.tx_version.to_bytes(4, "little", signed=True))
+        h.update(_signed_to_bytes(self.tx_version, 4))
         # ANYONECANPAY - only one input is serialized
         if anyonecanpay:
             h.update(compact.to_bytes(1))

@@ -1,5 +1,12 @@
 from collections import OrderedDict
-from .transaction import Transaction, TransactionOutput, TransactionInput, SIGHASH
+from .transaction import (
+    Transaction,
+    TransactionOutput,
+    TransactionInput,
+    SIGHASH,
+    _signed_from_bytes,
+    _signed_to_bytes,
+)
 from . import compact
 from . import bip32
 from . import ec
@@ -693,7 +700,7 @@ class OutputScope(PSBTScope):
                 raise PSBTError("PSBT_OUT_AMOUNT must be 8 bytes")
             if self.value is not None:
                 raise PSBTError("Duplicated PSBT_OUT_AMOUNT")
-            self.value = int.from_bytes(v, "little", signed=True)
+            self.value = _signed_from_bytes(v)
         elif k == b"\x04":
             if version != 2:
                 raise PSBTError("PSBT_OUT_SCRIPT not allowed in PSBTv0")
@@ -738,7 +745,7 @@ class OutputScope(PSBTScope):
             if self.value is not None:
                 r += ser_string(stream, b"\x03")
                 # BIP370: PSBT_OUT_AMOUNT is a signed 64-bit integer
-                r += ser_string(stream, self.value.to_bytes(8, "little", signed=True))
+                r += ser_string(stream, _signed_to_bytes(self.value, 8))
             if self.script_pubkey is not None:
                 r += ser_string(stream, b"\x04")
                 r += self.script_pubkey.write_to(stream)
@@ -971,7 +978,7 @@ class PSBT(EmbitBase):
                 )
             r += ser_string(stream, b"\x02")
             # BIP370: PSBT_GLOBAL_TX_VERSION is a signed int32
-            r += ser_string(stream, self.tx_version.to_bytes(4, "little", signed=True))
+            r += ser_string(stream, _signed_to_bytes(self.tx_version, 4))
             if self.locktime is not None:
                 r += ser_string(stream, b"\x03")
                 r += ser_string(stream, self.locktime.to_bytes(4, "little"))
@@ -1185,7 +1192,7 @@ class PSBT(EmbitBase):
                     if len(v) != 4:
                         raise PSBTError("PSBT_GLOBAL_TX_VERSION must be 4 bytes")
                     # BIP370: PSBT_GLOBAL_TX_VERSION is a signed int32
-                    self.tx_version = int.from_bytes(v, "little", signed=True)
+                    self.tx_version = _signed_from_bytes(v)
             elif k == b"\x03":
                 if self.version == 2:
                     v = self.unknown.pop(k)
