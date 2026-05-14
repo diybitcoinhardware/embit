@@ -6,10 +6,17 @@ https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki#user-content-Test
 import pytest
 from binascii import unhexlify
 from io import BytesIO
-from embit.psbt import PSBT, PSBTError, TxModifiable, InputScope, OutputScope
+from embit.psbt import (
+    PSBT,
+    PSBTError,
+    TxModifiable,
+    InputScope,
+    OutputScope,
+    CompressMode,
+)
 from embit.psbtview import PSBTView
 from embit.script import Script
-from embit.transaction import SIGHASH
+from embit.transaction import SIGHASH, Transaction, TransactionInput, TransactionOutput
 
 
 class TestPSBTVectors:
@@ -581,3 +588,69 @@ class TestTxModifiableUpdate:
         psbt._update_tx_modifiable(SIGHASH.ALL)
         # must remain untouched because version != 2
         assert psbt.tx_modifiable_flags == TxModifiable.INPUTS | TxModifiable.OUTPUTS
+
+
+class TestPSBTViewV2Validation:
+    def test_psbtview_rejects_v2_only_global_in_v0(self):
+        """PSBTView should enforce the same v0/v2 global separation as PSBT"""
+        psbt = PSBT(Transaction())
+        raw = psbt.serialize()
+        stream = BytesIO(raw)
+        stream.read(len(PSBT.MAGIC))
+        while True:
+            pos = stream.tell()
+            key_len = stream.read(1)[0]
+            if key_len == 0:
+                separator = pos
+                break
+            stream.seek(key_len, 1)
+            value_len = stream.read(1)[0]
+            stream.seek(value_len, 1)
+
+        tx_version_kv = b"\x01\x02\x04\x02\x00\x00\x00"
+        invalid = raw[:separator] + tx_version_kv + raw[separator:]
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(invalid))
+
+
+class TestPSBTv2TransactionVersion:
+    def test_psbt_tx_preserves_zero_and_negative_versions(self):
+        """PSBT_GLOBAL_TX_VERSION is signed and zero must not fall back to 2"""
+        psbt = PSBT.create_v2(tx_version=0)
+        inp = InputScope()
+        inp.txid = bytes(32)
+        inp.vout = 0
+        psbt.add_input(inp)
+        out = OutputScope()
+        out.value = 1
+        out.script_pubkey = Script(b"")
+        psbt.add_output(out)
+        assert psbt.tx.serialize()[:4] == b"\x00\x00\x00\x00"
+
+        psbt.tx_version = -1
+        assert psbt.tx.serialize()[:4] == b"\xff\xff\xff\xff"
+
+
+class TestPSBTv2Compression:
+    def test_psbtv2_compress_non_witness_utxo_is_key_order_independent(self):
+        """PSBTv2 compress should not load the full prev tx when 0x00 precedes 0x0f"""
+        prev = Transaction(
+            vin=[TransactionInput(bytes([1]) * 32, 0)],
+            vout=[TransactionOutput(1234, Script(b"\x51"))],
+        )
+        psbt = PSBT.create_v2()
+        inp = InputScope()
+        inp.txid = prev.txid()
+        inp.vout = 0
+        # InputScope serializes non_witness_utxo before PSBTv2 prevout fields.
+        inp.non_witness_utxo = prev
+        psbt.add_input(inp)
+        out = OutputScope()
+        out.value = 1000
+        out.script_pubkey = Script(b"\x51")
+        psbt.add_output(out)
+
+        parsed = PSBT.parse(psbt.serialize(), compress=CompressMode.PARTIAL)
+        assert parsed.inputs[0].non_witness_utxo is None
+        assert parsed.inputs[0]._utxo.value == 1234
+        assert parsed.verify()
