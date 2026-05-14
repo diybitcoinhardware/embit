@@ -270,7 +270,7 @@ class InputScope(PSBTScope):
             elif self.non_witness_utxo is not None:
                 raise PSBTError("Duplicated utxo value")
             else:
-                l = compact.read_from(stream)
+                compact.read_from(stream)
                 # For PSBTv2, PSBT_IN_OUTPUT_INDEX may follow PSBT_IN_NON_WITNESS_UTXO;
                 # use the pre-scanned vout (set by read_from) when the field hasn't
                 # been parsed yet so the OOM protection is key-order independent.
@@ -280,7 +280,7 @@ class InputScope(PSBTScope):
                     else getattr(self, "_prescan_vout", None)
                 )
                 # we verified and saved utxo
-                if self.compress and self.txid and effective_vout is not None:
+                if self.compress and effective_vout is not None:
                     txout, txhash = self.TX_CLS.read_vout(stream, effective_vout)
                     self._txhash = txhash
                     self._utxo = txout
@@ -577,9 +577,9 @@ class InputScope(PSBTScope):
     @classmethod
     def read_from(cls, stream, compress=CompressMode.KEEP_ALL, vin=None, version=None):
         res = cls({}, vin=vin, compress=compress)
-        # For PSBTv2 with compress mode, pre-scan for PSBT_IN_OUTPUT_INDEX so the
-        # non-witness UTXO memory optimisation works regardless of key order.
-        # (BIP370 does not guarantee that 0x0f appears before 0x00.)
+        # PSBT maps are unordered, so PSBTv2 input maps may provide the output
+        # index after the non-witness UTXO. Peek only at compact-sized keys and
+        # skip values to keep compressed parsing independent of key order.
         res._prescan_vout = None
         if version == 2 and compress and res.vout is None:
             try:
@@ -588,10 +588,15 @@ class InputScope(PSBTScope):
                     k = read_string(stream)
                     if len(k) == 0:
                         break
-                    v = read_string(stream)
-                    if k == b"\x0f" and len(v) == 4:
-                        res._prescan_vout = int.from_bytes(v, "little")
+                    if k == b"\x0f":
+                        v = read_string(stream)
+                        if len(v) == 4:
+                            res._prescan_vout = int.from_bytes(v, "little")
+                        else:
+                            # Let the real parse raise the precise validation error.
+                            pass
                         break
+                    skip_string(stream)
                 stream.seek(start_pos)
             except (AttributeError, OSError):
                 pass  # stream not seekable; OOM protection may be unavailable
@@ -901,8 +906,9 @@ class PSBT(EmbitBase):
 
         if self.version == 2 and self.tx_version is None:
             raise PSBTError("PSBTv2 is missing required PSBT_GLOBAL_TX_VERSION")
+        tx_version = self.tx_version if self.tx_version is not None else 2
         return self.TX_CLS(
-            version=self.tx_version or 2,
+            version=tx_version,
             locktime=locktime,
             vin=[inp.vin for inp in self.inputs],
             vout=[out.vout for out in self.outputs],

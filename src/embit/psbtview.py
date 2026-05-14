@@ -16,6 +16,7 @@ Makes sense to run gc.collect() after processing of each scope to free memory.
 
 # TODO: refactor, a lot of code is duplicated here from transaction.py
 from collections import OrderedDict
+from binascii import hexlify
 import hashlib
 from . import compact
 from . import ec
@@ -285,15 +286,27 @@ class PSBTView:
                     raise PSBTError("Duplicate global key: %s" % key)
                 global_kvs[key] = value
                 if key == b"\xfb":
+                    if len(value) != 4:
+                        raise PSBTError("PSBT_GLOBAL_VERSION must be 4 bytes")
                     version = int.from_bytes(value, "little")
                 elif key == b"\x04":
                     num_inputs = compact.from_bytes(value)
                 elif key == b"\x05":
                     num_outputs = compact.from_bytes(value)
         first_scope = cur
+        if version not in (None, 0, 2):
+            raise PSBTError("Unsupported PSBT_GLOBAL_VERSION value: %d" % version)
+        if version == 0:
+            version = None
         # PSBTv2 must not have a global unsigned transaction, regardless of key order
         if tx_offset is not None and version == 2:
             raise PSBTError("Global transaction with version 2 PSBT")
+        if version != 2:
+            for k in {b"\x02", b"\x03", b"\x04", b"\x05", b"\x06"}:
+                if k in global_kvs:
+                    raise PSBTError(
+                        "Global key %s is not allowed in PSBTv0" % hexlify(k).decode()
+                    )
         if None in [version or tx_offset, num_inputs, num_outputs]:
             raise PSBTError("Missing something important in PSBT")
         return cls(
