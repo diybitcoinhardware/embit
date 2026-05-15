@@ -82,7 +82,7 @@ def unblind(
         raise TransactionError("Invalid value commitment length")
     if len(asset_commitment) != 33:
         raise TransactionError("Invalid asset commitment length")
-    pub = secp256k1.ec_pubkey_parse(pubkey)
+    pub = bytearray(secp256k1.ec_pubkey_parse(pubkey))
     secp256k1.ec_pubkey_tweak_mul(pub, blinding_key)
     sec = secp256k1.ec_pubkey_serialize(pub)
     nonce = hashlib.sha256(hashlib.sha256(sec).digest()).digest()
