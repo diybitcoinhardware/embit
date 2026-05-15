@@ -118,16 +118,32 @@ class BindingsTest(TestCase):
         # mutable `bytearray`. Pass each the type it expects, then compare.
         tweak = b"9" * 32
         pub_py = bytearray(pub1)
-        pub_c = bytes(pub1)  # mutated in place via the CPython ctypes quirk
+        pub_c = ctypes_secp256k1._copy(pub1)  # mutated via the CPython ctypes quirk
         py_secp256k1.ec_pubkey_tweak_mul(pub_py, tweak)
         ctypes_secp256k1.ec_pubkey_tweak_mul(pub_c, tweak)
         self.assertEqual(bytes(pub_py), pub_c)
+        pub_c_mutable = bytearray(pub1)
+        ctypes_secp256k1.ec_pubkey_tweak_mul(pub_c_mutable, bytearray(tweak))
+        self.assertEqual(bytes(pub_py), bytes(pub_c_mutable))
+
+        secret_py = bytearray(secret)
+        secret_c = ctypes_secp256k1._copy(secret)
+        py_secp256k1.ec_privkey_tweak_mul(secret_py, tweak)
+        ctypes_secp256k1.ec_privkey_tweak_mul(secret_c, tweak)
+        self.assertEqual(bytes(secret_py), secret_c)
+        secret_c_mutable = bytearray(secret)
+        ctypes_secp256k1.ec_privkey_tweak_mul(secret_c_mutable, bytearray(tweak))
+        self.assertEqual(bytes(secret_py), bytes(secret_c_mutable))
 
         # ec_pubkey_combine takes varargs and returns a new pubkey.
         pub_other = py_secp256k1.ec_pubkey_create(b"7" * 32)
         self.assertEqual(
             py_secp256k1.ec_pubkey_combine(pub1, pub_other),
             ctypes_secp256k1.ec_pubkey_combine(pub1, pub_other),
+        )
+        self.assertEqual(
+            ctypes_secp256k1.ec_pubkey_combine(pub1, pub_other),
+            ctypes_secp256k1.ec_pubkey_combine(bytearray(pub1), bytearray(pub_other)),
         )
         # Three-arg combine.
         pub_third = py_secp256k1.ec_pubkey_create(b"3" * 32)
@@ -206,6 +222,89 @@ def _tweak_mul_result_x(pubkey_compressed_hex, tweak_hex):
     pub = bytearray(py_secp256k1.ec_pubkey_parse(unhexlify(pubkey_compressed_hex)))
     py_secp256k1.ec_pubkey_tweak_mul(pub, unhexlify(tweak_hex))
     return py_secp256k1.ec_pubkey_serialize(bytes(pub))[1:33].hex()
+
+
+class PrivkeyTweakMulTest(TestCase):
+    """Standalone tests for py_secp256k1.ec_privkey_tweak_mul."""
+
+    def test_identity_tweak_one_unchanged(self):
+        secret = bytearray(b"2" * 32)
+        expected = bytes(secret)
+        py_secp256k1.ec_privkey_tweak_mul(secret, (1).to_bytes(32, "big"))
+        self.assertEqual(bytes(secret), expected)
+
+    def test_multiplies_scalar_mod_order(self):
+        for secret_int, tweak_int in (
+            (1, 2),
+            (2, 3),
+            (12345, 0xDEADBEEF),
+            (_SECP256K1_ORDER - 1, _SECP256K1_ORDER - 1),
+        ):
+            with self.subTest(secret_int=secret_int, tweak_int=tweak_int):
+                secret = bytearray(secret_int.to_bytes(32, "big"))
+                tweak = tweak_int.to_bytes(32, "big")
+                py_secp256k1.ec_privkey_tweak_mul(secret, tweak)
+                expected = (secret_int * tweak_int) % _SECP256K1_ORDER
+                self.assertEqual(bytes(secret), expected.to_bytes(32, "big"))
+
+    def test_public_key_matches_tweaked_secret(self):
+        secret = bytearray(b"5" * 32)
+        tweak = b"9" * 32
+        pub = bytearray(py_secp256k1.ec_pubkey_create(secret))
+
+        py_secp256k1.ec_privkey_tweak_mul(secret, tweak)
+        py_secp256k1.ec_pubkey_tweak_mul(pub, tweak)
+
+        self.assertEqual(bytes(pub), py_secp256k1.ec_pubkey_create(secret))
+
+    def test_rejects_zero_secret(self):
+        with self.assertRaises(ValueError):
+            py_secp256k1.ec_privkey_tweak_mul(bytearray(32), b"\x01" * 32)
+
+    def test_rejects_zero_tweak(self):
+        with self.assertRaises(ValueError):
+            py_secp256k1.ec_privkey_tweak_mul(bytearray(b"4" * 32), b"\x00" * 32)
+
+    def test_rejects_overflow_secret_or_tweak(self):
+        for secret_int, tweak_int in (
+            (_SECP256K1_ORDER, 1),
+            (_SECP256K1_ORDER + 1, 1),
+            (1, _SECP256K1_ORDER),
+            (1, _SECP256K1_ORDER + 1),
+            (2**256 - 1, 1),
+            (1, 2**256 - 1),
+        ):
+            with self.subTest(secret_int=secret_int, tweak_int=tweak_int):
+                secret = bytearray(secret_int.to_bytes(32, "big"))
+                tweak = tweak_int.to_bytes(32, "big")
+                with self.assertRaises(ValueError):
+                    py_secp256k1.ec_privkey_tweak_mul(secret, tweak)
+
+    def test_rejects_wrong_lengths(self):
+        with self.assertRaises(ValueError):
+            py_secp256k1.ec_privkey_tweak_mul(bytearray(31), b"\x01" * 32)
+        with self.assertRaises(ValueError):
+            py_secp256k1.ec_privkey_tweak_mul(bytearray(b"4" * 32), b"\x01" * 31)
+
+
+class TweakMutationTypeTest(TestCase):
+    def test_rejects_immutable_private_key_for_add(self):
+        with self.assertRaisesRegex(TypeError, "bytearray"):
+            py_secp256k1.ec_privkey_tweak_add(b"2" * 32, b"\x01" * 32)
+
+    def test_rejects_immutable_public_key_for_add(self):
+        pub = py_secp256k1.ec_pubkey_create(b"2" * 32)
+        with self.assertRaisesRegex(TypeError, "bytearray"):
+            py_secp256k1.ec_pubkey_tweak_add(pub, b"\x01" * 32)
+
+    def test_rejects_immutable_private_key_for_mul(self):
+        with self.assertRaisesRegex(TypeError, "bytearray"):
+            py_secp256k1.ec_privkey_tweak_mul(b"2" * 32, b"\x01" * 32)
+
+    def test_rejects_immutable_public_key_for_mul(self):
+        pub = py_secp256k1.ec_pubkey_create(b"2" * 32)
+        with self.assertRaisesRegex(TypeError, "bytearray"):
+            py_secp256k1.ec_pubkey_tweak_mul(pub, b"\x01" * 32)
 
 
 class PubkeyTweakMulTest(TestCase):

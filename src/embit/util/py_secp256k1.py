@@ -205,16 +205,50 @@ def ec_pubkey_negate(pubkey, context=None):
     return ec_pubkey_parse(bytes([0x05 - sec[0]]) + sec[1:])
 
 
-def ec_privkey_tweak_add(secret, tweak, context=None):
+def _ensure_mutable_key(key):
+    if not isinstance(key, bytearray):
+        raise TypeError("Tweaked key must be a bytearray")
+
+
+def ec_privkey_tweak_add(
+    secret: bytearray, tweak: bytes | bytearray, context: object | None = None
+) -> None:
+    """Add tweak to secret in place."""
+    _ensure_mutable_key(secret)
     res = ec_privkey_add(secret, tweak)
     for i in range(len(secret)):
         secret[i] = res[i]
 
 
-def ec_pubkey_tweak_add(pub, tweak, context=None):
+def ec_pubkey_tweak_add(
+    pub: bytearray, tweak: bytes | bytearray, context: object | None = None
+) -> None:
+    """Add tweak to public key in place."""
+    _ensure_mutable_key(pub)
     res = ec_pubkey_add(pub, tweak)
     for i in range(len(pub)):
         pub[i] = res[i]
+
+
+def ec_privkey_tweak_mul(
+    secret: bytearray, tweak: bytes | bytearray, context: object | None = None
+) -> None:
+    """Multiply secret by tweak in place."""
+    _ensure_mutable_key(secret)
+    if len(secret) != 32 or len(tweak) != 32:
+        raise ValueError("Secret and tweak should both be 32 bytes long")
+    s = int.from_bytes(secret, "big")
+    t = int.from_bytes(tweak, "big")
+    if (
+        s == 0
+        or s >= _key.SECP256K1_ORDER
+        or t == 0
+        or t >= _key.SECP256K1_ORDER
+    ):
+        raise ValueError("Failed to tweak the secret")
+    res = ((s * t) % _key.SECP256K1_ORDER).to_bytes(32, "big")
+    for i in range(len(secret)):
+        secret[i] = res[i]
 
 
 def ec_privkey_add(secret, tweak, context=None):
@@ -242,7 +276,11 @@ def ec_pubkey_add(pub, tweak, context=None):
     return Q[0].to_bytes(32, "little") + Q[1].to_bytes(32, "little")
 
 
-def ec_pubkey_tweak_mul(pub, tweak, context=None):
+def ec_pubkey_tweak_mul(
+    pub: bytearray, tweak: bytes | bytearray, context: object | None = None
+) -> None:
+    """Multiply public key by tweak in place."""
+    _ensure_mutable_key(pub)
     if len(pub) != 64:
         raise ValueError("Public key should be 64 bytes long")
     if len(tweak) != 32:
