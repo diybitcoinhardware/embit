@@ -95,6 +95,27 @@ def bech32_decode(bech):
     return (encoding, hrp, data[:-6])
 
 
+# TODO: remove this once flexible bech32 is in
+def bech32_decode_long(bech):
+    """Like bech32_decode but without the 90-character length limit."""
+    if (any(ord(x) < 33 or ord(x) > 126 for x in bech)) or (
+        bech.lower() != bech and bech.upper() != bech
+    ):
+        return (None, None, None)
+    bech = bech.lower()
+    pos = bech.rfind("1")
+    if pos < 1 or pos + 7 > len(bech):
+        return (None, None, None)
+    if not all(x in CHARSET for x in bech[pos + 1 :]):
+        return (None, None, None)
+    hrp = bech[:pos]
+    data = [CHARSET.find(x) for x in bech[pos + 1 :]]
+    encoding = bech32_verify_checksum(hrp, data)
+    if encoding is None:
+        return (None, None, None)
+    return (encoding, hrp, data[:-6])
+
+
 def convertbits(data, frombits, tobits, pad=True):
     """General power-of-2 base conversion."""
     acc = 0
