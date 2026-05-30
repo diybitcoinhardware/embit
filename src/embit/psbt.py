@@ -432,8 +432,7 @@ class InputScope(PSBTScope):
             locktime = int.from_bytes(v, "little")
             if locktime >= LOCKTIME_THRESHOLD or locktime == 0:
                 raise PSBTError(
-                    "Height-based locktime must be > 0 and < %d"
-                    % LOCKTIME_THRESHOLD
+                    "Height-based locktime must be > 0 and < %d" % LOCKTIME_THRESHOLD
                 )
             self.required_height_locktime = locktime
 
@@ -963,6 +962,9 @@ class PSBT(EmbitBase):
         fee -= sum([out.value for out in self.tx.vout])
         return fee
 
+    def _write_extra_globals(self, stream) -> int:
+        return 0
+
     def write_to(self, stream) -> int:
         # magic bytes
         r = stream.write(self.MAGIC)
@@ -997,6 +999,8 @@ class PSBT(EmbitBase):
                 r += ser_string(stream, bytes([self.tx_modifiable_flags]))
             r += ser_string(stream, b"\xfb")
             r += ser_string(stream, self.version.to_bytes(4, "little"))
+
+        r += self._write_extra_globals(stream)
         # unknown
         for key in self.unknown:
             r += ser_string(stream, key)
@@ -1049,9 +1053,7 @@ class PSBT(EmbitBase):
                 break
             value = read_string(stream)
             if key in global_kvs:
-                raise PSBTError(
-                    "Duplicated global key: %s" % hexlify(key).decode()
-                )
+                raise PSBTError("Duplicated global key: %s" % hexlify(key).decode())
             global_kvs[key] = value
 
         # Determine PSBT version from PSBT_GLOBAL_VERSION (0xfb)

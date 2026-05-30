@@ -180,6 +180,18 @@ class PrivateKey(EmbitKey):
             pk = PrivateKey(secp256k1.ec_privkey_negate(res))
         return pk
 
+    def sp_spend_tweak(self, tweak: bytes) -> "PrivateKey":
+        """BIP-352 spend key: add the per-output tweak t_k to the spend secret.
+
+        Returns a PrivateKey whose pubkey equals the silent-payment output key
+        P_k = B_spend + t_k*G. No TapTweak and no parity negation are applied
+        here; Schnorr signing handles output-key y-parity.
+        """
+        if len(tweak) != 32 or not secp256k1.ec_seckey_verify(tweak):
+            raise EmbitError("Invalid silent payment tweak")
+        res = secp256k1.ec_privkey_add(self._secret, tweak)
+        return PrivateKey(res)
+
     @classmethod
     def from_wif(cls, s):
         """Import private key from Wallet Import Format string."""

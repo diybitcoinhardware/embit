@@ -135,3 +135,6 @@ settings.json
 src/embit/util/prebuilt/*.so
 src/embit/util/prebuilt/*.dylib
 src/embit/util/prebuilt/*.dll
+
+.claude/
+CLAUDE.md

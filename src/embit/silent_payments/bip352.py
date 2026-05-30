@@ -15,6 +15,7 @@ from ..util.secp256k1 import (
     ec_pubkey_tweak_add,
     ec_seckey_verify,
     ec_privkey_negate,
+    EC_COMPRESSED,
 )
 from binascii import hexlify
 
@@ -178,5 +179,62 @@ def create_outputs(input_privkeys, outpoints, recipients):
                 xonly = ec_pubkey_serialize(P_k)[1:33]
                 result[addr].append(hexlify(xonly).decode())
                 k += 1
+
+    return result
+
+
+def derive_silent_payment_outputs(ecdh_share, recipients, shared_secret=None):
+    """
+    Derive silent payment outputs for recipients from a precomputed ECDH share.
+
+    Unlike create_outputs (which derives the share from input private keys),
+    this takes the ECDH shared-secret point directly, as used by the BIP-375
+    PSBT flow where shares are carried in the PSBT.
+
+    Args:
+        ecdh_share: The ECDH shared secret point C (33 bytes)
+        recipients: List of (scan_key, spend_key, label) tuples
+        shared_secret: Precomputed xonly shared secret (for efficiency)
+
+    Returns:
+        Dict mapping recipient index to output pubkey xonly (32 bytes each)
+    """
+    if not recipients:
+        return {}
+
+    # Use precomputed or default to the full 33-byte compressed point (BIP-352 §1)
+    if shared_secret is None:
+        shared_secret = ecdh_share
+
+    result = {}
+
+    for k, (scan_key, spend_key, label) in enumerate(recipients):
+        # For labeled recipients, tweak the spend key
+        if label is not None and label != 0:
+            if isinstance(label, int):
+                label_bytes = label.to_bytes(4, "big")
+            else:
+                label_bytes = label
+
+            tweak = tagged_hash("BIP0352/Label", scan_key.sec() + label_bytes)
+            spend_internal = bytearray(ec_pubkey_parse(spend_key.sec()))
+            ec_pubkey_tweak_add(spend_internal, tweak)
+            tweaked_spend = ec_pubkey_serialize(spend_internal, EC_COMPRESSED)
+        else:
+            tweaked_spend = spend_key.sec()
+
+        # Compute t_k
+        t_k = tagged_hash(
+            "BIP0352/SharedSecret",
+            shared_secret + k.to_bytes(4, "big"),
+        )
+
+        # P_k = B_spend + t_k
+        p_k_internal = bytearray(ec_pubkey_parse(tweaked_spend))
+        ec_pubkey_tweak_add(p_k_internal, t_k)
+        p_k = ec_pubkey_serialize(p_k_internal, EC_COMPRESSED)
+
+        # Store as p2tr output (extract xonly)
+        result[k] = p_k[1:33]
 
     return result
