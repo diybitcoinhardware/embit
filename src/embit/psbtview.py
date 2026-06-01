@@ -1060,7 +1060,7 @@ class PSBTView:
             inp = self.input(i)
             # add extra data from extra input streams
             for s in extra_input_streams:
-                extra = InputScope.read_from(s)
+                extra = InputScope.read_from(s, version=self.version)
                 inp.update(extra)
             if compress:
                 inp.clear_metadata(compress=compress)
@@ -1071,7 +1071,7 @@ class PSBTView:
             out = self.output(i)
             # add extra data from extra input streams
             for s in extra_output_streams:
-                extra = OutputScope.read_from(s)
+                extra = OutputScope.read_from(s, version=self.version)
                 out.update(extra)
             if compress:
                 out.clear_metadata(compress=compress)
