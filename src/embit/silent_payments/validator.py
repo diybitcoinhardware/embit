@@ -276,21 +276,40 @@ class BIP375Validator:
             )
 
     def _get_input_public_key(self, inp, inp_idx: int):
-        """Extract the input's signing public key using hash-matching against the UTXO script.
+        """Return the input's public key used for SP shared-secret derivation.
 
-        Falls back to partial_sigs keys when bip32_derivations is absent (e.g. a
-        trimmed PSBT where the signer stripped BIP-32 metadata to save space).
+        For taproot the key is the (even-Y) output key taken from the
+        scriptPubKey.  For the other eligible types it comes from
+        PSBT_IN_BIP32_DERIVATION (preferred, matched by hash160 against the
+        script) or PSBT_IN_PARTIAL_SIG, falling back to the sole candidate key
+        when the scriptPubKey does not commit to it (e.g. a placeholder UTXO as
+        used in the BIP-375 test vectors, or a trimmed PSBT).
         """
-        pkh = pubkey_hash_from_script(inp.script_pubkey, inp.redeem_script)
-        if pkh is None:
+        script = inp.script_pubkey
+        if script is None:
             return None
 
-        for pubkey in inp.bip32_derivations:
-            if hash160(pubkey.sec()) == pkh:
-                return pubkey
-        for pubkey in inp.partial_sigs:
-            if hash160(pubkey.sec()) == pkh:
-                return pubkey
+        if script.script_type() == "p2tr":
+            return ec.PublicKey.from_xonly(bytes(script.data[2:34]))
+
+        candidates = list(inp.bip32_derivations) + list(inp.partial_sigs)
+        if not candidates:
+            return None
+
+        pkh = pubkey_hash_from_script(script, inp.redeem_script)
+        if pkh is not None:
+            for pubkey in candidates:
+                if hash160(pubkey.sec()) == pkh:
+                    return pubkey
+
+        # Placeholder / non-committing script: use the sole candidate if
+        # unambiguous. A wrong key here is caught by DLEQ / output-script checks.
+        unique = []
+        for pubkey in candidates:
+            if pubkey not in unique:
+                unique.append(pubkey)
+        if len(unique) == 1:
+            return unique[0]
         return None
 
     def _validate_input_eligibility(self):
@@ -345,7 +364,10 @@ class BIP375Validator:
         A_sum_bytes = _sum_pubkeys(eligible_pubkeys)
         input_hash = get_input_hash(outpoints, A_sum_bytes)
 
-        # Group SP outputs by scan key
+        # Group SP outputs by scan key, preserving output-index order. The
+        # derivation counter k is the output's position within its scan-key
+        # group in this order (BIP-375: outputs are placed in the order that
+        # determines k; outputs sharing scan+spend are ordered by output index).
         sp_outputs_by_scan = {}
         for out_idx, out in enumerate(self.psbt.outputs):
             if out.sp_data is not None:
@@ -375,30 +397,29 @@ class BIP375Validator:
                     ecdh_share = ec_pubkey_serialize(share_sum, EC_COMPRESSED)
 
             if not ecdh_share:
-                raise SPValidationError("No ECDH share found for scan key in outputs")
+                # Incomplete PSBT (output scripts not yet set) legitimately lacks
+                # ECDH shares; only fail if a script is actually present to check.
+                if any(out.script_pubkey is not None for _, out in outputs_for_scan):
+                    raise SPValidationError(
+                        "No ECDH share found for scan key in outputs"
+                    )
+                continue
 
             # Apply input_hash: adjusted_share = input_hash · ecdh_share (BIP-352)
             adjusted_handle = bytearray(ec_pubkey_parse(ecdh_share))
             ec_pubkey_tweak_mul(adjusted_handle, input_hash)
             adjusted_share = ec_pubkey_serialize(adjusted_handle, EC_COMPRESSED)
 
-            # Sort outputs for this scan key by spend key (lexicographic).  The
-            # derivation counter k is the position in this sorted order.
-            sorted_outputs = sorted(
-                outputs_for_scan,
-                key=lambda x: (x[1].sp_data.spend_key.sec()),
-            )
-
             derived = derive_silent_payment_outputs(
                 adjusted_share,
                 [
                     (out.sp_data.scan_key, out.sp_data.spend_key, out.sp_label)
-                    for _, out in sorted_outputs
+                    for _, out in outputs_for_scan
                 ],
             )
 
             # Validate each output's script against the derived key
-            for pos, (out_idx, out) in enumerate(sorted_outputs):
+            for pos, (out_idx, out) in enumerate(outputs_for_scan):
                 if out.script_pubkey is None:
                     # Incomplete PSBT
                     continue

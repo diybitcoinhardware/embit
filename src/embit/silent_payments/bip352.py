@@ -191,13 +191,21 @@ def derive_silent_payment_outputs(ecdh_share, recipients, shared_secret=None):
     this takes the ECDH shared-secret point directly, as used by the BIP-375
     PSBT flow where shares are carried in the PSBT.
 
+    The spend key of each recipient is the final per-output spend key as carried
+    in PSBT_OUT_SP_V0_INFO (already label-tweaked when the address was labeled),
+    so no label tweak is applied here — the label requires the private scan key
+    and cannot be recomputed by a validator. ``k`` is the recipient's position
+    in ``recipients`` (the caller fixes the ordering).
+
     Args:
-        ecdh_share: The ECDH shared secret point C (33 bytes)
-        recipients: List of (scan_key, spend_key, label) tuples
-        shared_secret: Precomputed xonly shared secret (for efficiency)
+        ecdh_share: ECDH shared-secret point, serialized compressed (33 bytes),
+            already multiplied by input_hash.
+        recipients: ordered list of (scan_key, spend_key, label) tuples; label
+            is informational and unused.
+        shared_secret: precomputed compressed shared secret (for efficiency).
 
     Returns:
-        Dict mapping recipient index to output pubkey xonly (32 bytes each)
+        Dict mapping recipient position k to output pubkey x-only (32 bytes).
     """
     if not recipients:
         return {}
@@ -208,29 +216,14 @@ def derive_silent_payment_outputs(ecdh_share, recipients, shared_secret=None):
 
     result = {}
 
-    for k, (scan_key, spend_key, label) in enumerate(recipients):
-        # For labeled recipients, tweak the spend key
-        if label is not None and label != 0:
-            if isinstance(label, int):
-                label_bytes = label.to_bytes(4, "big")
-            else:
-                label_bytes = label
-
-            tweak = tagged_hash("BIP0352/Label", scan_key.sec() + label_bytes)
-            spend_internal = bytearray(ec_pubkey_parse(spend_key.sec()))
-            ec_pubkey_tweak_add(spend_internal, tweak)
-            tweaked_spend = ec_pubkey_serialize(spend_internal, EC_COMPRESSED)
-        else:
-            tweaked_spend = spend_key.sec()
-
-        # Compute t_k
+    for k, (scan_key, spend_key, _label) in enumerate(recipients):
         t_k = tagged_hash(
             "BIP0352/SharedSecret",
             shared_secret + k.to_bytes(4, "big"),
         )
 
-        # P_k = B_spend + t_k
-        p_k_internal = bytearray(ec_pubkey_parse(tweaked_spend))
+        # P_k = B_spend + t_k·G
+        p_k_internal = bytearray(ec_pubkey_parse(spend_key.sec()))
         ec_pubkey_tweak_add(p_k_internal, t_k)
         p_k = ec_pubkey_serialize(p_k_internal, EC_COMPRESSED)
 
