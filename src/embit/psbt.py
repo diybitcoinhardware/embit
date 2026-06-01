@@ -197,7 +197,9 @@ class InputScope(PSBTScope):
         self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
         self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
-        self.taproot_internal_key = other.taproot_internal_key
+        self.taproot_internal_key = (
+            other.taproot_internal_key or self.taproot_internal_key
+        )
         self.taproot_merkle_root = other.taproot_merkle_root or self.taproot_merkle_root
         self.taproot_key_sig = other.taproot_key_sig or self.taproot_key_sig
         self.taproot_sigs.update(other.taproot_sigs)
@@ -657,7 +659,9 @@ class OutputScope(PSBTScope):
         self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
         self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
-        self.taproot_internal_key = other.taproot_internal_key
+        self.taproot_internal_key = (
+            other.taproot_internal_key or self.taproot_internal_key
+        )
 
     @property
     def vout(self):
