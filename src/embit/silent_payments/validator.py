@@ -349,9 +349,11 @@ class BIP375Validator:
         eligible_inputs = get_eligible_inputs(self.psbt.inputs, has_sp_outputs=True)
 
         # Build outpoints and A_sum for input_hash (same for all scan-key groups).
+        # BIP-352 input_hash commits to the smallest outpoint over ALL transaction
+        # inputs (not just the eligible ones), while A is the sum of eligible keys.
         outpoints = [
             COutPoint(txid=self.psbt.tx.vin[i].txid, out_idx=self.psbt.tx.vin[i].vout)
-            for i in eligible_inputs
+            for i in range(len(self.psbt.inputs))
         ]
         eligible_pubkeys = [
             self._get_input_public_key(self.psbt.inputs[i], i) for i in eligible_inputs
