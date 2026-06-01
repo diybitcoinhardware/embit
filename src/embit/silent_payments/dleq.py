@@ -45,6 +45,30 @@ def _scalar_mult_G(scalar_bytes, G_sec):
     return pub
 
 
+def _mul_point(base_sec, scalar):
+    """Return scalar * base_sec, or None (point at infinity) when scalar == 0.
+
+    Mirrors the BIP-374 reference point_mul, where a zero scalar yields the
+    identity element. The caller passes scalar already reduced to [0, n).
+    """
+    if scalar == 0:
+        return None
+    return _scalar_mult_G(scalar.to_bytes(32, "big"), base_sec)
+
+
+def _add_points(p1, p2):
+    """Return p1 + p2, treating None as the point at infinity.
+
+    ec_pubkey_combine raises ValueError when the sum is the point at infinity,
+    which callers convert to a verification failure (spec is_infinite check).
+    """
+    if p1 is None:
+        return p2
+    if p2 is None:
+        return p1
+    return ec_pubkey_combine(p1, p2)
+
+
 def generate_dleq_proof(a_bytes, B_sec, r=None, m=None, G=None):
     """
     Generate a 64-byte DLEQ proof (BIP-374 GenerateProof).
@@ -182,31 +206,25 @@ def verify_dleq_proof(A_sec, B_sec, C_sec, proof, m=None, G=None):
             return False
 
         neg_e = (-e) % SECP256K1_ORDER
-        if neg_e == 0:
-            return False
 
         m_prime = m if m is not None else b""
-        s_bytes = s.to_bytes(32, "big")
-        neg_e_bytes = neg_e.to_bytes(32, "big")
 
         # ec_pubkey_parse rejects the point at infinity (spec is_infinite checks
-        # for A, B, C).  ec_pubkey_combine raises ValueError when R1 or R2 would
-        # be the point at infinity (spec is_infinite(R1) / is_infinite(R2)).
-        # ec_pubkey_tweak_mul mutates in-place; each point gets a fresh buffer.
+        # for A, B, C). A zero scalar (s or -e) yields the point at infinity, which
+        # _mul_point/_add_points carry through as None, matching the reference's
+        # point_mul/point_add instead of bailing out early. R1/R2 being the point
+        # at infinity (None, or a ValueError from ec_pubkey_combine) is a failure.
 
         # R1 = s*G + (-e)*A
-        sG_internal = _scalar_mult_G(s_bytes, G_sec)
-        neg_eA_internal = bytearray(ec_pubkey_parse(A_sec))
-        ec_pubkey_tweak_mul(neg_eA_internal, neg_e_bytes)
-        R1_internal = ec_pubkey_combine(sG_internal, neg_eA_internal)
+        R1_internal = _add_points(_mul_point(G_sec, s), _mul_point(A_sec, neg_e))
+        if R1_internal is None:
+            return False
         R1_compressed = ec_pubkey_serialize(R1_internal, EC_COMPRESSED)
 
         # R2 = s*B + (-e)*C
-        sB_internal = bytearray(ec_pubkey_parse(B_sec))
-        ec_pubkey_tweak_mul(sB_internal, s_bytes)
-        neg_eC_internal = bytearray(ec_pubkey_parse(C_sec))
-        ec_pubkey_tweak_mul(neg_eC_internal, neg_e_bytes)
-        R2_internal = ec_pubkey_combine(sB_internal, neg_eC_internal)
+        R2_internal = _add_points(_mul_point(B_sec, s), _mul_point(C_sec, neg_e))
+        if R2_internal is None:
+            return False
         R2_compressed = ec_pubkey_serialize(R2_internal, EC_COMPRESSED)
 
         # Recompute e' = int(H_challenge(A || B || C || G || R1 || R2 || m'))
