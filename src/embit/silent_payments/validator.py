@@ -11,7 +11,7 @@ Implements the 4-stage validation pipeline for Silent Payments in PSBTs:
 from .. import ec
 from . import dleq
 from .fields import SPValidationError
-from .ecdh import get_eligible_inputs, pubkey_hash_from_script
+from .ecdh import get_eligible_inputs, pubkey_hash_from_script, input_public_key
 from .bip352 import get_input_hash, derive_silent_payment_outputs
 from ..transaction import SIGHASH, COutPoint
 from ..script import Script
@@ -280,41 +280,8 @@ class BIP375Validator:
             )
 
     def _get_input_public_key(self, inp, inp_idx: int):
-        """Return the input's public key used for SP shared-secret derivation.
-
-        For taproot the key is the (even-Y) output key taken from the
-        scriptPubKey.  For the other eligible types it comes from
-        PSBT_IN_BIP32_DERIVATION (preferred, matched by hash160 against the
-        script) or PSBT_IN_PARTIAL_SIG, falling back to the sole candidate key
-        when the scriptPubKey does not commit to it (e.g. a placeholder UTXO as
-        used in the BIP-375 test vectors, or a trimmed PSBT).
-        """
-        script = inp.script_pubkey
-        if script is None:
-            return None
-
-        if script.script_type() == "p2tr":
-            return ec.PublicKey.from_xonly(bytes(script.data[2:34]))
-
-        candidates = list(inp.bip32_derivations) + list(inp.partial_sigs)
-        if not candidates:
-            return None
-
-        pkh = pubkey_hash_from_script(script, inp.redeem_script)
-        if pkh is not None:
-            for pubkey in candidates:
-                if hash160(pubkey.sec()) == pkh:
-                    return pubkey
-
-        # Placeholder / non-committing script: use the sole candidate if
-        # unambiguous. A wrong key here is caught by DLEQ / output-script checks.
-        unique = []
-        for pubkey in candidates:
-            if pubkey not in unique:
-                unique.append(pubkey)
-        if len(unique) == 1:
-            return unique[0]
-        return None
+        """Return the input's public key used for SP shared-secret derivation."""
+        return input_public_key(inp)
 
     def _validate_input_eligibility(self):
         """

@@ -23,11 +23,13 @@ from ..psbt import (
     read_string,
     ser_string,
 )
+from . import dleq
 from .ecdh import (
     compute_ecdh_share,
     compute_dleq_proof,
     get_eligible_inputs,
     pubkey_hash_from_script,
+    input_public_key,
 )
 from .fields import SilentPaymentData, SPFieldError, SPValidationError
 
@@ -261,11 +263,24 @@ class SilentPaymentsPSBT(PSBT):
         return r
 
     def sign_with(self, root, sighash=None, **kwargs):
+        has_sp = self.version == 2 and any(
+            out.sp_data is not None for out in self.outputs
+        )
+        # BIP-375: only SIGHASH_ALL may be used when SP outputs are present.
+        # SIGHASH.DEFAULT (taproot) is functionally SIGHASH_ALL.
+        if (
+            has_sp
+            and sighash is not None
+            and sighash not in (SIGHASH.ALL, SIGHASH.DEFAULT)
+        ):
+            raise SPValidationError(
+                "Silent payment signing requires SIGHASH_ALL"
+            )
         if sighash is not None:
             counter = super().sign_with(root, sighash=sighash, **kwargs)
         else:
             counter = super().sign_with(root, **kwargs)
-        if self.version == 2 and any(out.sp_data is not None for out in self.outputs):
+        if has_sp:
             counter += self._sign_with_sp(root)
         if self.version == 2:
             counter += self._sign_sp_spends(root)
@@ -422,6 +437,34 @@ class SilentPaymentsPSBT(PSBT):
 
         return None
 
+    def _verify_existing_sp_shares(self, eligible, scan_keys) -> None:
+        """Verify DLEQ proofs of ECDH shares already present on eligible inputs.
+
+        Raises SPValidationError if a present share lacks a proof or its proof
+        fails to verify against the input's public key.
+        """
+        for i in eligible:
+            inp = self.inputs[i]
+            pubkey = input_public_key(inp)
+            for sk_bytes in scan_keys:
+                if sk_bytes not in inp.sp_ecdh_shares:
+                    continue
+                proof = inp.sp_dleq_proofs.get(sk_bytes)
+                if proof is None:
+                    raise SPValidationError(
+                        "Input %d has an SP ECDH share without a DLEQ proof" % i
+                    )
+                if pubkey is None:
+                    # Cannot resolve the input key to verify; leave the share as
+                    # provided (a malformed share is caught later by validation).
+                    continue
+                if not dleq.verify_dleq_proof(
+                    pubkey.sec(), sk_bytes, inp.sp_ecdh_shares[sk_bytes], proof
+                ):
+                    raise SPValidationError(
+                        "Input %d has an invalid SP ECDH share DLEQ proof" % i
+                    )
+
     def _sign_with_sp(self, root, aux_rand=None) -> int:
         """Compute per-input ECDH shares and DLEQ proofs for SP outputs."""
         scan_keys = {}
@@ -441,6 +484,11 @@ class SilentPaymentsPSBT(PSBT):
 
         if not eligible:
             return 0
+
+        # BIP-375: verify ECDH shares already present (added by other signers)
+        # using their DLEQ proofs before contributing our own, so we never
+        # endorse an invalid share by adding to the same PSBT.
+        self._verify_existing_sp_shares(eligible, scan_keys)
 
         fingerprint, can_sign = self._signing_fingerprint(root)
         if not can_sign:

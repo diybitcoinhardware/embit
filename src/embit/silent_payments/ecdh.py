@@ -5,6 +5,7 @@ BIP-375 ECDH share and DLEQ proof computation, plus input eligibility.
 import os
 
 from .. import ec
+from ..hashes import hash160
 from . import dleq
 from ..util.key import SECP256K1_ORDER
 from ..util.secp256k1 import (
@@ -177,6 +178,42 @@ def witness_version(script):
     if data[1] != len(data) - 2 or not (2 <= data[1] <= 40):
         return None
     return version
+
+
+def input_public_key(inp):
+    """Resolve an input's public key A used for SP shared-secret derivation.
+
+    For taproot the key is the (even-Y) output key from the scriptPubKey.  For
+    the other eligible types it comes from PSBT_IN_BIP32_DERIVATION (preferred,
+    matched by hash160 against the script) or PSBT_IN_PARTIAL_SIG, falling back
+    to the sole candidate when the scriptPubKey does not commit to it (e.g. the
+    placeholder UTXOs in the BIP-375 test vectors). Returns an ``ec.PublicKey``
+    or None.
+    """
+    script = inp.script_pubkey
+    if script is None:
+        return None
+
+    if script.script_type() == "p2tr":
+        return ec.PublicKey.from_xonly(bytes(script.data[2:34]))
+
+    candidates = list(inp.bip32_derivations) + list(inp.partial_sigs)
+    if not candidates:
+        return None
+
+    pkh = pubkey_hash_from_script(script, inp.redeem_script)
+    if pkh is not None:
+        for pubkey in candidates:
+            if hash160(pubkey.sec()) == pkh:
+                return pubkey
+
+    unique = []
+    for pubkey in candidates:
+        if pubkey not in unique:
+            unique.append(pubkey)
+    if len(unique) == 1:
+        return unique[0]
+    return None
 
 
 def get_eligible_inputs(inputs, has_sp_outputs: bool = False):

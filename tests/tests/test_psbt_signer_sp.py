@@ -360,6 +360,36 @@ class TestInputEligibility(unittest.TestCase):
 # ── aux_rand threading ──────────────────────────────────────────────────────────
 
 
+class TestSignerBIP375Constraints(unittest.TestCase):
+    """Signer-side BIP-375 constraints."""
+
+    SCAN_HEX = "027a487fc19fb769877b8742d6ea18118f3c4e72b1ea8c6de602a7ad4a41dbe068"
+    SPEND_HEX = "0361e1b1e9de5e42cb2007f7ca54b9e0d57ed13938fad56d3f19e57513a8fce039"
+
+    def _psbt(self):
+        root = _root()
+        scan_pub, spend_pub = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+        return _make_p2wpkh_psbt(root, scan_pub, spend_pub)
+
+    def test_non_sighash_all_rejected(self):
+        """Signing SP outputs with a non-ALL sighash type must fail."""
+        from embit.transaction import SIGHASH
+
+        psbt, _ = self._psbt()
+        with self.assertRaises(SPValidationError):
+            psbt.sign_with(_root(), sighash=SIGHASH.SINGLE)
+
+    def test_invalid_existing_share_rejected(self):
+        """An existing ECDH share with a bad DLEQ proof aborts signing."""
+        psbt, _ = self._psbt()
+        sk = unhexlify(self.SCAN_HEX)
+        # a valid-looking but unrelated share + bogus proof
+        psbt.inputs[0].sp_ecdh_shares[sk] = unhexlify(self.SPEND_HEX)
+        psbt.inputs[0].sp_dleq_proofs[sk] = bytes(64)
+        with self.assertRaises(SPValidationError):
+            psbt.sign_with(_root())
+
+
 class TestAuxRand(unittest.TestCase):
 
     def setUp(self):
