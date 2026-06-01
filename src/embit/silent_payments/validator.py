@@ -11,11 +11,10 @@ Implements the 4-stage validation pipeline for Silent Payments in PSBTs:
 from .. import ec
 from . import dleq
 from .fields import SPValidationError
-from .ecdh import get_eligible_inputs, pubkey_hash_from_script, input_public_key
+from .ecdh import get_eligible_inputs, input_public_key
 from .bip352 import get_input_hash, derive_silent_payment_outputs
 from ..transaction import SIGHASH, COutPoint
 from ..script import Script
-from ..hashes import hash160
 from ..util.secp256k1 import (
     ec_pubkey_combine,
     ec_pubkey_parse,
