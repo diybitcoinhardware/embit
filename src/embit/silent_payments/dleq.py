@@ -38,7 +38,9 @@ def _scalar_mult_G(scalar_bytes, G_sec):
     """
     if G_sec == _G_COMPRESSED:
         return ec_pubkey_create(scalar_bytes)
-    pub = ec_pubkey_parse(G_sec)
+    # bytearray: tweak_mul mutates the point in place (required by the pure-Python
+    # secp256k1 backend, which rejects immutable bytes; works with ctypes too)
+    pub = bytearray(ec_pubkey_parse(G_sec))
     ec_pubkey_tweak_mul(pub, scalar_bytes)
     return pub
 
@@ -91,7 +93,7 @@ def generate_dleq_proof(a_bytes, B_sec, r=None, m=None, G=None):
 
     # C = a*B; ec_pubkey_parse rejects the point at infinity (spec is_infinite(B)).
     try:
-        C_internal = ec_pubkey_parse(B_sec)
+        C_internal = bytearray(ec_pubkey_parse(B_sec))
         ec_pubkey_tweak_mul(C_internal, a_bytes)
     except (ValueError, OverflowError):
         raise DLEQError("Invalid B_sec")
@@ -121,7 +123,7 @@ def generate_dleq_proof(a_bytes, B_sec, r=None, m=None, G=None):
     R1_internal = _scalar_mult_G(k_bytes, G_sec)  # R1 = k*G
     R1_compressed = ec_pubkey_serialize(R1_internal, EC_COMPRESSED)
 
-    R2_internal = ec_pubkey_parse(B_sec)  # R2 = k*B (fresh buffer)
+    R2_internal = bytearray(ec_pubkey_parse(B_sec))  # R2 = k*B (fresh buffer)
     ec_pubkey_tweak_mul(R2_internal, k_bytes)
     R2_compressed = ec_pubkey_serialize(R2_internal, EC_COMPRESSED)
 
@@ -194,15 +196,15 @@ def verify_dleq_proof(A_sec, B_sec, C_sec, proof, m=None, G=None):
 
         # R1 = s*G + (-e)*A
         sG_internal = _scalar_mult_G(s_bytes, G_sec)
-        neg_eA_internal = ec_pubkey_parse(A_sec)
+        neg_eA_internal = bytearray(ec_pubkey_parse(A_sec))
         ec_pubkey_tweak_mul(neg_eA_internal, neg_e_bytes)
         R1_internal = ec_pubkey_combine(sG_internal, neg_eA_internal)
         R1_compressed = ec_pubkey_serialize(R1_internal, EC_COMPRESSED)
 
         # R2 = s*B + (-e)*C
-        sB_internal = ec_pubkey_parse(B_sec)
+        sB_internal = bytearray(ec_pubkey_parse(B_sec))
         ec_pubkey_tweak_mul(sB_internal, s_bytes)
-        neg_eC_internal = ec_pubkey_parse(C_sec)
+        neg_eC_internal = bytearray(ec_pubkey_parse(C_sec))
         ec_pubkey_tweak_mul(neg_eC_internal, neg_e_bytes)
         R2_internal = ec_pubkey_combine(sB_internal, neg_eC_internal)
         R2_compressed = ec_pubkey_serialize(R2_internal, EC_COMPRESSED)
