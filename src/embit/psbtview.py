@@ -94,7 +94,8 @@ class GlobalTransactionView:
     def version(self):
         if self._version is None:
             self.stream.seek(self.offset)
-            self._version = int.from_bytes(self.stream.read(4), "little")
+            # tx version is a signed int32, matching Transaction.read_from
+            self._version = _signed_from_bytes(self.stream.read(4))
         return self._version
 
     @property
