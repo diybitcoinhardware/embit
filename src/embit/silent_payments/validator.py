@@ -200,12 +200,16 @@ class BIP375Validator:
                     if out.script_pubkey:  # Can verify only if complete
                         self._verify_input_dleq_proof(inp_idx, scan_key, out_idx)
 
-                    # Check BIP32 derivation for per-input DLEQ.  Only required
-                    # when the output script is absent: trimmed/finalized PSBTs
-                    # legitimately strip BIP32 derivations, and Stage 4 provides
-                    # equivalent verification via the output script in that case.
+                    # BIP-375: a per-input DLEQ proof requires
+                    # PSBT_IN_BIP32_DERIVATION so verifiers can recover the input
+                    # key. Taproot inputs are exempt — their key comes from the
+                    # output key in the scriptPubKey, not a BIP-32 derivation.
                     if scan_key_bytes in inp.sp_dleq_proofs:
-                        if len(inp.bip32_derivations) == 0 and not out.script_pubkey:
+                        is_taproot = (
+                            inp.script_pubkey is not None
+                            and inp.script_pubkey.script_type() == "p2tr"
+                        )
+                        if not is_taproot and len(inp.bip32_derivations) == 0:
                             raise SPValidationError(
                                 "Output {}: Input {} has DLEQ proof but missing "
                                 "PSBT_IN_BIP32_DERIVATION".format(out_idx, inp_idx)
