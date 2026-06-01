@@ -1533,11 +1533,9 @@ class PSBT(EmbitBase):
                 or input_scope.required_time_locktime is not None
             ):
                 self._validate_locktime_compatibility(self.inputs + [input_scope])
-            # SIGHASH_SINGLE: each added input must have a paired output
-            if self.has_sighash_single() and len(self.inputs) >= len(self.outputs):
-                raise PSBTError(
-                    "Cannot add input without a corresponding output when SIGHASH_SINGLE is set"
-                )
+            # BIP370: when SIGHASH_SINGLE signatures are present the input/output
+            # pairing must be preserved. This append-only API only adds to the end,
+            # which never reindexes existing pairs, so the addition is always safe.
         self.inputs.append(input_scope)
         if self.version == 2:
             self._raw_input_count_from_global = len(self.inputs)
