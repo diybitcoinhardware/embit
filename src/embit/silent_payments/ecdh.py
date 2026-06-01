@@ -2,10 +2,9 @@
 BIP-375 ECDH share and DLEQ proof computation, plus input eligibility.
 """
 
-import os
-
 from .. import ec
 from ..hashes import hash160
+from ..misc import urandom
 from . import dleq
 from ..util.key import SECP256K1_ORDER
 from ..util.secp256k1 import (
@@ -84,13 +83,13 @@ def compute_dleq_proof(
         scan_key: The scan key (B_scan)
         ecdh_share: The ECDH share (a·B_scan) - used for self-verification
         aux_rand: 32-byte auxiliary randomness. When None, fresh bytes are
-                  generated via os.urandom; pass explicit bytes for
+                  generated via the platform RNG; pass explicit bytes for
                   deterministic behaviour or hardware wallet use.
 
     Returns:
         64-byte DLEQ proof
     """
-    r = aux_rand if aux_rand is not None else os.urandom(32)
+    r = aux_rand if aux_rand is not None else urandom(32)
     try:
         return dleq.generate_dleq_proof(private_key, scan_key.sec(), r=r)
     except dleq.DLEQError as e:
@@ -111,7 +110,7 @@ def compute_global_dleq_proof(
         scan_key: The scan key (B_scan)
         global_share: The global ECDH share (a_sum·B_scan)
         aux_rand: 32-byte auxiliary randomness. When None, fresh bytes are
-                  generated via os.urandom.
+                  generated via the platform RNG.
 
     Returns:
         64-byte DLEQ proof
@@ -122,7 +121,7 @@ def compute_global_dleq_proof(
         raise SPFieldError("Cannot generate proof for zero sum")
 
     a_sum_bytes = a_sum.to_bytes(32, "big")
-    r = aux_rand if aux_rand is not None else os.urandom(32)
+    r = aux_rand if aux_rand is not None else urandom(32)
 
     try:
         return dleq.generate_dleq_proof(a_sum_bytes, scan_key.sec(), r=r)
