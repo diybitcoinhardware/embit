@@ -207,8 +207,8 @@ class TestInputEligibility(unittest.TestCase):
     def _scan_spend(self):
         return _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
 
-    def test_p2tr_input_with_sp_output_raises(self):
-        """P2TR input with SP output is prohibited by BIP-375 (Segwit v>1)."""
+    def test_p2tr_input_is_eligible(self):
+        """P2TR (Segwit v1) is an eligible SP input per BIP-352/BIP-375."""
         root = _root()
         child = root.derive([0, 0])
         pub = child.get_public_key()
@@ -223,6 +223,32 @@ class TestInputEligibility(unittest.TestCase):
         inp.witness_utxo = TransactionOutput(value=100_000, script_pubkey=p2tr(pub))
         inp.taproot_internal_key = pub
         inp.bip32_derivations[pub] = DerivationPath(root.my_fingerprint, [0, 0])
+        psbt.add_input(inp)
+
+        out = OutputScope()
+        out.value = 99_000
+        out.script_pubkey = Script(b"\x51\x20" + bytes(32))
+        out.sp_data = SilentPaymentData(scan_pub, spend_pub)
+        psbt.add_output(out)
+
+        psbt.tx_modifiable_flags = 0
+
+        self.assertEqual(get_eligible_inputs(psbt.inputs, has_sp_outputs=True), [0])
+
+    def test_segwit_v2_input_raises(self):
+        """An input spending a Segwit v>1 output with SP outputs must fail."""
+        root = _root()
+        scan_pub, spend_pub = self._scan_spend()
+
+        psbt = PSBT.create_v2()
+
+        inp = InputScope()
+        inp.txid = bytes([0xBD] * 32)
+        inp.vout = 0
+        inp.sequence = 0xFFFFFFFE
+        # OP_2 <20-byte program> = witness version 2
+        v2_script = Script(b"\x52\x14" + bytes(20))
+        inp.witness_utxo = TransactionOutput(value=100_000, script_pubkey=v2_script)
         psbt.add_input(inp)
 
         out = OutputScope()
