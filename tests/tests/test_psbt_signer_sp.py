@@ -262,6 +262,50 @@ class TestInputEligibility(unittest.TestCase):
         with self.assertRaises(SPValidationError):
             get_eligible_inputs(psbt.inputs, has_sp_outputs=True)
 
+    def test_p2tr_input_produces_valid_sp_share(self):
+        """A P2TR input we control yields an ECDH share + DLEQ proof that
+        verify against the even-Y output key (BIP-352 taproot negation)."""
+        root = _root()
+        child = root.derive([0, 0])
+        internal = child.get_public_key()
+        out_priv = child.key.taproot_tweak(b"")  # even-Y output key
+        scan_pub, spend_pub = self._scan_spend()
+
+        psbt = PSBT.create_v2()
+
+        inp = InputScope()
+        inp.txid = bytes([0xAB] * 32)
+        inp.vout = 0
+        inp.sequence = 0xFFFFFFFE
+        inp.witness_utxo = TransactionOutput(
+            value=100_000, script_pubkey=p2tr(internal)
+        )
+        inp.taproot_internal_key = internal
+        inp.taproot_bip32_derivations[internal] = (
+            [],
+            DerivationPath(root.my_fingerprint, [0, 0]),
+        )
+        psbt.add_input(inp)
+
+        out = OutputScope()
+        out.value = 95_000
+        out.script_pubkey = Script(b"\x51\x20" + bytes(32))
+        out.sp_data = SilentPaymentData(scan_pub, spend_pub)
+        psbt.add_output(out)
+        psbt.tx_modifiable_flags = 0
+
+        self.assertEqual(psbt._sign_with_sp(root), 1)
+
+        sk = scan_pub.sec()
+        share = psbt.inputs[0].sp_ecdh_shares.get(sk)
+        proof = psbt.inputs[0].sp_dleq_proofs.get(sk)
+        self.assertIsNotNone(share)
+        # A is the even-Y output key taken from the scriptPubKey
+        output_xonly = inp.script_pubkey.data[2:34]
+        A = ec.PublicKey.from_xonly(bytes(output_xonly))
+        self.assertEqual(A.xonly(), out_priv.xonly())
+        self.assertTrue(dleq.verify_dleq_proof(A.sec(), sk, share, proof))
+
     def test_multisig_p2sh_input_produces_no_sp_fields(self):
         """
         A P2SH bare-multisig input is ineligible for SP (not P2WPKH/P2PKH/

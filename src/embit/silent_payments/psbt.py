@@ -369,6 +369,59 @@ class SilentPaymentsPSBT(PSBT):
 
         return counter
 
+    def _resolve_input_privkey(self, inp, root, fingerprint):
+        """Return the 32-byte private scalar 'a' for an eligible input's ECDH
+        share, or None if ``root`` does not control the input.
+
+        For taproot inputs this is the (even-Y) output private key per the
+        BIP-352 negation rule, obtained via taproot_tweak; for the other types
+        it is the input key matched by derivation or by script hash.
+        """
+        is_taproot = (
+            inp.script_pubkey is not None
+            and inp.script_pubkey.script_type() == "p2tr"
+        )
+
+        if is_taproot:
+            output_xonly = bytes(inp.script_pubkey.data[2:34])
+            merkle = inp.taproot_merkle_root or b""
+            if fingerprint:
+                for pub, (_leaves, derivation) in (
+                    inp.taproot_bip32_derivations.items()
+                ):
+                    if derivation.fingerprint != fingerprint:
+                        continue
+                    hdkey = self._derive_hdkey(root, derivation)
+                    if hdkey is None or hdkey.xonly() != pub.xonly():
+                        continue
+                    out_priv = hdkey.key.taproot_tweak(merkle)
+                    if out_priv.xonly() == output_xonly:
+                        return out_priv.secret
+            if fingerprint is None and hasattr(root, "secret"):
+                try:
+                    out_priv = root.taproot_tweak(merkle)
+                except (EmbitError, ValueError):
+                    return None
+                if out_priv.xonly() == output_xonly:
+                    return out_priv.secret
+            return None
+
+        if fingerprint:
+            for pub, derivation in inp.bip32_derivations.items():
+                if derivation.fingerprint != fingerprint:
+                    continue
+                hdkey = self._derive_hdkey(root, derivation)
+                if hdkey is None or hdkey.xonly() != pub.xonly():
+                    continue
+                return hdkey.key.secret
+
+        if fingerprint is None and hasattr(root, "secret"):
+            pkh = pubkey_hash_from_script(inp.script_pubkey, inp.redeem_script)
+            if pkh is not None and pkh == hashes.hash160(root.get_public_key().sec()):
+                return root.secret
+
+        return None
+
     def _sign_with_sp(self, root, aux_rand=None) -> int:
         """Compute per-input ECDH shares and DLEQ proofs for SP outputs."""
         scan_keys = {}
@@ -398,24 +451,7 @@ class SilentPaymentsPSBT(PSBT):
         for i in eligible:
             inp = self.inputs[i]
 
-            priv_bytes = None
-            if fingerprint:
-                for pub, derivation in inp.bip32_derivations.items():
-                    if derivation.fingerprint != fingerprint:
-                        continue
-                    hdkey = self._derive_hdkey(root, derivation)
-                    if hdkey is None or hdkey.xonly() != pub.xonly():
-                        continue
-                    priv_bytes = hdkey.key.secret
-                    break
-
-            if priv_bytes is None and fingerprint is None and hasattr(root, "secret"):
-                pkh = pubkey_hash_from_script(inp.script_pubkey, inp.redeem_script)
-                if pkh is not None and pkh == hashes.hash160(
-                    root.get_public_key().sec()
-                ):
-                    priv_bytes = root.secret
-
+            priv_bytes = self._resolve_input_privkey(inp, root, fingerprint)
             if priv_bytes is None:
                 continue
 
