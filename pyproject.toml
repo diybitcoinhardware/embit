@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "embit"
-version = "0.8.0"
+version = "0.8.1"
 description = "A minimal bitcoin library for MicroPython and CPython 3.10+ with a focus on embedded systems."
 readme = "README.md"
 requires-python = ">=3.10"
