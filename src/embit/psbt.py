@@ -218,7 +218,9 @@ class InputScope(PSBTScope):
     @property
     def vin(self):
         return TransactionInput(
-            self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF)
+            self.txid,
+            self.vout,
+            sequence=(self.sequence if self.sequence is not None else 0xFFFFFFFF),
         )
 
     @property
