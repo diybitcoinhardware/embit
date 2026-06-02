@@ -140,10 +140,10 @@ class LInputScope(InputScope):
             witness=TxInWitness(self.issue_rangeproof, self.token_rangeproof),
         )
 
-    def read_value(self, stream, k):
+    def read_value(self, stream, k, version=None):
         # standard bitcoin stuff
         if (b"\xfc\x08elements" not in k) and (b"\xfc\x04pset" not in k):
-            super().read_value(stream, k)
+            super().read_value(stream, k, version=version)
         elif k == b"\xfc\x04pset\x0e":
             # range proof is very large,
             # so we don't load it if compress flag is set.
@@ -386,9 +386,9 @@ class LOutputScope(OutputScope):
             secp256k1.generator_parse(self.asset_commitment),
         )
 
-    def read_value(self, stream, k):
+    def read_value(self, stream, k, version=None):
         if (b"\xfc\x08elements" not in k) and (b"\xfc\x04pset" not in k):
-            super().read_value(stream, k)
+            super().read_value(stream, k, version=version)
         # range proof and surjection proof are very large,
         # so we don't load them if compress flag is set.
         elif k in [b"\xfc\x08elements\x04", b"\xfc\x04pset\x04"]:
@@ -502,6 +502,18 @@ class PSET(PSBT):
     PSBTIN_CLS = LInputScope
     PSBTOUT_CLS = LOutputScope
     TX_CLS = LTransaction
+
+    @classmethod
+    def _validate_v2_output(cls, out, i):
+        """PSET allows value_commitment as an alternative to value (blinded outputs)."""
+        if out.value is None and not getattr(out, "value_commitment", None):
+            raise PSBTError(
+                "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
+            )
+        if out.script_pubkey is None:
+            raise PSBTError(
+                "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
+            )
 
     def unblind(self, blinding_key):
         for inp in self.inputs:
