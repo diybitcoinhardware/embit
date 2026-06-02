@@ -136,7 +136,6 @@ def _read_sp_key_expression(s):
     else:
         s.seek(-1, 1)
 
-    pos_before = s.tell()
     token, char = read_until(s, b",)")
     if char is not None:
         s.seek(-1, 1)
@@ -150,7 +149,10 @@ def _read_sp_key_expression(s):
         if lower.startswith(hrp + "1"):
             return SPSpendKey.decode(token_str, origin), char
 
-    s.seek(pos_before)
+    # Rewind to before the token via a relative seek (no tell(); MicroPython's
+    # BytesIO lacks it). Only `token` was consumed since; the delimiter, if any,
+    # was already pushed back above.
+    s.seek(-len(token), 1)
     if origin:
         origin_str = "[%s]" % origin
         combined = BytesIO(origin_str.encode() + s.read())
