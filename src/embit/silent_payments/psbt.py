@@ -399,6 +399,35 @@ class SilentPaymentsPSBT(PSBT):
 
         if is_taproot:
             output_xonly = bytes(inp.script_pubkey.data[2:34])
+
+            # BIP-376 spend-from input: the key is the tweaked spend key
+            # b_spend + t, normalized to even Y so it can be summed into the
+            # BIP-352 shared secret (Schnorr signing handles its own parity).
+            # Matched via sp_spend_bip32_derivations rather than the BIP-86 path.
+            sp_tweak = getattr(inp, "sp_tweak", None)
+            if sp_tweak is not None:
+                spend_bases = []
+                if fingerprint:
+                    for pub_bytes, derivation in (
+                        inp.sp_spend_bip32_derivations.items()
+                    ):
+                        if derivation.fingerprint != fingerprint:
+                            continue
+                        hdkey = self._derive_hdkey(root, derivation)
+                        if hdkey is None or hdkey.xonly() != pub_bytes[1:]:
+                            continue
+                        spend_bases.append(hdkey.key)
+                if fingerprint is None and hasattr(root, "secret"):
+                    spend_bases.append(root)
+                for base in spend_bases:
+                    try:
+                        out_priv = base.sp_spend_tweak(sp_tweak).even_y()
+                    except (EmbitError, ValueError):
+                        continue
+                    if out_priv.xonly() == output_xonly:
+                        return out_priv.secret
+                return None
+
             merkle = inp.taproot_merkle_root or b""
             if fingerprint:
                 for pub, (_leaves, derivation) in (

@@ -192,6 +192,18 @@ class PrivateKey(EmbitKey):
         res = secp256k1.ec_privkey_add(self._secret, tweak)
         return PrivateKey(res)
 
+    def even_y(self) -> "PrivateKey":
+        """Return this key negated if needed so its public key has even Y.
+
+        BIP-352 sums the even-Y output keys of taproot inputs, so a taproot
+        input's scalar must be normalized before it contributes to the shared
+        secret. sp_spend_tweak and raw keys may be odd-Y; taproot_tweak already
+        returns an even-Y key, so calling this on its result is a no-op.
+        """
+        if self.sec()[0] == 0x03:
+            return PrivateKey(secp256k1.ec_privkey_negate(self._secret))
+        return self
+
     @classmethod
     def from_wif(cls, s):
         """Import private key from Wallet Import Format string."""

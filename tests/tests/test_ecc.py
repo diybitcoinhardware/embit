@@ -29,6 +29,25 @@ class ECCTest(TestCase):
         g_hex = hexlify(der)
         self.assertEqual(answer, g_hex)
 
+    def test_even_y(self):
+        """even_y() returns a key whose pubkey has even Y, negating if needed."""
+        # Cover both parities: a key already even-Y is returned unchanged
+        # (same secret), an odd-Y key is negated to the even-Y counterpart.
+        seen_even = seen_odd = False
+        for i in range(1, 40):
+            pk = PrivateKey(bytes([i] * 32))
+            ev = pk.even_y()
+            self.assertEqual(ev.sec()[0], 0x02)  # always even after normalization
+            self.assertEqual(ev.xonly(), pk.xonly())  # x-coordinate unchanged
+            if pk.sec()[0] == 0x02:
+                seen_even = True
+                self.assertEqual(ev.secret, pk.secret)  # no-op on even key
+            else:
+                seen_odd = True
+                self.assertNotEqual(ev.secret, pk.secret)  # negated
+                self.assertEqual(ev.even_y().secret, ev.secret)  # idempotent
+        self.assertTrue(seen_even and seen_odd, "did not exercise both parities")
+
     def test_grind(self):
         pk = PrivateKey(b"1" * 32)
         msgs = [bytes([i] * 32) for i in range(255)]

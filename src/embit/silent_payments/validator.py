@@ -299,8 +299,11 @@ class BIP375Validator:
         # Check sighash types
         for i, inp in enumerate(self.psbt.inputs):
             if inp.sighash_type is not None:
-                # BIP-375: Only SIGHASH_ALL allowed with SP outputs
-                if inp.sighash_type != SIGHASH.ALL:
+                # BIP-375 allows only SIGHASH_ALL with SP outputs. For taproot
+                # inputs SIGHASH_DEFAULT (0x00) is signed with SIGHASH_ALL
+                # semantics (BIP-341), so accept it as equivalent — matching
+                # embit's signer and Krux's own sighash check.
+                if inp.sighash_type not in (SIGHASH.ALL, SIGHASH.DEFAULT):
                     raise SPValidationError(
                         "Input {}: Non-SIGHASH_ALL sighash type with SP outputs".format(
                             i

@@ -6,9 +6,11 @@ populates per-input ECDH shares + DLEQ proofs for SP outputs and signs.
 
 Covers:
   - P2WPKH single-sig signing verified against BIP-375 test vectors.
-  - P2TR input + SP output is rejected (BIP-375 prohibits Segwit v>1).
+  - P2TR input + SP output is eligible (BIP-352); only Segwit v>1 is rejected.
   - Ineligible (bare-multisig P2SH) input produces no SP fields.
   - Explicit aux_rand threads through to DLEQ proof generation.
+  - BIP-376 spend-from: signing a received SP UTXO and contributing its
+    even-Y tweaked key to a new SP output (self-transfer).
 """
 
 import json
@@ -22,6 +24,7 @@ from embit.silent_payments import SilentPaymentsPSBT as PSBT
 from embit.silent_payments.psbt import (
     SPInputScope as InputScope,
     SPOutputScope as OutputScope,
+    finalize_sp_spends,
 )
 from embit.silent_payments import (
     SPValidationError,
@@ -440,3 +443,182 @@ class TestAuxRand(unittest.TestCase):
         proof_a = psbt_a.inputs[0].sp_dleq_proofs[self.scan_key_bytes]
         proof_b = psbt_b.inputs[0].sp_dleq_proofs[self.scan_key_bytes]
         self.assertEqual(proof_a, proof_b)
+
+
+class TestSpendFromSP(unittest.TestCase):
+    """BIP-376: spending a received Silent Payment UTXO via the sp_tweak field."""
+
+    SCAN_HEX = "027a487fc19fb769877b8742d6ea18118f3c4e72b1ea8c6de602a7ad4a41dbe068"
+    SPEND_HEX = "0361e1b1e9de5e42cb2007f7ca54b9e0d57ed13938fad56d3f19e57513a8fce039"
+
+    @staticmethod
+    def _odd_y_tweak(spend_priv):
+        """A tweak whose tweaked spend key has odd Y, to exercise the negation."""
+        for b in range(1, 256):
+            t = bytes([b] * 32)
+            if spend_priv.sp_spend_tweak(t).sec()[0] == 0x03:
+                return t
+        raise AssertionError("no odd-Y tweak found")
+
+    def _input(self, root, tweak, output_xonly=None, fingerprint=None, value=100_000):
+        """An SP-received P2TR input: output key P_k = B_spend + t*G, with the
+        per-input sp_tweak and sp_spend_bip32_derivations a coordinator records."""
+        child = root.derive([0, 0])
+        spend_priv = child.key
+        spend_pub = child.get_public_key()
+        if output_xonly is None:
+            output_xonly = spend_priv.sp_spend_tweak(tweak).xonly()
+        fp = root.my_fingerprint if fingerprint is None else fingerprint
+        inp = InputScope()
+        inp.txid = bytes([0xCD] * 32)
+        inp.vout = 0
+        inp.sequence = 0xFFFFFFFE
+        inp.witness_utxo = TransactionOutput(
+            value=value, script_pubkey=Script(b"\x51\x20" + output_xonly)
+        )
+        inp.sp_tweak = tweak
+        inp.sp_spend_bip32_derivations[spend_pub.sec()] = DerivationPath(fp, [0, 0])
+        return inp, spend_priv, spend_pub
+
+    def _dest_psbt(self, root, inp):
+        """PSBT with the SP-spend input and an ordinary P2WPKH destination."""
+        psbt = PSBT.create_v2()
+        psbt.add_input(inp)
+        out = OutputScope()
+        out.value = 95_000
+        out.script_pubkey = p2wpkh(root.derive([1, 0]).get_public_key())
+        psbt.add_output(out)
+        psbt.tx_modifiable_flags = 0
+        return psbt
+
+    def test_resolve_returns_even_y_tweaked_key(self):
+        """_resolve_input_privkey returns the even-Y normalized b_spend + t."""
+        root = _root()
+        spend_priv = root.derive([0, 0]).key
+        tweak = self._odd_y_tweak(spend_priv)  # force the negation path
+        inp, _, _ = self._input(root, tweak)
+        psbt = self._dest_psbt(root, inp)
+
+        secret = psbt._resolve_input_privkey(psbt.inputs[0], root, root.my_fingerprint)
+        self.assertIsNotNone(secret)
+        expected = spend_priv.sp_spend_tweak(tweak).even_y()
+        self.assertEqual(secret, expected.secret)
+        self.assertEqual(expected.sec()[0], 0x02)  # even-Y
+        self.assertEqual(
+            expected.xonly(), bytes(inp.witness_utxo.script_pubkey.data[2:34])
+        )
+
+    def test_sign_produces_valid_signature(self):
+        """_sign_sp_spends signs the input; the sig verifies against P_k."""
+        from embit.transaction import SIGHASH
+
+        root = _root()
+        inp, _, _ = self._input(root, bytes([0x11] * 32))
+        psbt = self._dest_psbt(root, inp)
+
+        self.assertEqual(psbt._sign_sp_spends(root), 1)
+        sig = psbt.inputs[0].taproot_key_sig
+        self.assertIsNotNone(sig)
+        self.assertEqual(len(sig), 64)
+
+        output_xonly = bytes(psbt.inputs[0].witness_utxo.script_pubkey.data[2:34])
+        msg = psbt.sighash(0, sighash=SIGHASH.DEFAULT)
+        pub = ec.PublicKey.from_xonly(output_xonly)
+        self.assertTrue(pub.schnorr_verify(ec.SchnorrSig(sig), msg))
+
+    def test_foreign_tweak_not_signed(self):
+        """A tweak that doesn't reproduce P_k yields no signature/key."""
+        root = _root()
+        spend_priv = root.derive([0, 0]).key
+        onchain = spend_priv.sp_spend_tweak(bytes([0x11] * 32)).xonly()
+        inp, _, _ = self._input(root, bytes([0x22] * 32), output_xonly=onchain)
+        psbt = self._dest_psbt(root, inp)
+
+        self.assertEqual(psbt._sign_sp_spends(root), 0)
+        self.assertIsNone(psbt.inputs[0].taproot_key_sig)
+        self.assertIsNone(
+            psbt._resolve_input_privkey(psbt.inputs[0], root, root.my_fingerprint)
+        )
+
+    def test_foreign_derivation_not_signed(self):
+        """A derivation with a non-matching fingerprint is not signed."""
+        root = _root()
+        inp, _, _ = self._input(root, bytes([0x11] * 32), fingerprint=b"\xff\xff\xff\xff")
+        psbt = self._dest_psbt(root, inp)
+
+        self.assertEqual(psbt._sign_sp_spends(root), 0)
+        self.assertIsNone(psbt.inputs[0].taproot_key_sig)
+
+    def test_finalize_builds_witness(self):
+        """finalize_sp_spends turns the signature into a witness, clearing SP fields."""
+        root = _root()
+        inp, _, _ = self._input(root, bytes([0x11] * 32))
+        psbt = self._dest_psbt(root, inp)
+
+        psbt._sign_sp_spends(root)
+        self.assertEqual(finalize_sp_spends(psbt), 1)
+        self.assertIsNotNone(psbt.inputs[0].final_scriptwitness)
+        self.assertIsNone(psbt.inputs[0].sp_tweak)
+        self.assertEqual(len(psbt.inputs[0].sp_spend_bip32_derivations), 0)
+
+    def _combined_psbt(self, root, inp):
+        """PSBT with the SP-spend input and a (placeholder) SP output."""
+        scan_pub, spend_pub_out = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+        psbt = PSBT.create_v2()
+        psbt.add_input(inp)
+        out = OutputScope()
+        out.value = 95_000
+        out.script_pubkey = Script(b"\x51\x20" + bytes(32))
+        out.sp_data = SilentPaymentData(scan_pub, spend_pub_out)
+        psbt.add_output(out)
+        psbt.tx_modifiable_flags = 0
+        return psbt
+
+    def test_input_sighash_eligibility(self):
+        """Taproot SIGHASH_DEFAULT (0x00) is accepted as SIGHASH_ALL-equivalent;
+        SIGHASH_ALL is accepted; other sighash types are rejected (BIP-375)."""
+        from embit.transaction import SIGHASH
+        from embit.silent_payments import BIP375Validator
+
+        root = _root()
+        inp, _, _ = self._input(root, bytes([0x11] * 32))
+        psbt = self._combined_psbt(root, inp)
+
+        # Coordinators set 0x00 on taproot inputs; must not be rejected.
+        psbt.inputs[0].sighash_type = SIGHASH.DEFAULT
+        BIP375Validator(psbt)._validate_input_eligibility()  # no raise
+
+        psbt.inputs[0].sighash_type = SIGHASH.ALL
+        BIP375Validator(psbt)._validate_input_eligibility()  # no raise
+
+        psbt.inputs[0].sighash_type = SIGHASH.NONE
+        with self.assertRaises(SPValidationError):
+            BIP375Validator(psbt)._validate_input_eligibility()
+
+    def test_self_transfer_share_verifies(self):
+        """Combined: an SP-spend input contributes a valid SP share to a new SP
+        output. Uses an odd-Y tweak so the even-Y negation is exercised, and the
+        per-input DLEQ proof must verify against the even-Y output key A."""
+        root = _root()
+        spend_priv = root.derive([0, 0]).key
+        tweak = self._odd_y_tweak(spend_priv)
+        scan_pub, spend_pub_out = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+
+        inp, _, _ = self._input(root, tweak)
+        psbt = PSBT.create_v2()
+        psbt.add_input(inp)
+        out = OutputScope()
+        out.value = 95_000
+        out.script_pubkey = Script(b"\x51\x20" + bytes(32))
+        out.sp_data = SilentPaymentData(scan_pub, spend_pub_out)
+        psbt.add_output(out)
+        psbt.tx_modifiable_flags = 0
+
+        self.assertEqual(psbt._sign_with_sp(root), 1)
+        sk = scan_pub.sec()
+        share = psbt.inputs[0].sp_ecdh_shares.get(sk)
+        proof = psbt.inputs[0].sp_dleq_proofs.get(sk)
+        self.assertIsNotNone(share)
+        output_xonly = bytes(inp.witness_utxo.script_pubkey.data[2:34])
+        A = ec.PublicKey.from_xonly(output_xonly)
+        self.assertTrue(dleq.verify_dleq_proof(A.sec(), sk, share, proof))
