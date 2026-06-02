@@ -424,4 +424,5 @@ class COutPoint:
         self.out_idx = out_idx
 
     def serialize(self) -> bytes:
-        return self.txid[::-1] + self.out_idx.to_bytes(4, "little")
+        # bytes(reversed(...)), not txid[::-1]: MicroPython rejects stepped slices.
+        return bytes(reversed(self.txid)) + self.out_idx.to_bytes(4, "little")
