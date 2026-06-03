@@ -59,14 +59,16 @@ def generate_silent_payment_address(
     return bech32.bech32_encode(bech32.Encoding.BECH32M, hrp, [version] + data)
 
 
-# TODO: use the bech32 decode function once the flexible bech32 PR is in
 def decode_silent_payment_address(address: str):
     """
     Decode a silent payment address and return the scan and spend public keys.
     """
-    if address.startswith("sp1"):
+    # Bech32m addresses may be all-uppercase; detect HRP case-insensitively
+    # (bech32_decode lowercases internally, so hrpgot is always lowercase).
+    lowered = address.lower()
+    if lowered.startswith("sp1"):
         hrp = "sp"
-    elif address.startswith("tsp1"):
+    elif lowered.startswith("tsp1"):
         hrp = "tsp"
     else:
         raise ValueError("Invalid silent payment address: unknown HRP")
