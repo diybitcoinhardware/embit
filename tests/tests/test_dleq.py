@@ -4,7 +4,6 @@ from unittest import TestCase
 from binascii import unhexlify
 
 import embit.silent_payments.dleq as dleq
-from embit.silent_payments.dleq import DLEQError
 from embit.util import py_secp256k1
 
 _DATA_DIR = Path(__file__).parent / "data"
@@ -40,7 +39,7 @@ def _check_generate_vectors(test):
                 B_sec = _FAKE_INFINITY if B_hex == "INFINITY" else unhexlify(B_hex)
 
                 if result == "INVALID":
-                    with test.assertRaises(DLEQError):
+                    with test.assertRaises(dleq.DLEQError):
                         dleq.generate_dleq_proof(
                             a_bytes, B_sec, r=r_bytes, m=m, G=G_bytes
                         )

@@ -240,7 +240,6 @@ class TestInputEligibility(unittest.TestCase):
 
     def test_segwit_v2_input_raises(self):
         """An input spending a Segwit v>1 output with SP outputs must fail."""
-        root = _root()
         scan_pub, spend_pub = self._scan_spend()
 
         psbt = PSBT.create_v2()
