@@ -706,6 +706,8 @@ class OutputScope(PSBTScope):
             if self.value is not None:
                 raise PSBTError("Duplicated PSBT_OUT_AMOUNT")
             self.value = _signed_from_bytes(v)
+            if self.value < 0:
+                raise PSBTError("PSBT_OUT_AMOUNT must be non-negative")
         elif k == b"\x04":
             if version != 2:
                 raise PSBTError("PSBT_OUT_SCRIPT not allowed in PSBTv0")
