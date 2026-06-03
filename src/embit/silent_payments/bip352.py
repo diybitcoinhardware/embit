@@ -124,19 +124,17 @@ def create_outputs(input_privkeys, outpoints, recipients):
     if not input_privkeys:
         return {}
 
-    signing_keys = []
+    a_sum = 0
     for sec, is_xonly in input_privkeys:
         if not ec_seckey_verify(sec):
             raise ValueError("Invalid private key")
-
         if is_xonly:
             pub = ec_pubkey_create(sec)
             ser = ec_pubkey_serialize(pub)
             if ser[0] == 0x03:
                 sec = ec_privkey_negate(sec)
-        signing_keys.append(int.from_bytes(sec, "big"))
+        a_sum = (a_sum + int.from_bytes(sec, "big")) % SECP256K1_ORDER
 
-    a_sum = sum(signing_keys) % SECP256K1_ORDER
     if a_sum == 0:
         return {}
 
@@ -183,7 +181,7 @@ def create_outputs(input_privkeys, outpoints, recipients):
     return result
 
 
-def derive_silent_payment_outputs(ecdh_share, recipients, shared_secret=None):
+def derive_silent_payment_outputs(ecdh_share, recipients):
     """
     Derive silent payment outputs for recipients from a precomputed ECDH share.
 
@@ -193,16 +191,14 @@ def derive_silent_payment_outputs(ecdh_share, recipients, shared_secret=None):
 
     The spend key of each recipient is the final per-output spend key as carried
     in PSBT_OUT_SP_V0_INFO (already label-tweaked when the address was labeled),
-    so no label tweak is applied here — the label requires the private scan key
-    and cannot be recomputed by a validator. ``k`` is the recipient's position
-    in ``recipients`` (the caller fixes the ordering).
+    so no label tweak is applied here. ``k`` is the recipient's position in
+    ``recipients`` (the caller fixes the ordering).
 
     Args:
-        ecdh_share: ECDH shared-secret point, serialized compressed (33 bytes),
-            already multiplied by input_hash.
+        ecdh_share: 33-byte compressed shared-secret point, already multiplied
+            by input_hash (validator does this before calling).
         recipients: ordered list of (scan_key, spend_key, label) tuples; label
-            is informational and unused.
-        shared_secret: precomputed compressed shared secret (for efficiency).
+            is informational and unused here.
 
     Returns:
         Dict mapping recipient position k to output pubkey x-only (32 bytes).
@@ -210,16 +206,12 @@ def derive_silent_payment_outputs(ecdh_share, recipients, shared_secret=None):
     if not recipients:
         return {}
 
-    # Use precomputed or default to the full 33-byte compressed point (BIP-352 §1)
-    if shared_secret is None:
-        shared_secret = ecdh_share
-
     result = {}
 
     for k, (scan_key, spend_key, _label) in enumerate(recipients):
         t_k = tagged_hash(
             "BIP0352/SharedSecret",
-            shared_secret + k.to_bytes(4, "big"),
+            ecdh_share + k.to_bytes(4, "big"),
         )
 
         # P_k = B_spend + t_k·G

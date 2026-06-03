@@ -178,12 +178,13 @@ class SPOutputScope(OutputScope):
 
     def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
         r = super().write_to(stream, skip_separator=True, version=version, **kwargs)
-        if self.sp_data is not None:
-            r += ser_string(stream, b"\x09")
-            r += ser_string(stream, self.sp_data.serialize())
-        if self.sp_label is not None:
-            r += ser_string(stream, b"\x0a")
-            r += ser_string(stream, self.sp_label.to_bytes(4, "little"))
+        if version == 2:
+            if self.sp_data is not None:
+                r += ser_string(stream, b"\x09")
+                r += ser_string(stream, self.sp_data.serialize())
+            if self.sp_label is not None:
+                r += ser_string(stream, b"\x0a")
+                r += ser_string(stream, self.sp_label.to_bytes(4, "little"))
         if not skip_separator:
             r += stream.write(b"\x00")
         return r
@@ -535,16 +536,13 @@ class SilentPaymentsPSBT(PSBT):
             for sk_bytes, scan_key in scan_keys.items():
                 if sk_bytes in inp.sp_ecdh_shares:
                     continue
-                try:
-                    share = compute_ecdh_share(priv_bytes, scan_key)
-                    proof = compute_dleq_proof(
-                        priv_bytes, scan_key, share, aux_rand=aux_rand
-                    )
-                    inp.sp_ecdh_shares[sk_bytes] = share
-                    inp.sp_dleq_proofs[sk_bytes] = proof
-                    counter += 1
-                except SPFieldError:
-                    continue
+                share = compute_ecdh_share(priv_bytes, scan_key)
+                proof = compute_dleq_proof(
+                    priv_bytes, scan_key, share, aux_rand=aux_rand
+                )
+                inp.sp_ecdh_shares[sk_bytes] = share
+                inp.sp_dleq_proofs[sk_bytes] = proof
+                counter += 1
 
         return counter
 
