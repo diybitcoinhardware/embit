@@ -143,8 +143,8 @@ class BIP352Test(TestCase):
             )
             assert sp_address == address
 
-        with pytest.raises(Exception):
-            for label in INVALID_LABEL_TEST_VECTORS:
+        for label in INVALID_LABEL_TEST_VECTORS:
+            with pytest.raises((TypeError, ValueError)):
                 bip352.generate_silent_payment_address(
                     scan_priv_key, spend_priv_key.get_public_key(), label
                 )
