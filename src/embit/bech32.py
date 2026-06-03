@@ -141,6 +141,9 @@ def decode(hrp, addr):
     Silent payment (sp/tsp) addresses are not witness programs and must not be
     decoded here; use bech32_decode + convertbits for those.
     """
+    # BIP-173/BIP-350: segwit addresses are capped at 90 characters.
+    if len(addr) > 90:
+        raise Bech32DecodeError("Segwit address too long (max 90 characters)")
     encoding, hrpgot, data = bech32_decode(addr)
     if hrpgot != hrp:
         raise Bech32DecodeError("HRP mismatch: expected {}, got {}".format(hrp, hrpgot))
