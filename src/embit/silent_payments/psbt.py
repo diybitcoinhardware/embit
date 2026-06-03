@@ -507,10 +507,7 @@ class SilentPaymentsPSBT(PSBT):
         if not scan_keys:
             return 0
 
-        try:
-            eligible = get_eligible_inputs(self.inputs, has_sp_outputs=True)
-        except SPValidationError:
-            return 0
+        eligible = get_eligible_inputs(self.inputs, has_sp_outputs=True)
 
         if not eligible:
             return 0
