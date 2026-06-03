@@ -2,8 +2,6 @@
 BIP-375 ECDH share and DLEQ proof computation, plus input eligibility.
 """
 
-from binascii import unhexlify
-
 from .. import ec
 from ..hashes import hash160
 from ..misc import urandom
@@ -154,12 +152,7 @@ def pubkey_hash_from_script(script, redeem_script=None):
     return None
 
 
-# BIP-341 nothing-up-my-sleeve (NUMS) internal key. A taproot output that
-# commits to H as its internal key is script-path-only and is NOT eligible for
-# silent-payment shared-secret derivation (BIP-352).
-NUMS_H = unhexlify(
-    "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
-)
+_NUMS_XONLY = ec.NUMS_PUBKEY.xonly()
 
 
 def witness_version(script):
@@ -257,7 +250,7 @@ def get_eligible_inputs(inputs, has_sp_outputs: bool = False):
             # NUMS internal key -> script-path-only, not eligible.
             if (
                 inp.taproot_internal_key is not None
-                and inp.taproot_internal_key.xonly() == NUMS_H
+                and inp.taproot_internal_key.xonly() == _NUMS_XONLY
             ):
                 continue
             eligible.append(i)
