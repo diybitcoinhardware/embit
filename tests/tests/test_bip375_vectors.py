@@ -47,5 +47,28 @@ class TestBIP375InvalidVectors(unittest.TestCase):
                     validate_bip375_psbt(psbt)
 
 
+class TestBIP375GlobalProofWithoutShare(unittest.TestCase):
+    """A global DLEQ proof present without its matching ECDH share must fail
+    cleanly with SPValidationError, not raise an unguarded KeyError."""
+
+    def test_proof_without_share_raises_validation_error(self):
+        data = _load()
+        for v in data["valid"]:
+            psbt = SilentPaymentsPSBT.from_base64(v["psbt"])
+            shared = set(psbt.sp_ecdh_shares) & set(psbt.sp_dleq_proofs)
+            if not shared:
+                continue
+            # Drop the global ECDH share but keep the global DLEQ proof.
+            scan_key = next(iter(shared))
+            del psbt.sp_ecdh_shares[scan_key]
+            with self.assertRaisesRegex(
+                SPValidationError,
+                "PSBT_GLOBAL_SP_DLEQ present without PSBT_GLOBAL_SP_ECDH_SHARE",
+            ):
+                validate_bip375_psbt(psbt)
+            return
+        self.skipTest("no vector exercises the global ECDH share path")
+
+
 if __name__ == "__main__":
     unittest.main()

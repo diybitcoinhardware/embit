@@ -166,6 +166,12 @@ class BIP375Validator:
                     "PSBT_GLOBAL_SP_DLEQ".format(out_idx)
                 )
 
+            if has_global_proof and not has_global_share:
+                raise SPValidationError(
+                    "Output {}: PSBT_GLOBAL_SP_DLEQ present without "
+                    "PSBT_GLOBAL_SP_ECDH_SHARE".format(out_idx)
+                )
+
             if has_global_proof:
                 # Verify global DLEQ proof
                 if not out.script_pubkey:
@@ -225,7 +231,7 @@ class BIP375Validator:
         eligible_pubkeys = []
         for inp_idx in eligible_inputs:
             inp = self.psbt.inputs[inp_idx]
-            pubkey = self._get_input_public_key(inp, inp_idx)
+            pubkey = input_public_key(inp)
             if pubkey:
                 eligible_pubkeys.append(pubkey)
 
@@ -257,7 +263,7 @@ class BIP375Validator:
         scan_key_bytes = scan_key.sec()
 
         # Get input's public key
-        pubkey = self._get_input_public_key(inp, inp_idx)
+        pubkey = input_public_key(inp)
         if not pubkey:
             # Can't verify without public key
             return
@@ -277,10 +283,6 @@ class BIP375Validator:
                 "Output {}: Per-input DLEQ proof verification failed "
                 "for input {}".format(out_idx, inp_idx)
             )
-
-    def _get_input_public_key(self, inp, inp_idx: int):
-        """Return the input's public key used for SP shared-secret derivation."""
-        return input_public_key(inp)
 
     def _validate_input_eligibility(self):
         """
@@ -329,7 +331,7 @@ class BIP375Validator:
             for i in range(len(self.psbt.inputs))
         ]
         eligible_pubkeys = [
-            self._get_input_public_key(self.psbt.inputs[i], i) for i in eligible_inputs
+            input_public_key(self.psbt.inputs[i]) for i in eligible_inputs
         ]
         eligible_pubkeys = [pk for pk in eligible_pubkeys if pk is not None]
         if not eligible_pubkeys:
