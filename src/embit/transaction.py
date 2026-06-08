@@ -144,28 +144,26 @@ class Transaction(EmbitBase):
         return res, hashlib.sha256(h.digest()).digest()
 
     @classmethod
-    def read_from(cls, stream):
+    def read_from(cls, stream, segwit=True):
+        # `segwit` controls whether a leading 0x00 input-count is interpreted as
+        # the BIP-144 segwit marker. A standalone network tx may be segwit
+        # (segwit=True, the default). The BIP-174 unsigned tx inside a PSBT is
+        # mandated non-witness, so a 0x00 there is a genuine "no inputs yet"
+        # count and must be parsed with segwit=False — otherwise a legacy
+        # 0-input / 1-output tx is indistinguishable from a segwit prefix.
         ver = int.from_bytes(stream.read(4), "little")
         num_vin = compact.read_from(stream)
-        num_vout = None
         is_segwit = False
-        if num_vin == 0:
-            # Could be either:
-            #   (a) BIP-144 segwit standalone tx → next byte must be flag 0x01
-            #   (b) BIP-174 PSBT-embedded unsigned tx with no inputs yet (legacy, no flag)
-            # Peek the next byte; only treat as segwit if it's exactly 0x01.
-            flag = stream.read(1)
-            if flag == b"\x01":
-                is_segwit = True
-                num_vin = compact.read_from(stream)
-            else:
-                # legacy with 0 inputs — the byte we just read is num_vout
-                num_vout = compact.read_from(BytesIO(flag))
+        if segwit and num_vin == 0:
+            marker = stream.read(1)
+            if marker != b"\x01":
+                raise TransactionError("Invalid segwit marker")
+            is_segwit = True
+            num_vin = compact.read_from(stream)
         vin = []
         for i in range(num_vin):
             vin.append(TransactionInput.read_from(stream))
-        if num_vout is None:
-            num_vout = compact.read_from(stream)
+        num_vout = compact.read_from(stream)
         vout = []
         for i in range(num_vout):
             vout.append(TransactionOutput.read_from(stream))

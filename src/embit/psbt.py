@@ -787,7 +787,10 @@ class PSBT(EmbitBase):
             # tx
             if key == b"\x00":
                 if tx is None:
-                    tx = cls.TX_CLS.parse(value)
+                    # BIP-174: the global unsigned tx is non-witness serialized,
+                    # so a leading 0x00 is a real (possibly empty) input count,
+                    # not a segwit marker.
+                    tx = cls.TX_CLS.parse(value, segwit=False)
                 else:
                     raise PSBTError(
                         "Failed to parse PSBT - duplicated transaction field"
