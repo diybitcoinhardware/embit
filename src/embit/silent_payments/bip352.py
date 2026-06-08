@@ -106,6 +106,8 @@ def decode_silent_payment_address(address: str):
 
 
 def get_input_hash(outpoints, sum_pubkey_bytes: bytes) -> bytes:
+    if not outpoints:
+        raise ValueError("get_input_hash requires at least one outpoint")
     lowest_outpoint = sorted(outpoints, key=lambda o: o.serialize())[0]
     preimage = lowest_outpoint.serialize() + sum_pubkey_bytes
     return tagged_hash("BIP0352/Inputs", preimage)

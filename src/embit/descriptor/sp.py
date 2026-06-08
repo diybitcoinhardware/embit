@@ -141,6 +141,9 @@ def _read_sp_key_expression(s):
         s.seek(-1, 1)
     token_str = token.decode()
 
+    if not token_str:
+        raise DescriptorError("Empty key expression in sp()")
+
     lower = token_str.lower()
     for hrp in SPSCAN_HRPS:
         if lower.startswith(hrp + "1"):

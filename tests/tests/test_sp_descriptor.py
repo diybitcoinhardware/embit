@@ -233,7 +233,9 @@ class TestInvalidDescriptor(TestCase):
         return ec.PrivateKey(bytes([0x02] * 32)).get_public_key()
 
     def test_empty_sp(self):
-        self.assertRaises(Exception, SilentPaymentDescriptor.from_string, "sp()")
+        self.assertRaises(
+            DescriptorError, SilentPaymentDescriptor.from_string, "sp()"
+        )
 
     def test_bare_xpub_single_arg(self):
         """Single-arg sp() with a plain xpub (not spscan/spspend) is rejected."""
