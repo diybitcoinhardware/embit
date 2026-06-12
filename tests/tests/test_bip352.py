@@ -235,3 +235,22 @@ class BIP352Test(TestCase):
                     ),
                     f"Actual outputs {set(actual_outputs)} did not match any expected set {expected_outputs}",
                 )
+
+    def test_create_outputs_rejects_too_many_outputs_per_scan_key(self):
+        """Should fail when one scan-key group exceeds K_MAX recipients"""
+        vector = BASIC_TEST_VECTORS[0]
+        input_privkeys = [(unhexlify(vector["spend_priv_key"]), False)]
+        outpoints = [COutPoint(txid=bytes(32), out_idx=0)]
+        recipients = [vector["sp_address"]] * (bip352.K_MAX + 1)
+
+        with pytest.raises(ValueError, match="Too many outputs"):
+            bip352.create_outputs(input_privkeys, outpoints, recipients)
+
+    def test_derive_outputs_rejects_too_many_outputs_per_scan_key(self):
+        """Should fail when the per-scan-key recipient list exceeds K_MAX"""
+        vector = BASIC_TEST_VECTORS[0]
+        B_scan, B_spend = bip352.decode_silent_payment_address(vector["sp_address"])
+        recipients = [(B_scan, B_spend, None)] * (bip352.K_MAX + 1)
+
+        with pytest.raises(ValueError, match="Too many outputs"):
+            bip352.derive_silent_payment_outputs(b"\x02" + bytes(32), recipients)

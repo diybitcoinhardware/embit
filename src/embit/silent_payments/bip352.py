@@ -19,6 +19,8 @@ from ..util.secp256k1 import (
 )
 from binascii import hexlify
 
+K_MAX = 2323
+
 
 def generate_silent_payment_address(
     scan_privkey: ec.PrivateKey,
@@ -157,6 +159,14 @@ def create_outputs(input_privkeys, outpoints, recipients):
         B_scan, B_spend = decoded[addr]
         groups.setdefault(B_scan, []).append((B_spend, addr))
 
+    for group in groups.values():
+        if len(group) > K_MAX:
+            raise ValueError(
+                "Too many outputs for one scan key: {} > {}".format(
+                    len(group), K_MAX
+                )
+            )
+
     result = {addr: [] for addr in decoded}
     scalar = (int.from_bytes(input_hash, "big") * a_sum) % SECP256K1_ORDER
     scalar_bytes = scalar.to_bytes(32, "big")
@@ -207,6 +217,13 @@ def derive_silent_payment_outputs(ecdh_share, recipients):
     """
     if not recipients:
         return {}
+    
+    if len(recipients) > K_MAX:
+        raise ValueError(
+            "Too many outputs for one scan key: {} > {}".format(
+                len(recipients), K_MAX
+            )
+        )
 
     result = {}
 
