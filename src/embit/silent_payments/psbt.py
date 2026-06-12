@@ -263,7 +263,7 @@ class SilentPaymentsPSBT(PSBT):
                 r += ser_string(stream, self.sp_dleq_proofs[scan_key])
         return r
 
-    def sign_with(self, root, sighash=None, **kwargs):
+    def sign_with(self, root, sighash=None, with_sp_shares=True, **kwargs):
         has_sp = self.version == 2 and any(
             out.sp_data is not None for out in self.outputs
         )
@@ -281,7 +281,7 @@ class SilentPaymentsPSBT(PSBT):
             counter = super().sign_with(root, sighash=sighash, **kwargs)
         else:
             counter = super().sign_with(root, **kwargs)
-        if has_sp:
+        if has_sp and with_sp_shares:
             counter += self._sign_with_sp(root)
         if self.version == 2:
             counter += self._sign_sp_spends(root)

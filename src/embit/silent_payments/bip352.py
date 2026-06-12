@@ -63,8 +63,6 @@ def decode_silent_payment_address(address: str):
     """
     Decode a silent payment address and return the scan and spend public keys.
     """
-    # Bech32m addresses may be all-uppercase; detect HRP case-insensitively
-    # (bech32_decode lowercases internally, so hrpgot is always lowercase).
     lowered = address.lower()
     if lowered.startswith("sp1"):
         hrp = "sp"
@@ -120,7 +118,8 @@ def create_outputs(input_privkeys, outpoints, recipients):
     Args:
         input_privkeys: List of (private_key_bytes, is_xonly) tuples
         outpoints: List of transaction outpoints
-        recipients: List of silent payment addresses (strings) - duplicates are allowed
+        recipients: List of silent payment addresses (strings) - duplicates
+            allowed; pass in vout order so k matches the BIP-375 validator.
 
     Returns:
         Dictionary mapping each unique recipient address to list of output hex strings
@@ -147,16 +146,18 @@ def create_outputs(input_privkeys, outpoints, recipients):
 
     input_hash = get_input_hash(outpoints, ec_pubkey_serialize(A))
 
-    recipient_counts = {}
+    # Decode each unique address once; iterate occurrences to assign k in list order.
+    decoded = {}
     for addr in recipients:
-        recipient_counts[addr] = recipient_counts.get(addr, 0) + 1
+        if addr not in decoded:
+            decoded[addr] = decode_silent_payment_address(addr)
 
     groups = {}
-    for addr, count in recipient_counts.items():
-        B_scan, B_spend = decode_silent_payment_address(addr)
-        groups.setdefault(B_scan, []).append((B_spend, addr, count))
+    for addr in recipients:
+        B_scan, B_spend = decoded[addr]
+        groups.setdefault(B_scan, []).append((B_spend, addr))
 
-    result = {addr: [] for addr in recipient_counts.keys()}
+    result = {addr: [] for addr in decoded}
     scalar = (int.from_bytes(input_hash, "big") * a_sum) % SECP256K1_ORDER
     scalar_bytes = scalar.to_bytes(32, "big")
 
@@ -167,20 +168,17 @@ def create_outputs(input_privkeys, outpoints, recipients):
         ec_pubkey_tweak_mul(ecdh_point, scalar_bytes)
         shared_secret = ec_pubkey_serialize(ecdh_point)
 
-        k = 0
-        for B_spend, addr, count in B_spend_list:
-            for _ in range(count):
-                t_k = tagged_hash(
-                    "BIP0352/SharedSecret",
-                    shared_secret + k.to_bytes(4, "big"),
-                )
+        for k, (B_spend, addr) in enumerate(B_spend_list):
+            t_k = tagged_hash(
+                "BIP0352/SharedSecret",
+                shared_secret + k.to_bytes(4, "big"),
+            )
 
-                P_k = bytearray(ec_pubkey_parse(B_spend.sec()))
-                ec_pubkey_tweak_add(P_k, t_k)
+            P_k = bytearray(ec_pubkey_parse(B_spend.sec()))
+            ec_pubkey_tweak_add(P_k, t_k)
 
-                xonly = ec_pubkey_serialize(P_k)[1:33]
-                result[addr].append(hexlify(xonly).decode())
-                k += 1
+            xonly = ec_pubkey_serialize(P_k)[1:33]
+            result[addr].append(hexlify(xonly).decode())
 
     return result
 
