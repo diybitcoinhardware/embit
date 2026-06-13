@@ -12,6 +12,8 @@ ARCH = $(shell uname -m)
 endif
 
 # Paths
+# Sourced from secp256k1-zkp for Liquid support; can be swapped to upstream
+# bitcoin-core/secp256k1 in the future.
 LIB_DIR = secp256k1-zkp
 BUILD_DIR = build
 

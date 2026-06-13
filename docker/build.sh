@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# Convenience wrapper around secp256k1/Makefile that selects the right
+# toolchain triple and CFLAGS for a named target.
+#
+# Source is fixed to secp256k1-zkp (the Blockstream fork) because Liquid
+# support requires its extra crypto modules (ECDH, generator, pedersen,
+# rangeproof, surjectionproof, musig, schnorrsig). This can be swapped to
+# upstream bitcoin-core/secp256k1 in the future, once Liquid lives in a
+# separate external module that owns its own zkp build.
+#
+# Output lands at:
+#   secp256k1/build/libsecp256k1_<platform>_<arch>.{so,dll}
+# (the Makefile decides the filename based on PLATFORM and ARCH it sees.)
+#
+# Run inside the docker image:
+#   docker run --rm -v "$PWD":/embit -v "$PWD/.ccache":/ccache embit-libsecp <target>
+#
+# Targets:
+#   amd64        Native Linux x86_64 build (default if no arg given in CI)
+#   armv6l       Cross-compile for Raspberry Pi Zero
+#   armv7l       Cross-compile for Raspberry Pi 2/3 / armhf
+#   aarch64      Cross-compile for arm64 (Pi 4/5, modern ARM Linux)
+#   windows      Cross-compile to .dll via mingw-w64
+#   --help       Show this message
+#
+# macOS targets are not supported by this container -- build natively on a
+# Mac with the existing secp256k1/Makefile. See docker/README.md.
+
+set -euo pipefail
+
+SECP_DIR="/embit/secp256k1"
+
+usage() {
+    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+if [ "$#" -lt 1 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    usage
+    exit 0
+fi
+
+TARGET="$1"
+shift || true
+
+if [ ! -d "${SECP_DIR}" ]; then
+    echo "ERROR: ${SECP_DIR} not found. Mount the embit repo at /embit:" >&2
+    echo "  docker run --rm -v \"\$PWD\":/embit ... <target>" >&2
+    exit 1
+fi
+
+if [ ! -d "${SECP_DIR}/secp256k1-zkp" ] || [ -z "$(ls -A "${SECP_DIR}/secp256k1-zkp" 2>/dev/null || true)" ]; then
+    echo "ERROR: secp256k1-zkp submodule is not checked out." >&2
+    echo "  git submodule update --init --recursive" >&2
+    exit 1
+fi
+
+case "${TARGET}" in
+    amd64|x86_64|linux-amd64)
+        MAKE_ARGS=(PLATFORM=linux ARCH=x86_64)
+        ;;
+    armv6l|pi-zero|linux-armv6l)
+        MAKE_ARGS=(
+            PLATFORM=linux
+            ARCH=armv6l
+            "TOOLCHAIN_PREFIX=arm-linux-gnueabihf-"
+            "CFLAGS=-fPIC -O2 -Werror -Wno-unused-function -march=armv6 -mfpu=vfp -mfloat-abi=hard -I${SECP_DIR}/secp256k1-zkp -I${SECP_DIR}/secp256k1-zkp/src -I${SECP_DIR}/config -DHAVE_CONFIG_H"
+        )
+        ;;
+    armv7l|pi-2|linux-armv7l)
+        MAKE_ARGS=(
+            PLATFORM=linux
+            ARCH=armv7l
+            "TOOLCHAIN_PREFIX=arm-linux-gnueabihf-"
+            "CFLAGS=-fPIC -O2 -Werror -Wno-unused-function -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -I${SECP_DIR}/secp256k1-zkp -I${SECP_DIR}/secp256k1-zkp/src -I${SECP_DIR}/config -DHAVE_CONFIG_H"
+        )
+        ;;
+    aarch64|arm64|linux-aarch64)
+        MAKE_ARGS=(
+            PLATFORM=linux
+            ARCH=aarch64
+            "TOOLCHAIN_PREFIX=aarch64-linux-gnu-"
+        )
+        ;;
+    windows|win|win64|windows-amd64)
+        MAKE_ARGS=(CROSS_DLL=1)
+        ;;
+    darwin-*|macos-*)
+        echo "ERROR: macOS targets are not built inside this container." >&2
+        echo "       Build natively on a Mac: 'cd secp256k1 && make'." >&2
+        echo "       See docker/README.md for details." >&2
+        exit 1
+        ;;
+    *)
+        echo "ERROR: unknown target '${TARGET}'" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
+
+cd "${SECP_DIR}"
+make "${MAKE_ARGS[@]}" "$@"
+
+# Stage the freshly-built artifact at the autotools-conventional path the
+# embit ctypes loader checks first (secp256k1/secp256k1-zkp/.libs/). This
+# saves the consumer a manual `cp` step after every build and ensures that
+# this build wins over any system libsecp256k1 the loader might otherwise
+# resolve (e.g. Homebrew's bitcoin-core/secp256k1 on macOS). The Linux/dll
+# equivalent of the loader-preferred filename is libsecp256k1.{so,dll}.
+LIBS_DIR="${SECP_DIR}/secp256k1-zkp/.libs"
+mkdir -p "${LIBS_DIR}"
+
+shopt -s nullglob
+for built in "${SECP_DIR}"/build/libsecp256k1_*; do
+    case "${built}" in
+        *.so)
+            dest_name="libsecp256k1.so"
+            ;;
+        *.dll)
+            dest_name="libsecp256k1.dll"
+            ;;
+        *)
+            continue  # skip .o, .a, etc.
+            ;;
+    esac
+    cp "${built}" "${LIBS_DIR}/${dest_name}"
+    echo "Staged: ${built} -> ${LIBS_DIR}/${dest_name}"
+done
+
+# Surface a brief summary of what was built and where.
+echo ""
+echo "Built artifacts:"
+find "${SECP_DIR}/build" -maxdepth 1 -type f \( -name '*.so' -o -name '*.dll' \) -print
+
+if command -v ccache >/dev/null 2>&1; then
+    echo ""
+    echo "ccache stats:"
+    ccache -s | sed 's/^/  /'
+fi
