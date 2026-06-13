@@ -148,7 +148,9 @@ to apples.
 To verify your own build matches CI:
 
 ```sh
-# Build the image and produce all targets locally:
+# Every target uses an explicit cross-compiler inside the container, so the
+# produced binary's architecture is fully decoupled from the host. No
+# --platform flags needed.
 docker build -t embit-libsecp docker/
 for target in amd64 armv6l armv7l aarch64 windows; do
     docker run --rm -v "$PWD":/embit embit-libsecp "${target}"

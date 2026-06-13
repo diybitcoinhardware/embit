@@ -59,6 +59,9 @@ RUN apt-get update \
         gcc-aarch64-linux-gnu \
         gcc-arm-linux-gnueabihf \
         gcc-mingw-w64-x86-64 \
+        gcc-x86-64-linux-gnu \
+        libc6-dev-amd64-cross \
+        libc6-dev-armhf-cross \
         libtool \
         make \
         pkg-config \
@@ -70,7 +73,7 @@ RUN apt-get update \
 # any Makefile changes. CCACHE_DIR is bind-mountable so consumers can persist
 # the cache between container runs (e.g. -v $PWD/.ccache:/ccache).
 RUN set -eux; \
-    for triple in arm-linux-gnueabihf aarch64-linux-gnu x86_64-w64-mingw32; do \
+    for triple in arm-linux-gnueabihf aarch64-linux-gnu x86_64-linux-gnu x86_64-w64-mingw32; do \
         ln -sf /usr/bin/ccache /usr/lib/ccache/${triple}-gcc; \
     done
 

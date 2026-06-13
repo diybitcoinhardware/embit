@@ -56,14 +56,26 @@ fi
 
 case "${TARGET}" in
     amd64|x86_64|linux-amd64)
-        MAKE_ARGS=(PLATFORM=linux ARCH=x86_64)
+        # Explicit cross-compiler so the produced binary is x86_64 regardless
+        # of the container's host architecture. Without this, the build would
+        # silently produce an arm64 binary when run on Apple Silicon (Docker
+        # Desktop's default linux/arm64 image variant).
+        MAKE_ARGS=(
+            PLATFORM=linux
+            ARCH=x86_64
+            "TOOLCHAIN_PREFIX=x86_64-linux-gnu-"
+        )
         ;;
     armv6l|pi-zero|linux-armv6l)
+        # -marm forces ARM (not Thumb) instruction selection; ARMv6 Thumb-1
+        # does not support hard-float VFP, so without -marm gcc errors out
+        # with "sorry, unimplemented: Thumb-1 'hard-float' VFP ABI". This
+        # matches Raspbian's stock toolchain for Pi Zero hard-float builds.
         MAKE_ARGS=(
             PLATFORM=linux
             ARCH=armv6l
             "TOOLCHAIN_PREFIX=arm-linux-gnueabihf-"
-            "CFLAGS=-fPIC -O2 -Werror -Wno-unused-function -march=armv6 -mfpu=vfp -mfloat-abi=hard -I${SECP_DIR}/secp256k1-zkp -I${SECP_DIR}/secp256k1-zkp/src -I${SECP_DIR}/config -DHAVE_CONFIG_H"
+            "CFLAGS=-fPIC -O2 -Werror -Wno-unused-function -march=armv6 -mfpu=vfp -mfloat-abi=hard -marm -I${SECP_DIR}/secp256k1-zkp -I${SECP_DIR}/secp256k1-zkp/src -I${SECP_DIR}/config -DHAVE_CONFIG_H"
         )
         ;;
     armv7l|pi-2|linux-armv7l)
@@ -98,6 +110,14 @@ case "${TARGET}" in
 esac
 
 cd "${SECP_DIR}"
+
+# Remove stale intermediate objects from any previous build that may have
+# targeted a different architecture (e.g. an earlier native macOS `make`
+# run leaving a Mach-O secp256k1.o behind). Per-target .so/.dll outputs
+# in build/ are preserved so consecutive cross-compile invocations don't
+# clobber each other.
+rm -f build/*.o build/*.d
+
 make "${MAKE_ARGS[@]}" "$@"
 
 # Stage the freshly-built artifact at the autotools-conventional path the
