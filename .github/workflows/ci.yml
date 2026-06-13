@@ -184,7 +184,11 @@ jobs:
           embit_commit="$(git -C "${{ github.workspace }}" rev-parse HEAD)"
           zkp_commit="$(git -C "${{ github.workspace }}/secp256k1/secp256k1-zkp" rev-parse HEAD)"
           debian_snapshot="$(grep -E '^ARG DEBIAN_SNAPSHOT=' "${{ github.workspace }}/docker/Dockerfile" | head -n1 | cut -d= -f2)"
-          debian_digest="$(grep -E '^FROM debian:' "${{ github.workspace }}/docker/Dockerfile" | head -n1 | awk '{print $2}')"
+          # Scan every token after `FROM` and pick the one that starts with
+          # `debian:`. Robust against the Dockerfile's optional
+          # `--platform=linux/amd64` token between `FROM` and the image
+          # reference (and against any future flags that might land there).
+          debian_digest="$(awk '/^FROM / {for (i=2; i<=NF; i++) if ($i ~ /^debian:/) {print $i; exit}}' "${{ github.workspace }}/docker/Dockerfile")"
 
           {
             echo "# embit commit:        ${embit_commit}"

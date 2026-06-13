@@ -5,10 +5,17 @@ from embit.util import ctypes_secp256k1, secp256k1
 # Schnorr and ECDSA recovery are optional modules in both upstream secp256k1
 # and zkp. If a future build of embit targets a libsecp256k1 without these
 # modules enabled, these checks let the test suite skip cleanly instead of
-# erroring out. The wrapper's _OPTIONAL_SYMBOLS filter removes missing
-# symbols from `secp256k1`, so hasattr() on the wrapper is the source of
-# truth here -- ctypes_secp256k1 itself always defines the Python wrapper
-# function regardless of whether the underlying C symbol is present.
+# erroring out.
+#
+# Capability is checked against the `embit.util.secp256k1` selector module
+# (imported as `secp256k1` above) rather than against `ctypes_secp256k1`
+# directly. The selector imports ctypes_secp256k1 and then walks an
+# `_OPTIONAL_SYMBOLS` table, pruning names whose underlying C symbols
+# weren't present in the loaded library. So `hasattr(secp256k1, name)` is
+# the source of truth for "is this capability available?" --
+# `hasattr(ctypes_secp256k1, name)` would always return True because the
+# ctypes-binding Python functions are defined unconditionally regardless
+# of which C symbols actually exist in libsecp256k1.
 _SCHNORR_AVAILABLE = all(
     hasattr(secp256k1, name)
     for name in (
@@ -99,16 +106,16 @@ class BindingsTest(TestCase):
             msg = b"q" * 32
 
             # without aux data
-            sig1 = ctypes_secp256k1.schnorrsig_sign(msg, secret)
+            sig_no_aux = ctypes_secp256k1.schnorrsig_sign(msg, secret)
 
             # with aux data
-            sig2 = ctypes_secp256k1.schnorrsig_sign(msg, secret, None, b"4" * 32)
+            sig_with_aux = ctypes_secp256k1.schnorrsig_sign(msg, secret, None, b"4" * 32)
 
-            self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig1, msg, pub1))
-            self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig2, msg, pub1))
+            self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig_no_aux, msg, pub1))
+            self.assertTrue(ctypes_secp256k1.schnorrsig_verify(sig_with_aux, msg, pub1))
 
-            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig1, b"w" * 32, pub1))
-            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig2, b"w" * 32, pub1))
+            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig_no_aux, b"w" * 32, pub1))
+            self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig_with_aux, b"w" * 32, pub1))
 
             # libsecp's keypair structure is a 96-byte opaque blob (32-byte
             # secret + 64-byte uncompressed pubkey). Assert the length so a
@@ -130,3 +137,45 @@ class BindingsTest(TestCase):
         # sign/recover roundtrip: the recovered pubkey matches the secret's pubkey
         expected_pub = ctypes_secp256k1.ec_pubkey_create(secret)
         self.assertEqual(ctypes_secp256k1.ecdsa_recover(sig, msg), expected_pub)
+
+
+class WrapperImportTest(TestCase):
+    """End-to-end coverage of the selector module's fail-fast behavior.
+
+    These tests live separately from BindingsTest because they don't exercise
+    the libsecp256k1 bindings -- they exercise what `embit.util.secp256k1`
+    does when those bindings cannot be loaded. They run in a subprocess so
+    we get a clean import state (once `embit.util.secp256k1` has been
+    imported successfully by other tests in the suite, it can't be reliably
+    unloaded and re-loaded in-process). The subprocess script lives next
+    to this file as `_helper_libsecp_load_failure.py`.
+    """
+
+    def test_libsecp_load_failure_raises_with_chained_cause(self):
+        """Verifies the contract that future maintenance can't silently break:
+        when the underlying ctypes module fails at import time, the selector
+        raises Libsecp256k1NotAvailable with the original error chained as
+        __cause__. Catches regressions like dropping the `from _cp_exc`
+        clause or widening the `except ImportError:` to a bare `except:`.
+        """
+        import os
+        import subprocess
+        import sys
+
+        helper = os.path.join(
+            os.path.dirname(__file__), "_helper_libsecp_load_failure.py"
+        )
+        result = subprocess.run(
+            [sys.executable, helper], capture_output=True, text=True
+        )
+
+        self.assertEqual(
+            result.returncode,
+            0,
+            "subprocess did not raise on the wrapper import; "
+            "stdout={!r} stderr={!r}".format(result.stdout, result.stderr),
+        )
+        lines = result.stdout.strip().split("\n")
+        self.assertEqual(lines[0], "embit.util.secp256k1.Libsecp256k1NotAvailable")
+        self.assertEqual(lines[1], "RuntimeError")
+        self.assertEqual(lines[2], "simulated libsecp loader failure")

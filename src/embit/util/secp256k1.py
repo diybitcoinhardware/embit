@@ -1,4 +1,4 @@
-# ruff: noqa: F403, E722
+# ruff: noqa: F403
 #
 # secp256k1 backend selector.
 #
@@ -48,10 +48,13 @@ try:
     except Exception as _mp_exc:
         raise Libsecp256k1NotAvailable() from _mp_exc
 except Libsecp256k1NotAvailable:
-    # Re-raise so the outer ``except:`` below doesn't swallow it.
+    # Re-raise so the outer ImportError clause below doesn't swallow it.
     raise
-except:
-    # CPython branch.
+except ImportError:
+    # CPython branch: ``from micropython import const`` raised ImportError,
+    # confirming we're not on MicroPython. Only catch ImportError here so
+    # unrelated runtime errors from a MicroPython environment surface as
+    # themselves instead of being misrouted to the CPython loader.
     try:
         from . import ctypes_secp256k1 as _ctypes_secp256k1
         from .ctypes_secp256k1 import *

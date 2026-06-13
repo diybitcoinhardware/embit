@@ -106,6 +106,16 @@ year from now produces the same toolchain bits and the same libsecp256k1
 artifact, provided the maintainer hasn't deliberately bumped one of the
 inputs below.
 
+**Verified cross-host:** CI (`ubuntu-latest`, linux/amd64) and Apple Silicon
+(linux/amd64 via Docker Desktop QEMU emulation) produce byte-identical
+binaries for all five targets from the same inputs. The `FROM
+--platform=linux/amd64` directive in the Dockerfile is what pins host
+architecture for the build; without it, gcc-on-arm64 vs gcc-on-amd64
+embed slightly different metadata (BuildID, debug info) and the hashes
+diverge for the amd64/aarch64/windows targets. Consumers on non-amd64
+hosts pay a one-time QEMU emulation cost at build time in exchange for
+this guarantee.
+
 **Pinned in this Dockerfile:**
 - **`secp256k1-zkp` submodule** -- pinned by git SHA from the embit repo.
   Same code in → same C sources out.

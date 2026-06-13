@@ -53,10 +53,23 @@ ENV DEBIAN_FRONTEND=noninteractive
 # (any YYYYMMDDTHHMMSSZ that resolves -- apt will follow snapshot.debian.org's
 # internal redirect to the nearest actual snapshot).
 ARG DEBIAN_SNAPSHOT=20260601T000000Z
-RUN echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/ bookworm main"          >  /etc/apt/sources.list && \
+
+# snapshot.debian.org supports HTTPS, but debian:bookworm-slim ships
+# without ca-certificates -- so the first apt-get update has to go over
+# HTTP. We bootstrap ca-certificates from the snapshot's HTTP endpoint
+# (content integrity is still provided by apt's GPG signature chain),
+# then swap the sources.list to HTTPS for the larger install in the next
+# RUN layer. This adds transport-layer protection (metadata
+# confidentiality + an extra integrity check) without sacrificing the
+# snapshot-pinned reproducibility for ca-certificates itself.
+RUN echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/ bookworm main"                   >  /etc/apt/sources.list && \
     echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}/ bookworm-security main" >> /etc/apt/sources.list && \
     echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/10-snapshot && \
-    echo 'Acquire::Retries "5";'              >> /etc/apt/apt.conf.d/10-snapshot
+    echo 'Acquire::Retries "5";'              >> /etc/apt/apt.conf.d/10-snapshot && \
+    apt-get update && \
+    apt-get install --no-install-recommends -y ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    sed -i 's|http://snapshot.debian.org|https://snapshot.debian.org|g' /etc/apt/sources.list
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
