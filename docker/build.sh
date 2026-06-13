@@ -83,6 +83,7 @@ case "${TARGET}" in
             ARCH=x86_64
             "TOOLCHAIN_PREFIX=x86_64-linux-gnu-"
         )
+        BUILT_NAME=libsecp256k1_linux_x86_64.so
         ;;
     armv6l|pi-zero|linux-armv6l)
         # -marm forces ARM (not Thumb) instruction selection; ARMv6 Thumb-1
@@ -95,6 +96,7 @@ case "${TARGET}" in
             "TOOLCHAIN_PREFIX=arm-linux-gnueabihf-"
             "CFLAGS=-fPIC -O2 -Werror -Wno-unused-function -march=armv6 -mfpu=vfp -mfloat-abi=hard -marm -I${SECP_DIR}/secp256k1-zkp -I${SECP_DIR}/secp256k1-zkp/src -I${SECP_DIR}/config -DHAVE_CONFIG_H"
         )
+        BUILT_NAME=libsecp256k1_linux_armv6l.so
         ;;
     armv7l|pi-2|linux-armv7l)
         MAKE_ARGS=(
@@ -103,6 +105,7 @@ case "${TARGET}" in
             "TOOLCHAIN_PREFIX=arm-linux-gnueabihf-"
             "CFLAGS=-fPIC -O2 -Werror -Wno-unused-function -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -I${SECP_DIR}/secp256k1-zkp -I${SECP_DIR}/secp256k1-zkp/src -I${SECP_DIR}/config -DHAVE_CONFIG_H"
         )
+        BUILT_NAME=libsecp256k1_linux_armv7l.so
         ;;
     aarch64|arm64|linux-aarch64)
         MAKE_ARGS=(
@@ -110,9 +113,11 @@ case "${TARGET}" in
             ARCH=aarch64
             "TOOLCHAIN_PREFIX=aarch64-linux-gnu-"
         )
+        BUILT_NAME=libsecp256k1_linux_aarch64.so
         ;;
     windows|win|win64|windows-amd64)
         MAKE_ARGS=(CROSS_DLL=1)
+        BUILT_NAME=libsecp256k1_windows_amd64.dll
         ;;
     darwin-*|macos-*)
         echo "ERROR: macOS targets are not built inside this container." >&2
@@ -138,31 +143,32 @@ rm -f build/*.o build/*.d
 
 make "${MAKE_ARGS[@]}" "$@"
 
-# Stage the freshly-built artifact at the autotools-conventional path the
-# embit ctypes loader checks first (secp256k1/secp256k1-zkp/.libs/). This
-# saves the consumer a manual `cp` step after every build and ensures that
-# this build wins over any system libsecp256k1 the loader might otherwise
-# resolve (e.g. Homebrew's bitcoin-core/secp256k1 on macOS). The Linux/dll
-# equivalent of the loader-preferred filename is libsecp256k1.{so,dll}.
+# Stage only the artifact produced by THIS invocation at the autotools-
+# conventional path the embit ctypes loader checks first
+# (secp256k1/secp256k1-zkp/.libs/). Staging exactly the current target's
+# output -- rather than globbing every libsecp256k1_*.so/.dll in build/ --
+# keeps prior runs' outputs from racing for the staged slot (last-glob-win
+# is shell-alphabetical, not what the caller asked for) and ensures the
+# staged file matches what the caller actually requested.
 LIBS_DIR="${SECP_DIR}/secp256k1-zkp/.libs"
 mkdir -p "${LIBS_DIR}"
 
-shopt -s nullglob
-for built in "${SECP_DIR}"/build/libsecp256k1_*; do
-    case "${built}" in
-        *.so)
-            dest_name="libsecp256k1.so"
-            ;;
-        *.dll)
-            dest_name="libsecp256k1.dll"
-            ;;
-        *)
-            continue  # skip .o, .a, etc.
-            ;;
-    esac
-    cp "${built}" "${LIBS_DIR}/${dest_name}"
-    echo "Staged: ${built} -> ${LIBS_DIR}/${dest_name}"
-done
+case "${BUILT_NAME}" in
+    *.so)  STAGED_NAME=libsecp256k1.so ;;
+    *.dll) STAGED_NAME=libsecp256k1.dll ;;
+    *)
+        echo "ERROR: unexpected BUILT_NAME '${BUILT_NAME}' (no .so/.dll extension)" >&2
+        exit 1
+        ;;
+esac
+
+if [ ! -f "${SECP_DIR}/build/${BUILT_NAME}" ]; then
+    echo "ERROR: expected build/${BUILT_NAME} not found after make. Did the build silently fail?" >&2
+    exit 1
+fi
+
+cp "${SECP_DIR}/build/${BUILT_NAME}" "${LIBS_DIR}/${STAGED_NAME}"
+echo "Staged: ${SECP_DIR}/build/${BUILT_NAME} -> ${LIBS_DIR}/${STAGED_NAME}"
 
 # Surface a brief summary of what was built and where.
 echo ""

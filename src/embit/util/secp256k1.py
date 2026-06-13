@@ -63,11 +63,10 @@ except ImportError:
 
     _secp = _ctypes_secp256k1._secp
 
-    # Optional libsecp modules (ECDH, Schnorr, recovery, ZKP) may or may not be
-    # present in the loaded library. With the secp256k1-zkp fork all are
-    # present; if a future build targets upstream secp256k1 without certain
-    # modules, we drop the corresponding wrapper from globals() so that
-    # capability-dependent tests can skip via ``hasattr(secp256k1, name)``.
+    # Symbols that may not be present in every libsecp build. We drop the
+    # corresponding wrapper from globals() when the underlying C symbol is
+    # missing, so capability-dependent tests skip via
+    # ``hasattr(secp256k1, name)`` instead of erroring at call time.
 
     def _has_ctypes_symbol(symbol_name):
         try:
@@ -76,12 +75,25 @@ except ImportError:
         except AttributeError:
             return False
 
-    _OPTIONAL_SYMBOLS = {
+    # Removed from upstream `bitcoin-core/secp256k1` v0.7.0+; present in
+    # zkp and upstream <= v0.6.0.
+    _RELEASE_REMOVED_SYMBOLS = {
+        "ec_privkey_tweak_mul": "secp256k1_ec_privkey_tweak_mul",
+    }
+
+    # Optional modules in upstream `bitcoin-core/secp256k1`. A maintainer
+    # can compile these in or out via libsecp's ``--enable-module-*``
+    # configure flags. Always present in zkp.
+    _UPSTREAM_OPTIONAL_MODULE_SYMBOLS = {
+        # --enable-module-ecdh
         "ecdh": "secp256k1_ecdh",
+        # --enable-module-extrakeys
         "xonly_pubkey_from_pubkey": "secp256k1_xonly_pubkey_from_pubkey",
+        # --enable-module-schnorrsig
         "schnorrsig_verify": "secp256k1_schnorrsig_verify",
         "schnorrsig_sign": "secp256k1_schnorrsig_sign",
         "keypair_create": "secp256k1_keypair_create",
+        # --enable-module-recovery
         "ecdsa_sign_recoverable": "secp256k1_ecdsa_sign_recoverable",
         "ecdsa_recoverable_signature_parse_compact": (
             "secp256k1_ecdsa_recoverable_signature_parse_compact"
@@ -93,6 +105,11 @@ except ImportError:
             "secp256k1_ecdsa_recoverable_signature_convert"
         ),
         "ecdsa_recover": "secp256k1_ecdsa_recover",
+    }
+
+    # Confidential-transaction primitives that exist only in the
+    # secp256k1-zkp fork.
+    _ZKP_ONLY_SYMBOLS = {
         "generator_parse": "secp256k1_generator_parse",
         "generator_generate": "secp256k1_generator_generate",
         "generator_generate_blinded": "secp256k1_generator_generate_blinded",
@@ -112,6 +129,12 @@ except ImportError:
         "surjectionproof_verify": "secp256k1_surjectionproof_verify",
         "surjectionproof_serialize": "secp256k1_surjectionproof_serialize",
         "surjectionproof_parse": "secp256k1_surjectionproof_parse",
+    }
+
+    _OPTIONAL_SYMBOLS = {
+        **_RELEASE_REMOVED_SYMBOLS,
+        **_UPSTREAM_OPTIONAL_MODULE_SYMBOLS,
+        **_ZKP_ONLY_SYMBOLS,
     }
     for _name, _symbol in _OPTIONAL_SYMBOLS.items():
         if _has_ctypes_symbol(_symbol):
