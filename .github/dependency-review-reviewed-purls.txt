@@ -7,6 +7,8 @@ pkg:githubactions/actions/dependency-review-action
 pkg:githubactions/actions/download-artifact
 pkg:githubactions/actions/setup-python
 pkg:githubactions/actions/upload-artifact
+pkg:githubactions/docker/build-push-action
+pkg:githubactions/docker/setup-buildx-action
 pkg:githubactions/github/codeql-action/analyze
 pkg:githubactions/github/codeql-action/init
 pkg:githubactions/pypa/gh-action-pypi-publish

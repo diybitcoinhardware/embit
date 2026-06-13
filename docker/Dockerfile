@@ -61,6 +61,7 @@ RUN apt-get update \
         gcc-mingw-w64-x86-64 \
         gcc-x86-64-linux-gnu \
         libc6-dev-amd64-cross \
+        libc6-dev-arm64-cross \
         libc6-dev-armhf-cross \
         libtool \
         make \
@@ -79,6 +80,13 @@ RUN set -eux; \
 
 ENV PATH="/usr/lib/ccache:${PATH}"
 ENV CCACHE_DIR=/ccache
+
+# Pre-create the ccache directory world-writable (sticky bit, like /tmp) so
+# the container works correctly whether it runs as root, as the host uid via
+# --user, or with a bind-mounted host directory at /ccache. Without this,
+# ccache's "create /ccache/tmp" probe fails with Permission denied when the
+# container runs as a non-root uid against the image's own /ccache.
+RUN mkdir -p /ccache && chmod 1777 /ccache
 
 WORKDIR /embit
 

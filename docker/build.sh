@@ -21,6 +21,10 @@
 #   armv7l       Cross-compile for Raspberry Pi 2/3 / armhf
 #   aarch64      Cross-compile for arm64 (Pi 4/5, modern ARM Linux)
 #   windows      Cross-compile to .dll via mingw-w64
+#   all          Build every target above in sequence. Individual failures
+#                do not abort the run; the script exits non-zero at the end
+#                if any target failed, so a single invocation surfaces every
+#                broken target at once.
 #   --help       Show this message
 #
 # macOS targets are not supported by this container -- build natively on a
@@ -41,6 +45,20 @@ fi
 
 TARGET="$1"
 shift || true
+
+# `all` recurses into the script for each supported target. Any extra args
+# the caller passed in are forwarded to every per-target invocation. We
+# continue past individual failures so a single run shows every broken
+# target, then exit non-zero at the end if anything failed.
+if [ "${TARGET}" = "all" ]; then
+    rc=0
+    for t in amd64 armv6l armv7l aarch64 windows; do
+        echo ""
+        echo "===== build.sh: ${t} ====="
+        "$0" "${t}" "$@" || rc=$?
+    done
+    exit "${rc}"
+fi
 
 if [ ! -d "${SECP_DIR}" ]; then
     echo "ERROR: ${SECP_DIR} not found. Mount the embit repo at /embit:" >&2

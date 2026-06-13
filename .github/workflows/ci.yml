@@ -69,16 +69,17 @@ jobs:
           cache-to: type=gha,mode=max,scope=embit-libsecp
 
       - name: Build libsecp256k1 (linux/amd64) via container
+        # --user keeps files written into the bind-mounted workspace owned
+        # by the runner uid instead of root, so subsequent steps (pytest,
+        # SHA256SUMS write, etc.) can read and overwrite them.
+        # build.sh auto-stages the resulting .so at
+        # secp256k1/secp256k1-zkp/.libs/libsecp256k1.so, so no separate
+        # staging step is needed.
         run: |
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "${{ github.workspace }}":/embit \
             embit-libsecp:ci amd64
-
-      - name: Stage libsecp256k1 where the ctypes loader expects it
-        run: |
-          mkdir -p secp256k1/secp256k1-zkp/.libs
-          cp secp256k1/build/libsecp256k1_linux_x86_64.so \
-             secp256k1/secp256k1-zkp/.libs/libsecp256k1.so
           file secp256k1/secp256k1-zkp/.libs/libsecp256k1.so
 
       - name: Tests
@@ -117,8 +118,13 @@ jobs:
         run: |
           mkdir -p secp256k1/secp256k1-zkp/.libs
           # Makefile output filename includes platform/arch; pick whichever .dylib landed.
-          built="$(ls secp256k1/build/libsecp256k1_*.dylib | head -n1)"
-          cp "${built}" secp256k1/secp256k1-zkp/.libs/libsecp256k1.dylib
+          shopt -s nullglob
+          built=(secp256k1/build/libsecp256k1_*.dylib)
+          if [ ${#built[@]} -eq 0 ]; then
+              echo "No libsecp256k1_*.dylib in secp256k1/build/" >&2
+              exit 1
+          fi
+          cp "${built[0]}" secp256k1/secp256k1-zkp/.libs/libsecp256k1.dylib
           file secp256k1/secp256k1-zkp/.libs/libsecp256k1.dylib
 
       - name: Tests
@@ -147,15 +153,16 @@ jobs:
           cache-to: type=gha,mode=max,scope=embit-libsecp
 
       - name: Cross-compile every reproducible target
+        # --user keeps the build output owned by the runner uid so the
+        # SHA256SUMS step below can write into secp256k1/build/.
+        # `all` is a build.sh pseudo-target that loops over every supported
+        # arch and continues past individual failures, so this job surfaces
+        # every broken target at once instead of stopping at the first.
         run: |
-          set -e
-          for target in amd64 armv6l armv7l aarch64 windows; do
-            echo "::group::Build for ${target}"
-            docker run --rm \
-              -v "${{ github.workspace }}":/embit \
-              embit-libsecp:ci "${target}"
-            echo "::endgroup::"
-          done
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "${{ github.workspace }}":/embit \
+            embit-libsecp:ci all
 
       - name: Verify each artifact reports the expected architecture
         run: |

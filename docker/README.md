@@ -37,7 +37,10 @@ From the **embit repo root**:
 docker build -t embit-libsecp docker/
 
 # Pick a target. Output lands in secp256k1/build/.
+# --user keeps files written into the bind-mounted workspace owned by your
+# shell user (essential on Linux hosts; harmless on macOS).
 docker run --rm \
+    --user "$(id -u):$(id -g)" \
     -v "$PWD":/embit \
     -v "$PWD/.ccache":/ccache \
     embit-libsecp armv6l
@@ -86,6 +89,7 @@ container runs:
 
 ```sh
 docker run --rm \
+    --user "$(id -u):$(id -g)" \
     -v "$PWD":/embit \
     -v "$PWD/.ccache":/ccache \
     embit-libsecp armv6l
@@ -150,11 +154,12 @@ To verify your own build matches CI:
 ```sh
 # Every target uses an explicit cross-compiler inside the container, so the
 # produced binary's architecture is fully decoupled from the host. No
-# --platform flags needed.
+# --platform flags needed. --user keeps files written into the
+# bind-mounted workspace owned by your shell user. `all` is a pseudo-target
+# that builds every supported arch in sequence.
 docker build -t embit-libsecp docker/
-for target in amd64 armv6l armv7l aarch64 windows; do
-    docker run --rm -v "$PWD":/embit embit-libsecp "${target}"
-done
+docker run --rm --user "$(id -u):$(id -g)" \
+    -v "$PWD":/embit embit-libsecp all
 
 # Drop the SHA256SUMS from the CI artifact into secp256k1/build/ and
 # verify:
