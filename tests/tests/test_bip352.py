@@ -254,3 +254,35 @@ class BIP352Test(TestCase):
 
         with pytest.raises(ValueError, match="Too many outputs"):
             bip352.derive_silent_payment_outputs(b"\x02" + bytes(32), recipients)
+
+    def test_create_outputs_assigns_k_by_vout_order_when_interleaved(self):
+        """Addresses sharing a scan key get k by recipients-list (vout) order,
+        not grouped per address. Regression test matching the BIP-375
+        validator's derivation order for interleaved recipients."""
+        # Two addresses with a common scan key but distinct spend keys.
+        scan_priv = PrivateKey(b"\x11" * 32)
+        addr_x = bip352.generate_silent_payment_address(
+            scan_priv, PrivateKey(b"\x22" * 32).get_public_key()
+        )
+        addr_y = bip352.generate_silent_payment_address(
+            scan_priv, PrivateKey(b"\x33" * 32).get_public_key()
+        )
+
+        input_privkeys = [(b"\x44" * 32, False)]
+        outpoints = [COutPoint(txid=bytes(32), out_idx=0)]
+
+        # The shared secret depends only on (inputs, outpoints, scan key), so
+        # single-address runs yield the per-k outputs to compare against.
+        out_x = bip352.create_outputs(input_privkeys, outpoints, [addr_x] * 3)[addr_x]
+        out_y = bip352.create_outputs(input_privkeys, outpoints, [addr_y] * 3)[addr_y]
+
+        # Interleaved vout order [X, Y, X] -> k = 0, 1, 2.
+        result = bip352.create_outputs(
+            input_privkeys, outpoints, [addr_x, addr_y, addr_x]
+        )
+
+        self.assertEqual(result[addr_x][0], out_x[0])  # first X  -> k=0
+        self.assertEqual(result[addr_y][0], out_y[1])  # Y        -> k=1
+        self.assertEqual(result[addr_x][1], out_x[2])  # second X -> k=2
+        # The old count-collapsing code assigned the second X to k=1.
+        self.assertNotEqual(result[addr_x][1], out_x[1])

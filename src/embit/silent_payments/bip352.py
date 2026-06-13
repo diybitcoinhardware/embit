@@ -124,7 +124,12 @@ def create_outputs(input_privkeys, outpoints, recipients):
             allowed; pass in vout order so k matches the BIP-375 validator.
 
     Returns:
-        Dictionary mapping each unique recipient address to list of output hex strings
+        Dictionary mapping each unique recipient address to list of output hex
+        strings. A repeated address's outputs are listed in occurrence order, so
+        to rebuild the transaction in vout order, walk ``recipients`` and pop the
+        next output from ``result[addr]`` (FIFO) for each entry. The k baked into
+        each output assumes that ordering; flattening the dict by address instead
+        would place outputs at the wrong vouts.
     """
     if not input_privkeys:
         return {}
@@ -217,7 +222,7 @@ def derive_silent_payment_outputs(ecdh_share, recipients):
     """
     if not recipients:
         return {}
-    
+
     if len(recipients) > K_MAX:
         raise ValueError(
             "Too many outputs for one scan key: {} > {}".format(
