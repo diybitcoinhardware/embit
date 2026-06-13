@@ -20,11 +20,22 @@
 #
 # syntax=docker/dockerfile:1.6
 
-# Pinned by digest so a clean rebuild gets the same Debian image bits as the
-# previous one. Bumping this is a deliberate maintainer action -- weigh the
-# security updates in the new digest against any toolchain churn it pulls in.
-# To bump: `docker pull debian:bookworm-slim && docker inspect --format='{{index .RepoDigests 0}}' debian:bookworm-slim`.
-FROM debian:bookworm-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b10f5cdf87857c4b8188404716
+# --platform=linux/amd64 forces the image (and any docker run against it) to
+# the same host architecture CI uses. Without this, Docker Desktop on Apple
+# Silicon would build a linux/arm64 image variant, gcc would run as arm64,
+# and even with cross-compilers the produced binaries differ bit-for-bit
+# from CI's linux/amd64 build for the amd64/aarch64/windows targets (the
+# cross-compiler binary itself embeds host-arch-dependent metadata in
+# debug-info / BuildID slots). Pinning the image to linux/amd64 makes
+# every consumer's build reproducible against CI; on non-amd64 hosts the
+# build runs under QEMU (slower but deterministic).
+#
+# Pinned by digest so a clean rebuild gets the same Debian image bits as
+# the previous one. Bumping this is a deliberate maintainer action --
+# weigh the security updates in the new digest against any toolchain
+# churn it pulls in.
+# To bump: `docker pull --platform=linux/amd64 debian:bookworm-slim && docker inspect --format='{{index .RepoDigests 0}}' debian:bookworm-slim`.
+FROM --platform=linux/amd64 debian:bookworm-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b10f5cdf87857c4b8188404716
 
 ENV DEBIAN_FRONTEND=noninteractive
 

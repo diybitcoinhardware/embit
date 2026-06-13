@@ -66,8 +66,12 @@ CFLAGS = -fPIC -O2 -Werror -Wno-unused-function \
 endif
 
 ifeq ($(PLATFORM),windows)
+# --no-insert-timestamp keeps the PE32 COFF header's timestamp at 0 so
+# successive builds of the same source produce byte-identical .dll files.
+# Without it, mingw-w64 fills the slot with wall-clock time and the hash
+# changes on every build.
 LDFLAGS = -shared -s \
-	-Wl,--subsystem,windows,--out-implib,$(BUILD_DIR)/$(TARGET).a
+	-Wl,--subsystem,windows,--no-insert-timestamp,--out-implib,$(BUILD_DIR)/$(TARGET).a
 EXT = .dll
 else ifeq ($(PLATFORM),darwin)
 LDFLAGS = -dynamiclib
