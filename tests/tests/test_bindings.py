@@ -1,6 +1,33 @@
 from binascii import hexlify
-from unittest import TestCase
-from embit.util import ctypes_secp256k1
+from unittest import TestCase, skipUnless
+from embit.util import ctypes_secp256k1, secp256k1
+
+# Schnorr and ECDSA recovery are optional modules in both upstream secp256k1
+# and zkp. If a future build of embit targets a libsecp256k1 without these
+# modules enabled, these checks let the test suite skip cleanly instead of
+# erroring out. The wrapper's _OPTIONAL_SYMBOLS filter removes missing
+# symbols from `secp256k1`, so hasattr() on the wrapper is the source of
+# truth here -- ctypes_secp256k1 itself always defines the Python wrapper
+# function regardless of whether the underlying C symbol is present.
+_SCHNORR_AVAILABLE = all(
+    hasattr(secp256k1, name)
+    for name in (
+        "xonly_pubkey_from_pubkey",
+        "schnorrsig_sign",
+        "schnorrsig_verify",
+        "keypair_create",
+    )
+)
+_RECOVERY_AVAILABLE = all(
+    hasattr(secp256k1, name)
+    for name in (
+        "ecdsa_sign_recoverable",
+        "ecdsa_recoverable_signature_serialize_compact",
+        "ecdsa_recoverable_signature_parse_compact",
+        "ecdsa_recoverable_signature_convert",
+        "ecdsa_recover",
+    )
+)
 
 
 class BindingsTest(TestCase):
@@ -34,6 +61,20 @@ class BindingsTest(TestCase):
         self.assertEqual(sig, ctypes_secp256k1.ecdsa_signature_parse_compact(compact))
         self.assertEqual(sig, ctypes_secp256k1.ecdsa_signature_parse_der(der))
 
+        # The extra-data variant must also survive the same serialize/parse
+        # roundtrips so a regression in the aux-data signing path can't sneak
+        # past as a "we verified, that's enough" pass.
+        compact_extra = ctypes_secp256k1.ecdsa_signature_serialize_compact(sig_extra)
+        der_extra = ctypes_secp256k1.ecdsa_signature_serialize_der(sig_extra)
+        self.assertEqual(
+            sig_extra,
+            ctypes_secp256k1.ecdsa_signature_parse_compact(compact_extra),
+        )
+        self.assertEqual(
+            sig_extra,
+            ctypes_secp256k1.ecdsa_signature_parse_der(der_extra),
+        )
+
         self.assertEqual(ctypes_secp256k1.ecdsa_verify(sig, msg, pub1), True)
         self.assertEqual(ctypes_secp256k1.ecdsa_verify(sig_extra, msg, pub1), True)
         self.assertEqual(ctypes_secp256k1.ecdsa_verify(sig, b"a" * 32, pub1), False)
@@ -46,6 +87,10 @@ class BindingsTest(TestCase):
             ctypes_secp256k1.ec_pubkey_add(pub1, tweak),
         )
 
+    @skipUnless(
+        _SCHNORR_AVAILABLE,
+        "secp256k1 build is missing the Schnorr module",
+    )
     def test_schnorr(self):
         for i in range(1, 10):
             secret = bytes([i] * 32)
@@ -65,8 +110,17 @@ class BindingsTest(TestCase):
             self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig1, b"w" * 32, pub1))
             self.assertFalse(ctypes_secp256k1.schnorrsig_verify(sig2, b"w" * 32, pub1))
 
-            ctypes_secp256k1.keypair_create(secret)
+            # libsecp's keypair structure is a 96-byte opaque blob (32-byte
+            # secret + 64-byte uncompressed pubkey). Assert the length so a
+            # binding-level shape regression fails here rather than at a
+            # downstream consumer.
+            keypair = ctypes_secp256k1.keypair_create(secret)
+            self.assertEqual(len(keypair), 96)
 
+    @skipUnless(
+        _RECOVERY_AVAILABLE,
+        "secp256k1 build is missing the ECDSA recovery module",
+    )
     def test_recovery(self):
         secret = b"1" * 32
         msg = b"2" * 32

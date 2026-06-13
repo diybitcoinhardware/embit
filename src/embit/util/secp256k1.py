@@ -14,11 +14,12 @@
 class Libsecp256k1NotAvailable(ImportError):
     """Raised at import time when libsecp256k1 bindings cannot be loaded.
 
-    Pass the underlying load error as ``cause`` -- it gets appended to the
-    message and chained as ``__cause__``.
+    Always raise with ``raise Libsecp256k1NotAvailable() from <underlying>``
+    so the underlying loader failure is recorded as the direct cause in
+    tracebacks.
     """
 
-    _MESSAGE = (
+    MESSAGE = (
         "libsecp256k1 not found. embit requires libsecp256k1 at import time.\n"
         "\n"
         "On CPython, the recommended way to build it is the Docker "
@@ -31,14 +32,8 @@ class Libsecp256k1NotAvailable(ImportError):
         "module enabled."
     )
 
-    def __init__(self, cause=None):
-        if cause is None:
-            super().__init__(self._MESSAGE)
-        else:
-            super().__init__(
-                "{0}\n\nOriginal error: {1}".format(self._MESSAGE, cause)
-            )
-            self.__cause__ = cause
+    def __init__(self, message=None):
+        super().__init__(message if message is not None else self.MESSAGE)
 
 
 try:
@@ -51,7 +46,7 @@ try:
     try:
         from secp256k1 import *
     except Exception as _mp_exc:
-        raise Libsecp256k1NotAvailable(_mp_exc)
+        raise Libsecp256k1NotAvailable() from _mp_exc
 except Libsecp256k1NotAvailable:
     # Re-raise so the outer ``except:`` below doesn't swallow it.
     raise
@@ -61,7 +56,7 @@ except:
         from . import ctypes_secp256k1 as _ctypes_secp256k1
         from .ctypes_secp256k1 import *
     except Exception as _cp_exc:
-        raise Libsecp256k1NotAvailable(_cp_exc)
+        raise Libsecp256k1NotAvailable() from _cp_exc
 
     _secp = _ctypes_secp256k1._secp
 

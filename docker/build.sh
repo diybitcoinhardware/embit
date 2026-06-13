@@ -16,7 +16,7 @@
 #   docker run --rm -v "$PWD":/embit -v "$PWD/.ccache":/ccache embit-libsecp <target>
 #
 # Targets:
-#   amd64        Native Linux x86_64 build (default if no arg given in CI)
+#   amd64        Native Linux x86_64 build
 #   armv6l       Cross-compile for Raspberry Pi Zero
 #   armv7l       Cross-compile for Raspberry Pi 2/3 / armhf
 #   aarch64      Cross-compile for arm64 (Pi 4/5, modern ARM Linux)
