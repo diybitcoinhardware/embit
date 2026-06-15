@@ -128,11 +128,13 @@ def _read_sp_key_expression(s):
     """Read an spscan/spspend expression or a standard Key from stream."""
     first = s.read(1)
     origin = None
+    origin_len = 0
     if first == b"[":
         prefix, char = read_until(s, b"]")
         if char != b"]":
             raise DescriptorError("Invalid key - missing ]")
         origin = KeyOrigin.from_string(prefix.decode())
+        origin_len = len(prefix) + 2  # '[' + prefix + ']'
     else:
         s.seek(-1, 1)
 
@@ -152,16 +154,11 @@ def _read_sp_key_expression(s):
         if lower.startswith(hrp + "1"):
             return SPSpendKey.decode(token_str, origin), char
 
-    # Rewind to before the token via a relative seek (no tell(); MicroPython's
-    # BytesIO lacks it). Only `token` was consumed since; the delimiter, if any,
-    # was already pushed back above.
-    s.seek(-len(token), 1)
-    if origin:
-        origin_str = "[%s]" % origin
-        combined = BytesIO(origin_str.encode() + s.read())
-        key = Key.read_from(combined)
-    else:
-        key = Key.read_from(s)
+    # Not a silent-payment key: rewind past the origin prefix and token (no
+    # tell(); MicroPython's BytesIO lacks it) and let Key.read_from(s) consume
+    # the expression in-place, leaving the stream at the delimiter for the caller.
+    s.seek(-(origin_len + len(token)), 1)
+    key = Key.read_from(s)
     return key, None
 
 
