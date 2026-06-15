@@ -271,6 +271,8 @@ class PSBTView:
                 # we found global transaction; defer version==2 check until after the loop
                 # so that PSBT_GLOBAL_UNSIGNED_TX is rejected even when it appears before
                 # PSBT_GLOBAL_VERSION (key order is not guaranteed).
+                if tx_offset is not None:
+                    raise PSBTError("Duplicate global transaction")
                 if (num_inputs is not None) or (num_outputs is not None):
                     raise PSBTError("Invalid global transaction")
                 tx_len = compact.read_from(stream)
