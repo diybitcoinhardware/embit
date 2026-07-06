@@ -19,7 +19,9 @@
 # THE SOFTWARE.
 
 """Reference implementation for Bech32 and segwit addresses."""
+
 from .misc import const
+from .base import EmbitError
 
 CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 BECH32_CONST = const(1)
@@ -31,6 +33,10 @@ class Encoding:
 
     BECH32 = 1
     BECH32M = 2
+
+
+class Bech32DecodeError(EmbitError):
+    pass
 
 
 def bech32_polymod(values):
@@ -77,21 +83,32 @@ def bech32_encode(encoding, hrp, data):
 
 def bech32_decode(bech):
     """Validate a Bech32/Bech32m string, and determine HRP and data."""
-    if (any(ord(x) < 33 or ord(x) > 126 for x in bech)) or (
-        bech.lower() != bech and bech.upper() != bech
-    ):
-        return (None, None, None)
+    if any(ord(x) < 33 or ord(x) > 126 for x in bech):
+        raise Bech32DecodeError("Invalid character in input")
+    if bech.lower() != bech and bech.upper() != bech:
+        raise Bech32DecodeError("Mixed case strings not allowed")
     bech = bech.lower()
     pos = bech.rfind("1")
-    if pos < 1 or pos + 7 > len(bech) or len(bech) > 90:
-        return (None, None, None)
-    if not all(x in CHARSET for x in bech[pos + 1 :]):
-        return (None, None, None)
+    if pos < 1:
+        raise Bech32DecodeError("Separator '1' not found or misplaced")
+    # BIP-173: the HRP must contain 1 to 83 characters.
+    if pos > 83:
+        raise Bech32DecodeError("HRP too long (max 83 characters)")
+    if pos + 7 > len(bech):
+        raise Bech32DecodeError("Data part too short")
+    # BIP-173 caps Bech32 strings at 90 chars, but BIP-352 silent payment
+    # addresses are longer (>=117) and recommend a 1023-char limit to leave
+    # room for future versions.
+    if len(bech) > 1023:
+        raise Bech32DecodeError("String too long (max 1023 characters)")
     hrp = bech[:pos]
-    data = [CHARSET.find(x) for x in bech[pos + 1 :]]
+    data_part = bech[pos + 1 :]
+    if not all(x in CHARSET for x in data_part):
+        raise Bech32DecodeError("Data part contains invalid characters")
+    data = [CHARSET.find(x) for x in data_part]
     encoding = bech32_verify_checksum(hrp, data)
     if encoding is None:
-        return (None, None, None)
+        raise Bech32DecodeError("Checksum verification failed")
     return (encoding, hrp, data[:-6])
 
 
@@ -104,7 +121,7 @@ def convertbits(data, frombits, tobits, pad=True):
     max_acc = (1 << (frombits + tobits - 1)) - 1
     for value in data:
         if value < 0 or (value >> frombits):
-            return None
+            raise Bech32DecodeError("Invalid input value for bit conversion")
         acc = ((acc << frombits) | value) & max_acc
         bits += frombits
         while bits >= tobits:
@@ -114,33 +131,51 @@ def convertbits(data, frombits, tobits, pad=True):
         if bits:
             ret.append((acc << (tobits - bits)) & maxv)
     elif bits >= frombits or ((acc << (tobits - bits)) & maxv):
-        return None
+        raise Bech32DecodeError("Invalid padding in bit conversion")
     return ret
 
 
 def decode(hrp, addr):
-    """Decode a segwit address."""
+    """Decode a segwit address.
+
+    Silent payment (sp/tsp) addresses are not witness programs and must not be
+    decoded here; use bech32_decode + convertbits for those.
+    """
+    # BIP-173/BIP-350: segwit addresses are capped at 90 characters.
+    if len(addr) > 90:
+        raise Bech32DecodeError("Segwit address too long (max 90 characters)")
     encoding, hrpgot, data = bech32_decode(addr)
     if hrpgot != hrp:
-        return (None, None)
+        raise Bech32DecodeError("HRP mismatch: expected {}, got {}".format(hrp, hrpgot))
     decoded = convertbits(data[1:], 5, 8, False)
-    if decoded is None or len(decoded) < 2 or len(decoded) > 40:
-        return (None, None)
+    # BIP-141: a witness program is 2 to 40 bytes.
+    if len(decoded) < 2 or len(decoded) > 40:
+        raise Bech32DecodeError("Invalid witness program length")
     if data[0] > 16:
-        return (None, None)
+        raise Bech32DecodeError("Invalid witness version")
     if data[0] == 0 and len(decoded) != 20 and len(decoded) != 32:
-        return (None, None)
+        raise Bech32DecodeError("Invalid witness program length for version 0")
     if (data[0] == 0 and encoding != Encoding.BECH32) or (
         data[0] != 0 and encoding != Encoding.BECH32M
     ):
-        return (None, None)
+        raise Bech32DecodeError("Invalid encoding for witness version")
     return (data[0], decoded)
 
 
 def encode(hrp, witver, witprog):
     """Encode a segwit address."""
+    if witver < 0 or witver > 16:
+        raise Bech32DecodeError("Invalid witness version")
+    if len(witprog) < 2 or len(witprog) > 40:
+        raise Bech32DecodeError("Invalid witness program length")
+    if witver == 0 and len(witprog) != 20 and len(witprog) != 32:
+        raise Bech32DecodeError("Invalid witness program length for version 0")
+
     encoding = Encoding.BECH32 if witver == 0 else Encoding.BECH32M
     ret = bech32_encode(encoding, hrp, [witver] + convertbits(witprog, 8, 5))
-    if decode(hrp, ret) == (None, None):
-        return None
+
+    # Sanity check: the result must round-trip. Any failure propagates with its
+    # original, descriptive Bech32DecodeError.
+    decode(hrp, ret)
+
     return ret
