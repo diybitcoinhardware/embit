@@ -40,6 +40,23 @@ class SIGHASH:
 # util functions
 
 
+def _signed_from_bytes(b):
+    res = int.from_bytes(b, "little")
+    bits = 8 * len(b)
+    if bits and res >= (1 << (bits - 1)):
+        res -= 1 << bits
+    return res
+
+
+def _signed_to_bytes(i, length):
+    bits = 8 * length
+    if i < -(1 << (bits - 1)) or i >= (1 << (bits - 1)):
+        raise OverflowError("int too big to convert")
+    if i < 0:
+        i += 1 << bits
+    return i.to_bytes(length, "little")
+
+
 def hash_amounts(amounts):
     h = hashlib.sha256()
     for a in amounts:
@@ -83,7 +100,7 @@ class Transaction(EmbitBase):
 
     def write_to(self, stream):
         """Returns the byte serialization of the transaction"""
-        res = stream.write(self.version.to_bytes(4, "little"))
+        res = stream.write(_signed_to_bytes(self.version, 4))
         if self.is_segwit:
             res += stream.write(b"\x00\x01")  # segwit marker and flag
         res += stream.write(compact.to_bytes(len(self.vin)))
@@ -100,7 +117,7 @@ class Transaction(EmbitBase):
 
     def hash(self):
         h = hashlib.sha256()
-        h.update(self.version.to_bytes(4, "little"))
+        h.update(_signed_to_bytes(self.version, 4))
         h.update(compact.to_bytes(len(self.vin)))
         for inp in self.vin:
             h.update(inp.serialize())
@@ -151,7 +168,7 @@ class Transaction(EmbitBase):
 
     @classmethod
     def read_from(cls, stream):
-        ver = int.from_bytes(_read_exact(stream, 4), "little")
+        ver = _signed_from_bytes(_read_exact(stream, 4))
         num_vin = compact.read_from(stream)
         # if num_vin is zero it is a segwit transaction
         is_segwit = num_vin == 0
@@ -228,7 +245,7 @@ class Transaction(EmbitBase):
         sh, anyonecanpay = SIGHASH.check(sighash)
         h = hashes.tagged_hash_init("TapSighash", b"\x00")
         h.update(bytes([sighash]))
-        h.update(self.version.to_bytes(4, "little"))
+        h.update(_signed_to_bytes(self.version, 4))
         h.update(self.locktime.to_bytes(4, "little"))
         if not anyonecanpay:
             h.update(self.hash_prevouts())
@@ -275,7 +292,7 @@ class Transaction(EmbitBase):
         inp = self.vin[input_index]
         zero = b"\x00" * 32  # for sighashes
         h = hashlib.sha256()
-        h.update(self.version.to_bytes(4, "little"))
+        h.update(_signed_to_bytes(self.version, 4))
         if anyonecanpay:
             h.update(zero)
         else:
@@ -314,7 +331,7 @@ class Transaction(EmbitBase):
             return b"\x00" * 31 + b"\x01"
 
         h = hashlib.sha256()
-        h.update(self.version.to_bytes(4, "little"))
+        h.update(_signed_to_bytes(self.version, 4))
         # ANYONECANPAY - only one input is serialized
         if anyonecanpay:
             h.update(compact.to_bytes(1))
