@@ -253,6 +253,12 @@ class PrivateKey(EmbitKey):
         # just to unify the API
         return cls(stream.read(32))
 
+    def even_y(self):
+        """Return a copy of this key with even Y coordinate (negate if odd)."""
+        if self.sec()[0] == 0x03:
+            return PrivateKey(secp256k1.ec_privkey_negate(self._secret))
+        return self
+
     @property
     def is_private(self) -> bool:
         return True

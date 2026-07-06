@@ -2,6 +2,7 @@
 Copy-paste from key.py in bitcoin test_framework.
 This is a fallback option if the library can't do ctypes bindings to secp256k1 library.
 """
+
 import random
 import hmac
 import hashlib
@@ -291,6 +292,7 @@ class ECPubKey:
                 self.valid = False
         else:
             self.valid = False
+        return self
 
     @property
     def is_compressed(self):
