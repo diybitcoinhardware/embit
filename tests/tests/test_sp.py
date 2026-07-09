@@ -49,7 +49,7 @@ def _create_test_outputs(input_privkeys, outpoints, recipients):
     if derivation is None:
         return {}
 
-    _a_sum_bytes, results = derivation
+    _a_sum_bytes, _A_sum_sec, results = derivation
 
     output = {addr: [] for addr in decoded}
     for sk_bytes, (_ecdh_share, outputs) in results.items():

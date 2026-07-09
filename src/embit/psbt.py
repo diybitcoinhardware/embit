@@ -159,7 +159,7 @@ class PSBTScope(EmbitBase):
         self.unknown = unknown
         self.parse_unknowns()
 
-    def write_to(self, stream, skip_separator=False, **kwargs) -> int:
+    def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
         # unknown
         r = 0
         for key in self.unknown:
