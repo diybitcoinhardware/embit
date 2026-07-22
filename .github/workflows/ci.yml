@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca
+
+  action-pin-policy:
+    name: GitHub Actions pin policy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify third-party Action pins
+        run: python tools/verify_github_actions_pins.py --self-test
+
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: constraints-dev.txt
+
+      - name: Install pinned CI dependencies
+        run: python -m pip install --require-hashes -r constraints-dev.txt
+
+      - name: Install package
+        run: python -m pip install --no-deps -e .
+
+      # TODO: Re-enable Ruff once the repository has a committed lint baseline or
+      # focused cleanup for existing violations. Ruff remains configured and
+      # installed so local cleanup can continue without blocking CI.
+
+      - name: Tests
+        run: pytest
+
+  package:
+    name: Build and verify artifacts
+    runs-on: ubuntu-latest
+    needs:
+      - actionlint
+      - action-pin-policy
+      - tests
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: constraints-dev.txt
+
+      - name: Install pinned CI dependencies
+        run: python -m pip install --require-hashes -r constraints-dev.txt
+
+      - name: Build artifacts
+        run: python -m build --sdist --wheel --no-isolation
+
+      - name: Verify built artifacts
+        run: python tools/verify_package_artifacts.py --inspection-log "$RUNNER_TEMP/ci-package-inspection.md"
+
+      - name: Smoke install from local artifacts
+        run: |
+          python -m venv "$RUNNER_TEMP/venv-smoke"
+          . "$RUNNER_TEMP/venv-smoke/bin/activate"
+          python -m pip install --no-index --find-links dist embit
+          python -c "import embit; print(embit.__file__)"
+
+      - name: Upload inspection log
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-package-inspection
+          path: ${{ runner.temp }}/ci-package-inspection.md

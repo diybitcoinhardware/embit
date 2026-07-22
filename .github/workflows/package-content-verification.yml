@@ -1,0 +1,64 @@
+name: Package Content Verification
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/**"
+      - ".gitmodules"
+      - "pyproject.toml"
+      - "setup.py"
+      - "MANIFEST.in"
+      - "constraints-dev.txt"
+      - "src/embit/util/ctypes_secp256k1.py"
+      - "docs/package-content-policy.md"
+      - "tools/verify_package_artifacts.py"
+      - "secp256k1/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".gitmodules"
+      - "pyproject.toml"
+      - "setup.py"
+      - "MANIFEST.in"
+      - "constraints-dev.txt"
+      - "src/embit/util/ctypes_secp256k1.py"
+      - "docs/package-content-policy.md"
+      - "tools/verify_package_artifacts.py"
+      - "secp256k1/**"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: constraints-dev.txt
+
+      - name: Verify vendored submodule URL
+        run: grep -nE '^[[:space:]]*url = https://github.com/ElementsProject/secp256k1-zkp\.git$' .gitmodules
+
+      - name: Install pinned CI dependencies
+        run: python -m pip install --require-hashes -r constraints-dev.txt
+
+      - name: Build artifacts
+        run: python -m build --sdist --wheel --no-isolation
+
+      - name: Verify artifacts and metadata
+        run: python tools/verify_package_artifacts.py --inspection-log "$RUNNER_TEMP/package-content-verification.md"
+
+      - name: Upload inspection log
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-content-verification
+          path: ${{ runner.temp }}/package-content-verification.md

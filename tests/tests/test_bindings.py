@@ -1,14 +1,64 @@
-from binascii import unhexlify, hexlify
-from unittest import TestCase
+from binascii import hexlify
+from unittest import TestCase, skipUnless
 from embit.util import py_secp256k1
-from embit.util import ctypes_secp256k1
+
+try:
+    from embit.util import ctypes_secp256k1
+except Exception:  # pragma: no cover - environment dependent
+    ctypes_secp256k1 = None
+    print(
+        "[tests] libsecp256k1 ctypes backend unavailable; "
+        "skipping ctypes parity tests and using pure-Python fallback."
+    )
+    _CTYPES_AVAILABLE = False
+else:
+    _CTYPES_AVAILABLE = True
+    _CTYPES_SECP = getattr(ctypes_secp256k1, "_secp", None)
 
 
+def _ctypes_has_symbol(name):
+    if not _CTYPES_AVAILABLE or _CTYPES_SECP is None:
+        return False
+    try:
+        getattr(_CTYPES_SECP, name)
+        return True
+    except AttributeError:
+        return False
+
+
+_RECOVERY_AVAILABLE = all(
+    _ctypes_has_symbol(symbol)
+    for symbol in (
+        "secp256k1_ecdsa_sign_recoverable",
+        "secp256k1_ecdsa_recoverable_signature_parse_compact",
+        "secp256k1_ecdsa_recoverable_signature_serialize_compact",
+        "secp256k1_ecdsa_recoverable_signature_convert",
+        "secp256k1_ecdsa_recover",
+    )
+)
+_SCHNORR_AVAILABLE = all(
+    _ctypes_has_symbol(symbol)
+    for symbol in (
+        "secp256k1_xonly_pubkey_from_pubkey",
+        "secp256k1_schnorrsig_verify",
+        "secp256k1_schnorrsig_sign",
+        "secp256k1_keypair_create",
+    )
+)
+
+
+@skipUnless(
+    _CTYPES_AVAILABLE,
+    "libsecp256k1 ctypes backend unavailable; pure-Python fallback in use",
+)
 class BindingsTest(TestCase):
     def test_identity(self):
         """1 * G"""
         for secp256k1 in [py_secp256k1, ctypes_secp256k1]:
-            answer = b"0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+            answer = (
+                b"0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f8179"
+                b"8483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+            )
             one = 1
             bone = one.to_bytes(32, "big")
             g = secp256k1.ec_pubkey_create(bone)
@@ -63,20 +113,10 @@ class BindingsTest(TestCase):
             ctypes_secp256k1.ec_pubkey_add(pub1, b"9" * 32),
         )
 
-    def test_recovery(self):
-        secret = b"1" * 32
-        msg = b"2" * 32
-        sig = ctypes_secp256k1.ecdsa_sign_recoverable(msg, secret)
-        sig2 = py_secp256k1.ecdsa_sign_recoverable(msg, secret)
-        self.assertEqual(sig, sig2)
-
-        # signature (r,s) = (4,4), which can be recovered with all 4 recids.
-        sig = (b"\x04" + b"\x00" * 31) * 2
-        for i in range(4):
-            pub = ctypes_secp256k1.ecdsa_recover(sig + bytes([i]), msg)
-            pub2 = py_secp256k1.ecdsa_recover(sig + bytes([i]), msg)
-            self.assertEqual(pub, pub2)
-
+    @skipUnless(
+        _SCHNORR_AVAILABLE,
+        "ctypes backend missing schnorr symbols; skipping parity checks",
+    )
     def test_schnorr(self):
         for i in range(1, 10):
             secret = bytes([i] * 32)
@@ -112,3 +152,21 @@ class BindingsTest(TestCase):
                 ctypes_secp256k1.keypair_create(secret),
                 py_secp256k1.keypair_create(secret),
             )
+
+    @skipUnless(
+        _RECOVERY_AVAILABLE,
+        "ctypes backend missing recovery symbols; skipping parity checks",
+    )
+    def test_recovery(self):
+        secret = b"1" * 32
+        msg = b"2" * 32
+        sig = ctypes_secp256k1.ecdsa_sign_recoverable(msg, secret)
+        sig2 = py_secp256k1.ecdsa_sign_recoverable(msg, secret)
+        self.assertEqual(sig, sig2)
+
+        # signature (r,s) = (4,4), which can be recovered with all 4 recids.
+        sig = (b"\x04" + b"\x00" * 31) * 2
+        for i in range(4):
+            pub = ctypes_secp256k1.ecdsa_recover(sig + bytes([i]), msg)
+            pub2 = py_secp256k1.ecdsa_recover(sig + bytes([i]), msg)
+            self.assertEqual(pub, pub2)

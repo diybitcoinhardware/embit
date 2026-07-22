@@ -1,0 +1,31 @@
+include LICENSE
+include README.md
+include pyproject.toml
+
+recursive-include src/embit *.py
+recursive-include src/embit/wordlists *
+
+prune src/embit/util/prebuilt
+prune src/embit.egg-info
+prune docs
+prune tests
+prune .ai
+prune .tmp
+
+exclude setup.py
+exclude src/embit.egg-info/SOURCES.txt
+
+global-exclude *.so
+global-exclude *.dylib
+global-exclude *.dll
+global-exclude *.egg-info
+global-exclude *.dist-info
+global-exclude *.pth
+global-exclude sitecustomize.py
+global-exclude usercustomize.py
+global-exclude *.whl
+global-exclude *.egg
+global-exclude __pycache__
+global-exclude __pycache__/*
+global-exclude *.pyc
+global-exclude *.pyo

@@ -1,16 +1,37 @@
-from unittest import TestCase
+# ruff: noqa: E501
+from unittest import TestCase, skipUnless
 from embit.util import secp256k1
-from binascii import hexlify, unhexlify
+from binascii import unhexlify
 from embit.liquid.pset import PSET
-from embit.liquid.transaction import LTransaction, LTransactionInput, LTransactionOutput
+from embit.liquid.transaction import LTransaction
 from embit.liquid import slip77
 from embit.script import Script
 from embit.liquid.descriptor import LDescriptor
+from embit.descriptor.errors import DescriptorError
 from embit.bip32 import HDKey
 from embit.ec import PrivateKey
 from embit.hashes import tagged_hash
 
+_LIQUID_REQUIRED_FUNCS = [
+    "ec_pubkey_tweak_mul",
+    "ec_privkey_tweak_mul",
+    "generator_generate_blinded",
+    "pedersen_commit",
+    "rangeproof_rewind",
+    "surjectionproof_generate",
+]
+_LIQUID_AVAILABLE = all(hasattr(secp256k1, func) for func in _LIQUID_REQUIRED_FUNCS)
+if not _LIQUID_AVAILABLE:
+    print(
+        "[tests] Liquid/ZKP backend unavailable; "
+        "skipping liquid tests and using pure-Python fallback."
+    )
 
+
+@skipUnless(
+    _LIQUID_AVAILABLE,
+    "Liquid/ZKP backend unavailable; pure-Python fallback in use",
+)
 class LiquidTest(TestCase):
     def test_value_commitment(self):
         # scalars in little endian
@@ -141,7 +162,7 @@ class LiquidTest(TestCase):
             desc = LDescriptor.from_string(d)
             self.assertEqual(d, str(desc))
             # test we can derive addresses
-            addr = desc.derive(0).address()
+            self.assertIsNotNone(desc.derive(0).address())
         invalid_descs = [
             # slip77 must be WIF key
             "blinded(slip77(xprvA18YC5Aog5LxHgMrSv5t9QaHyfh5DU8Pr8zFTP5QhJSTjdg3mSpEyxLZfNQaEc8sALUtsHeDJYsp8YnobhjJT9D7JADoEV4wXiMuNMYDLZ2),%s)"
@@ -150,7 +171,7 @@ class LiquidTest(TestCase):
             "blinded(L2t59TFgKmc83tPJD1rTy2KxJt44CMMQYsECXdz75xSqVv1X9Tvr,%s)" % multi,
         ]
         for d in invalid_descs:
-            with self.assertRaises(Exception):
+            with self.assertRaises((ValueError, RuntimeError, DescriptorError)):
                 LDescriptor.from_string(d)
 
     def test_blind_unblind(self):

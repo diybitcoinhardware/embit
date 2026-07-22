@@ -1,0 +1,49 @@
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - python
+          - actions
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+          upload: always
+          post-processed-sarif-path: ${{ runner.temp }}/sarif-results
+
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: ${{ runner.temp }}/sarif-results
+          if-no-files-found: warn

@@ -1,13 +1,27 @@
-from binascii import unhexlify, hexlify
+from binascii import hexlify
 from unittest import TestCase
+import sys
 from embit.ec import PublicKey, PrivateKey, Signature, secp256k1
 from io import BytesIO
+
+if sys.implementation.name == "micropython":
+    print("[tests] ECC backend: micropython integrated secp256k1")
+elif hasattr(secp256k1, "_secp"):
+    library_path = getattr(secp256k1._secp, "_name", "<unknown>")
+    print(
+        "[tests] ECC backend: system libsecp256k1 via ctypes (%s)" % library_path
+    )
+else:
+    print("[tests] ECC backend: pure-Python fallback (no system libsecp256k1)")
 
 
 class ECCTest(TestCase):
     def test_identity(self):
         """1 * G"""
-        answer = b"0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+        answer = (
+            b"0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f8179"
+            b"8483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+        )
         one = 1
         bone = one.to_bytes(32, "big")
         g = secp256k1.ec_pubkey_create(bone)
@@ -34,7 +48,10 @@ class ECCTest(TestCase):
             (
                 b"\x00" * 31 + b"\x01",
                 False,
-                "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8",
+                (
+                    "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f8179"
+                    "8483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+                ),
             ),
         ]
         pub2 = PublicKey.from_string(
@@ -68,8 +85,8 @@ class ECCTest(TestCase):
             self.assertEqual(priv > pub, priv.sec() > pub.sec())
             self.assertEqual(pub2 < pub, pub2 < priv)
             self.assertEqual(pub2 > pub, pub2 > priv)
-            priv == priv
-            pub == pub
+            self.assertEqual(priv, priv)
+            self.assertEqual(pub, pub)
             self.assertEqual(str(priv), priv.wif())
             self.assertEqual(str(priv), priv.to_base58())
             hash(priv)

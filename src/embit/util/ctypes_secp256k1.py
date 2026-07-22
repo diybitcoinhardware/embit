@@ -1,23 +1,20 @@
-import ctypes, os
+import ctypes
+import os
 import ctypes.util
 import platform
 import threading
 
-from ctypes import (
-    cast,
-    byref,
-    c_char,
-    c_byte,
-    c_int,
-    c_uint,
-    c_char_p,
-    c_size_t,
-    c_void_p,
-    c_uint64,
-    create_string_buffer,
-    CFUNCTYPE,
-    POINTER,
-)
+cast = ctypes.cast
+byref = ctypes.byref
+c_char = ctypes.c_char
+c_int = ctypes.c_int
+c_uint = ctypes.c_uint
+c_char_p = ctypes.c_char_p
+c_size_t = ctypes.c_size_t
+c_void_p = ctypes.c_void_p
+c_uint64 = ctypes.c_uint64
+CFUNCTYPE = ctypes.CFUNCTYPE
+POINTER = ctypes.POINTER
 
 _lock = threading.Lock()
 
@@ -48,47 +45,127 @@ def _copy(a: bytes) -> bytes:
     return a[:1] + a[1:]
 
 
-def _find_library():
-    library_path = None
-    extension = ""
-    if platform.system() == "Darwin":
-        extension = ".dylib"
-    elif platform.system() == "Linux":
-        extension = ".so"
-    elif platform.system() == "Windows":
-        extension = ".dll"
+def _platform_binary_ext():
+    system = platform.system().lower()
+    if system.startswith("msys") or system.startswith("mingw") or system == "windows":
+        return ".dll"
+    if system == "darwin":
+        return ".dylib"
+    return ".so"
 
-    path = os.path.join(
-        os.path.dirname(__file__),
-        "prebuilt/libsecp256k1_%s_%s%s"
-        % (platform.system().lower(), platform.machine().lower(), extension),
+
+def _iter_local_library_paths():
+    local_lib_dir = os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "secp256k1",
+            "secp256k1-zkp",
+            ".libs",
+        )
     )
-    if os.path.isfile(path):
-        return path
-    # try searching
-    if not library_path:
-        library_path = ctypes.util.find_library("libsecp256k1")
-    if not library_path:
-        library_path = ctypes.util.find_library("secp256k1")
-    # library search failed
-    if not library_path:
-        if platform.system() == "Linux" and os.path.isfile(
-            "/usr/local/lib/libsecp256k1.so.0"
-        ):
-            library_path = "/usr/local/lib/libsecp256k1.so.0"
-    return library_path
+    for libname in (
+        "libsecp256k1.dylib",
+        "libsecp256k1.0.dylib",
+        "libsecp256k1.so",
+        "libsecp256k1.so.0",
+        "libsecp256k1.dll",
+    ):
+        yield os.path.join(local_lib_dir, libname)
+
+
+def _iter_prebuilt_library_paths():
+    prebuilt_dir = os.path.join(os.path.dirname(__file__), "prebuilt")
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system.startswith("msys") or system.startswith("mingw"):
+        system = "windows"
+    ext = _platform_binary_ext()
+    for libname in (
+        f"libsecp256k1_{system}_{machine}{ext}",
+        f"libsecp256k1{ext}",
+        "libsecp256k1.0.dylib",
+        "libsecp256k1.so.0",
+    ):
+        yield os.path.join(prebuilt_dir, libname)
+
+
+def _library_search_order():
+    """
+    Ordered candidates for auditability:
+      1) repo-local secp256k1-zkp/.libs artifacts
+      2) system loader query: libsecp256k1
+      3) system loader query: secp256k1
+      4) in-tree prebuilt artifacts
+    """
+    for path in _iter_local_library_paths():
+        yield ("path", path)
+    yield ("system", "libsecp256k1")
+    yield ("system", "secp256k1")
+    for path in _iter_prebuilt_library_paths():
+        yield ("path", path)
+
+
+def _iter_resolved_library_candidates():
+    seen = set()
+    for candidate_type, candidate in _library_search_order():
+        if candidate_type == "path":
+            if not os.path.isfile(candidate):
+                continue
+            resolved = candidate
+        else:
+            resolved = ctypes.util.find_library(candidate)
+            if not resolved:
+                continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        yield resolved
 
 
 @locked
 def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
-    library_path = _find_library()
-    # meh, can't find library
-    if not library_path:
+    preferred_symbols = (
+        "secp256k1_ecdh",
+        "secp256k1_xonly_pubkey_from_pubkey",
+        "secp256k1_keypair_create",
+        "secp256k1_ecdsa_sign_recoverable",
+        "secp256k1_generator_generate_blinded",
+        "secp256k1_pedersen_commitment_parse",
+        "secp256k1_rangeproof_rewind",
+        "secp256k1_surjectionproof_generate",
+    )
+
+    fallback = None
+    secp256k1 = None
+
+    for candidate in _iter_resolved_library_candidates():
+        try:
+            loaded = ctypes.cdll.LoadLibrary(candidate)
+        except OSError:
+            continue
+        has_preferred = True
+        for symbol in preferred_symbols:
+            try:
+                getattr(loaded, symbol)
+            except AttributeError:
+                has_preferred = False
+                break
+        if has_preferred:
+            secp256k1 = loaded
+            break
+        if fallback is None:
+            fallback = loaded
+
+    if secp256k1 is None and fallback is not None:
+        secp256k1 = fallback
+
+    if secp256k1 is None:
         raise RuntimeError(
             "Can't find libsecp256k1 library. Make sure to compile and install it."
         )
-
-    secp256k1 = ctypes.cdll.LoadLibrary(library_path)
 
     secp256k1.secp256k1_context_create.argtypes = [c_uint]
     secp256k1.secp256k1_context_create.restype = c_void_p
@@ -194,7 +271,7 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
             c_void_p,  # data
         ]
         secp256k1.secp256k1_ecdh.restype = c_int
-    except:
+    except Exception:  # noqa: S110
         pass
 
     # schnorr sig
@@ -231,7 +308,7 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
             c_char_p,  # secret
         ]
         secp256k1.secp256k1_keypair_create.restype = c_int
-    except:
+    except Exception:  # noqa: S110
         pass
 
     # recoverable module
@@ -278,7 +355,7 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
             c_char_p,
         ]
         secp256k1.secp256k1_ecdsa_recover.restype = c_int
-    except:
+    except Exception:  # noqa: S110
         pass
 
     # zkp modules
@@ -467,12 +544,12 @@ def _init(flags=(CONTEXT_SIGN | CONTEXT_VERIFY)):
         ]
         secp256k1.secp256k1_surjectionproof_parse.restype = c_int
 
-    except:
+    except Exception:  # noqa: S110
         pass
 
     secp256k1.ctx = secp256k1.secp256k1_context_create(flags)
 
-    r = secp256k1.secp256k1_context_randomize(secp256k1.ctx, os.urandom(32))
+    secp256k1.secp256k1_context_randomize(secp256k1.ctx, os.urandom(32))
 
     return secp256k1
 
@@ -579,7 +656,7 @@ def ecdsa_signature_normalize(sig, context=_secp.ctx):
     if len(sig) != 64:
         raise ValueError("Signature should be 64 bytes long")
     sig2 = bytes(64)
-    r = _secp.secp256k1_ecdsa_signature_normalize(context, sig2, sig)
+    _secp.secp256k1_ecdsa_signature_normalize(context, sig2, sig)
     return sig2
 
 
@@ -643,7 +720,6 @@ def ec_pubkey_negate(pubkey, context=_secp.ctx):
 def ec_privkey_tweak_add(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
-    t = _copy(tweak)
     if _secp.secp256k1_ec_privkey_tweak_add(context, secret, tweak) == 0:
         raise ValueError("Failed to tweak the secret")
     return None
@@ -655,7 +731,6 @@ def ec_pubkey_tweak_add(pub, tweak, context=_secp.ctx):
         raise ValueError("Public key should be 64 bytes long")
     if len(tweak) != 32:
         raise ValueError("Tweak should be 32 bytes long")
-    t = _copy(tweak)
     if _secp.secp256k1_ec_pubkey_tweak_add(context, pub, tweak) == 0:
         raise ValueError("Failed to tweak the public key")
     return None
@@ -730,7 +805,7 @@ def ecdh(pubkey, scalar, hashfn=None, data=None, context=_secp.ctx):
             y = ctypes.string_at(y, 32)
             try:
                 res = hashfn(x, y, data)
-            except Exception as e:
+            except Exception:
                 return 0
             out = cast(out, POINTER(c_char * 32))
             out.contents.value = res

@@ -1,0 +1,67 @@
+name: Dependency Review
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - id: review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: low
+          fail-on-scopes: runtime, development, unknown
+          license-check: true
+          vulnerability-check: true
+
+      - name: Require review for new dependencies
+        env:
+          DEPENDENCY_CHANGES: ${{ steps.review.outputs.dependency-changes }}
+          REVIEWED_DEPENDENCY_PURLS_FILE: .github/dependency-review-reviewed-purls.txt
+        run: .github/scripts/require-reviewed-dependencies.sh
+
+  review-gate-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Passes reviewed added dependency
+        env:
+          DEPENDENCY_CHANGES: >-
+            [{"change_type":"added","manifest":"poetry.lock","package_url":"pkg:pypi/example-package@1.2.3"}]
+          REVIEWED_DEPENDENCY_PURLS: " pkg:pypi/example-package "
+        run: .github/scripts/require-reviewed-dependencies.sh
+
+      - name: Ignores non-added dependency changes
+        env:
+          DEPENDENCY_CHANGES: >-
+            [{"change_type":"modified","manifest":"poetry.lock","package_url":"pkg:pypi/unreviewed-package@1.2.3"},{"change_type":"removed","manifest":"poetry.lock","package_url":"pkg:pypi/removed-package@1.2.3"}]
+          REVIEWED_DEPENDENCY_PURLS: ""
+        run: .github/scripts/require-reviewed-dependencies.sh
+
+      - name: Fails unreviewed added dependency
+        env:
+          DEPENDENCY_CHANGES: >-
+            [{"change_type":"added","manifest":"poetry.lock","package_url":"pkg:pypi/example-package@1.2.3"}]
+          REVIEWED_DEPENDENCY_PURLS: ""
+        run: |
+          set +e
+          output=$(.github/scripts/require-reviewed-dependencies.sh 2>&1)
+          exit_code=$?
+          set -e
+          echo "$output"
+          test "$exit_code" -ne 0
+          grep -q "New dependencies require maintainer review" <<< "$output"
+          grep -q "poetry.lock: pkg:pypi/example-package@1.2.3" <<< "$output"

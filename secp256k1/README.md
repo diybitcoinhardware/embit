@@ -1,5 +1,6 @@
 # Building secp256k1 for `embit`
-If you don't want to use a prebuilt binary packaged with `embit`, you can build it yourself.
+`embit` PyPI artifacts do not include prebuilt `libsecp256k1` binaries.
+If you want the optional ctypes backend, build and install `libsecp256k1` locally.
 
 
 ## Clone `embit` recursively
@@ -21,7 +22,10 @@ On your target platform run:
 make
 ```
 
-Copy the resulting binary from the `build/` subdir to `embit`'s `src/embit/util/prebuilt` directory.
+Install the resulting library into a standard system library location so the dynamic loader can find it (for example `/usr/local/lib` on Unix-like systems), then refresh your linker environment as needed for your platform.
+
+Note: runtime lookup prefers local `secp256k1/secp256k1-zkp/.libs` and system library paths.
+`src/embit/util/prebuilt` is still checked last for compatibility with older local setups, but binaries are not shipped by this project.
 
 To clean build directory use:
 ```shell

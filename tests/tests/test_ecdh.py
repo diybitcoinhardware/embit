@@ -1,8 +1,18 @@
-from unittest import TestCase
-from embit.ec import PublicKey, PrivateKey
+from unittest import TestCase, skipUnless
+from embit.ec import PrivateKey, secp256k1
 import hashlib
 
+_ECDH_AVAILABLE = hasattr(secp256k1, "ecdh")
+if not _ECDH_AVAILABLE:
+    print(
+        "[tests] ECDH backend unavailable; "
+        "skipping ECDH tests and using pure-Python fallback."
+    )
 
+
+@skipUnless(
+    _ECDH_AVAILABLE, "ECDH backend unavailable; pure-Python fallback in use"
+)
 class ECDHTest(TestCase):
     def test_one(self):
         """ECDH of privkey=1 and any pubkey should give sha256(pubkey)"""
