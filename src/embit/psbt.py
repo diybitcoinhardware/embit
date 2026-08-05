@@ -799,6 +799,8 @@ class PSBT(EmbitBase):
                     raise PSBTError("Duplicated key")
                 unknown[key] = value
 
+        if tx is None and version in (None, 0):
+            raise PSBTError("Missing unsigned transaction in PSBTv0")
         if tx and version == 2:
             raise PSBTError("Global TX field is not allowed in PSBTv2")
         psbt = cls(tx, unknown, version=version)
