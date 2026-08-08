@@ -17,12 +17,23 @@ def key_value(key, value):
     )
 
 
-def psbt_v0():
-    tx = Transaction(
+def unsigned_tx(value=1000):
+    return Transaction(
         vin=[TransactionInput(bytes(32), 0)],
-        vout=[TransactionOutput(1000, Script(b"\x51"))],
+        vout=[TransactionOutput(value, Script(b"\x51"))],
     )
-    return PSBT(tx).serialize()
+
+
+def psbt_v0():
+    return PSBT(unsigned_tx()).serialize()
+
+
+def psbt_v0_globals(extra=b"", tx_first=True):
+    """A minimal PSBTv0 with `extra` key-values added to the global map."""
+    tx_kv = key_value(b"\x00", unsigned_tx().serialize())
+    globals_ = tx_kv + extra if tx_first else extra + tx_kv
+    # global separator, then one empty input scope and one empty output scope
+    return PSBT.MAGIC + globals_ + b"\x00" + b"\x00" + b"\x00"
 
 
 class PSBTVersionTest(TestCase):
@@ -71,20 +82,51 @@ class PSBTVersionTest(TestCase):
             with self.assertRaises(PSBTError):
                 getattr(view, scope)(0)
 
+    def assertRejected(self, raw):
+        with self.assertRaises(PSBTError):
+            PSBT.parse(raw)
+        with self.assertRaises(PSBTError):
+            PSBTView.view(BytesIO(raw))
+
     def test_global_version_2_rejected_with_unsigned_tx_in_any_order(self):
-        tx = Transaction(
-            vin=[TransactionInput(bytes(32), 0)],
-            vout=[TransactionOutput(1000, Script(b"\x51"))],
-        )
-        tx_kv = key_value(b"\x00", tx.serialize())
         version_kv = key_value(b"\xfb", (2).to_bytes(4, "little"))
         # the global map is unordered, so both orderings must be rejected
-        for globals_ in (version_kv + tx_kv, tx_kv + version_kv):
-            raw = PSBT.MAGIC + globals_ + b"\x00" + b"\x00" + b"\x00"
-            with self.assertRaises(PSBTError):
-                PSBT.parse(raw)
-            with self.assertRaises(PSBTError):
-                PSBTView.view(BytesIO(raw))
+        self.assertRejected(psbt_v0_globals(version_kv))
+        self.assertRejected(psbt_v0_globals(version_kv, tx_first=False))
+
+    def test_explicit_global_version_0_accepted(self):
+        raw = psbt_v0_globals(key_value(b"\xfb", (0).to_bytes(4, "little")))
+        self.assertEqual(len(PSBT.parse(raw).inputs), 1)
+        self.assertEqual(PSBTView.view(BytesIO(raw)).num_inputs, 1)
+
+    def test_rejects_unsupported_global_version(self):
+        for version in [1, 3, 0xFFFFFFFF]:
+            self.assertRejected(
+                psbt_v0_globals(key_value(b"\xfb", version.to_bytes(4, "little")))
+            )
+
+    def test_rejects_malformed_global_version(self):
+        for value in [b"", b"\x00", b"\x00" * 8]:
+            self.assertRejected(psbt_v0_globals(key_value(b"\xfb", value)))
+
+    def test_rejects_duplicated_global_version(self):
+        version_kv = key_value(b"\xfb", (0).to_bytes(4, "little"))
+        self.assertRejected(psbt_v0_globals(version_kv + version_kv))
+
+    def test_rejects_duplicated_global_tx(self):
+        # a second global tx must not silently override the first
+        self.assertRejected(
+            psbt_v0_globals(key_value(b"\x00", unsigned_tx(999).serialize()))
+        )
+
+    def test_view_rejects_v2_global_counts_in_v0(self):
+        # a count disagreeing with the global tx desyncs seek_to_scope from it.
+        # PSBT keeps these in `unknown`, where they are inert.
+        for key in [b"\x04", b"\x05"]:
+            kv = key_value(key, compact.to_bytes(5))
+            for raw in (psbt_v0_globals(kv), psbt_v0_globals(kv, tx_first=False)):
+                with self.assertRaises(PSBTError):
+                    PSBTView.view(BytesIO(raw))
 
     def test_v0_rejects_v2_output_scope(self):
         raw = psbt_v0()

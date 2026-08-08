@@ -808,7 +808,13 @@ class PSBT(EmbitBase):
                         "Failed to parse PSBT - duplicated transaction field"
                     )
             elif key == b"\xfb":
+                if version is not None:
+                    raise PSBTError("Duplicated global version")
+                if len(value) != 4:
+                    raise PSBTError("Global version must be 4 bytes")
                 version = int.from_bytes(value, "little")
+                if version not in [0, 2]:
+                    raise PSBTError("Unsupported PSBT version %d" % version)
             else:
                 if key in unknown:
                     raise PSBTError("Duplicated key")
