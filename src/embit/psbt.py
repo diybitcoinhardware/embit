@@ -66,6 +66,8 @@ class DerivationPath(EmbitBase):
 
 
 class PSBTScope(EmbitBase):
+    V2_FIELDS = ()
+
     def __init__(self, unknown: dict = {}):
         self.unknown = unknown
         self.parse_unknowns()
@@ -89,10 +91,15 @@ class PSBTScope(EmbitBase):
             s.seek(0)
             self.read_value(s, k)
 
+    def _validate_key(self, key):
+        if len(key) != 1 and key[:1] in self.V2_FIELDS:
+            raise PSBTError("Invalid PSBTv2 field key")
+
     def read_value(self, stream, key, *args, **kwargs):
         # separator
         if len(key) == 0:
             return
+        self._validate_key(key)
         value = read_string(stream)
         if key in self.unknown:
             raise PSBTError("Duplicated key")
@@ -103,12 +110,15 @@ class PSBTScope(EmbitBase):
 
     @classmethod
     def read_from(cls, stream, *args, **kwargs):
+        version = kwargs.pop("version", None)
         res = cls({}, *args, **kwargs)
         while True:
             key = read_string(stream)
             # separator
             if len(key) == 0:
                 break
+            if version != 2 and key in res.V2_FIELDS:
+                raise PSBTError("PSBTv2 field is not allowed in PSBTv0")
             res.read_value(stream, key)
         return res
 
@@ -116,6 +126,7 @@ class PSBTScope(EmbitBase):
 class InputScope(PSBTScope):
     TX_CLS = Transaction
     TXOUT_CLS = TransactionOutput
+    V2_FIELDS = (b"\x0e", b"\x0f", b"\x10", b"\x11", b"\x12")
 
     def __init__(self, unknown: dict = {}, vin=None, compress=CompressMode.KEEP_ALL):
         self.compress = compress
@@ -249,6 +260,7 @@ class InputScope(PSBTScope):
         # separator
         if len(k) == 0:
             return
+        self._validate_key(k)
         # non witness utxo, can be parsed and verified without too much memory
         if k[0] == 0x00:
             if len(k) != 1:
@@ -491,6 +503,8 @@ class InputScope(PSBTScope):
 
 
 class OutputScope(PSBTScope):
+    V2_FIELDS = (b"\x03", b"\x04")
+
     def __init__(self, unknown: dict = {}, vout=None, compress=CompressMode.KEEP_ALL):
         self.compress = compress
         self.value = None
@@ -535,6 +549,7 @@ class OutputScope(PSBTScope):
         # separator
         if len(k) == 0:
             return
+        self._validate_key(k)
 
         v = read_string(stream)
 
@@ -805,12 +820,12 @@ class PSBT(EmbitBase):
         # input scopes
         for i, vin in enumerate(psbt.tx.vin):
             psbt.inputs[i] = cls.PSBTIN_CLS.read_from(
-                stream, compress=compress, vin=vin
+                stream, compress=compress, vin=vin, version=version
             )
         # output scopes
         for i, vout in enumerate(psbt.tx.vout):
             psbt.outputs[i] = cls.PSBTOUT_CLS.read_from(
-                stream, compress=compress, vout=vout
+                stream, compress=compress, vout=vout, version=version
             )
         return psbt
 
