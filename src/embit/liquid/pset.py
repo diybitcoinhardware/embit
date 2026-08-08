@@ -637,7 +637,7 @@ class PSET(PSBT):
     @property
     def blinded_tx(self):
         return self.TX_CLS(
-            version=self.tx_version or 2,
+            version=2 if self.tx_version is None else self.tx_version,
             locktime=self.locktime or 0,
             vin=[inp.blinded_vin for inp in self.inputs],
             vout=[out.blinded_vout for out in self.outputs],

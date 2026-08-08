@@ -22,6 +22,48 @@ class CompressMode:
     PARTIAL = 2
 
 
+_GLOBAL_V2_FIELDS = (b"\x02", b"\x03", b"\x04", b"\x05", b"\x06")
+_GLOBAL_SINGLETON_FIELDS = (b"\x00",) + _GLOBAL_V2_FIELDS + (b"\xfb",)
+_GLOBAL_FIXED_VALUE_LENGTHS = {
+    b"\x02": 4,
+    b"\x03": 4,
+    b"\x06": 1,
+    b"\xfb": 4,
+}
+_GLOBAL_COUNT_FIELDS = (b"\x04", b"\x05")
+
+
+def _validate_global_key(key):
+    if len(key) != 1 and key[:1] in _GLOBAL_SINGLETON_FIELDS:
+        raise PSBTError("Invalid global field key")
+
+
+def _validate_global_fields(version, has_tx, fields):
+    if version == 2:
+        if has_tx:
+            raise PSBTError("Global TX field is not allowed in PSBTv2")
+        for key in (b"\x02", b"\x04", b"\x05"):
+            if key not in fields:
+                raise PSBTError("Missing required PSBTv2 global field")
+    else:
+        if not has_tx:
+            raise PSBTError("Global TX field is required in PSBTv0")
+        if any(key in fields for key in _GLOBAL_V2_FIELDS):
+            raise PSBTError("PSBTv2 global field is not allowed in PSBTv0")
+
+    for key in _GLOBAL_FIXED_VALUE_LENGTHS:
+        if key in fields and len(fields[key]) != _GLOBAL_FIXED_VALUE_LENGTHS[key]:
+            raise PSBTError("Invalid global field length")
+    for key in _GLOBAL_COUNT_FIELDS:
+        if key in fields:
+            try:
+                count = compact.from_bytes(fields[key])
+            except (ValueError, RuntimeError):
+                count = None
+            if count is None or compact.to_bytes(count) != fields[key]:
+                raise PSBTError("Invalid global count")
+
+
 def ser_string(stream, s: bytes) -> int:
     return stream.write(compact.to_bytes(len(s))) + stream.write(s)
 
@@ -679,7 +721,7 @@ class PSBT(EmbitBase):
     @property
     def tx(self):
         return self.TX_CLS(
-            version=self.tx_version or 2,
+            version=2 if self.tx_version is None else self.tx_version,
             locktime=self.locktime or 0,
             vin=[inp.vin for inp in self.inputs],
             vout=[out.vout for out in self.outputs],
@@ -733,9 +775,9 @@ class PSBT(EmbitBase):
             r += ser_string(stream, self.xpubs[xpub].serialize())
 
         if self.version == 2:
-            if self.tx_version is not None:
-                r += ser_string(stream, b"\x02")
-                r += ser_string(stream, self.tx_version.to_bytes(4, "little"))
+            tx_version = 2 if self.tx_version is None else self.tx_version
+            r += ser_string(stream, b"\x02")
+            r += ser_string(stream, tx_version.to_bytes(4, "little"))
             if self.locktime is not None:
                 r += ser_string(stream, b"\x03")
                 r += ser_string(stream, self.locktime.to_bytes(4, "little"))
@@ -798,6 +840,7 @@ class PSBT(EmbitBase):
             # separator
             if len(key) == 0:
                 break
+            _validate_global_key(key)
             value = read_string(stream)
             # tx
             if key == b"\x00":
@@ -820,8 +863,7 @@ class PSBT(EmbitBase):
                     raise PSBTError("Duplicated key")
                 unknown[key] = value
 
-        if tx and version == 2:
-            raise PSBTError("Global TX field is not allowed in PSBTv2")
+        _validate_global_fields(version, tx is not None, unknown)
         psbt = cls(tx, unknown, version=version)
         # input scopes
         for i, vin in enumerate(psbt.tx.vin):

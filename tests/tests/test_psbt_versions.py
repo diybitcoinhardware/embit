@@ -36,6 +36,32 @@ def psbt_v0_globals(extra=b"", tx_first=True):
     return PSBT.MAGIC + globals_ + b"\x00" + b"\x00" + b"\x00"
 
 
+V2_GLOBAL_FIELDS = (
+    (b"\x02", (2).to_bytes(4, "little")),
+    (b"\x04", compact.to_bytes(0)),
+    (b"\x05", compact.to_bytes(0)),
+    (b"\xfb", (2).to_bytes(4, "little")),
+)
+
+
+def psbt_v2_globals(fields=V2_GLOBAL_FIELDS):
+    globals_ = b"".join(key_value(key, value) for key, value in fields)
+    return PSBT.MAGIC + globals_ + b"\x00"
+
+
+class LimitedReadStream:
+    def __init__(self, data):
+        self.stream = BytesIO(data)
+
+    def read(self, size=-1):
+        if size > 9:
+            raise AssertionError("Oversized payload read")
+        return self.stream.read(size)
+
+    def seek(self, *args):
+        return self.stream.seek(*args)
+
+
 class PSBTVersionTest(TestCase):
     def test_v0_excludes_v2_input_fields(self):
         raw = psbt_v0()
@@ -119,14 +145,111 @@ class PSBTVersionTest(TestCase):
             psbt_v0_globals(key_value(b"\x00", unsigned_tx(999).serialize()))
         )
 
-    def test_view_rejects_v2_global_counts_in_v0(self):
-        # a count disagreeing with the global tx desyncs seek_to_scope from it.
-        # PSBT keeps these in `unknown`, where they are inert.
-        for key in [b"\x04", b"\x05"]:
-            kv = key_value(key, compact.to_bytes(5))
+    def test_v0_rejects_v2_global_fields(self):
+        fields = [
+            (b"\x02", (3).to_bytes(4, "little")),
+            (b"\x03", (42).to_bytes(4, "little")),
+            (b"\x04", compact.to_bytes(1)),
+            (b"\x05", compact.to_bytes(1)),
+            (b"\x06", b"\x01"),
+        ]
+        for key, value in fields:
+            kv = key_value(key, value)
             for raw in (psbt_v0_globals(kv), psbt_v0_globals(kv, tx_first=False)):
-                with self.assertRaises(PSBTError):
-                    PSBTView.view(BytesIO(raw))
+                self.assertRejected(raw)
+
+    def test_rejects_key_data_on_global_singleton_fields(self):
+        fields = [
+            (b"\x00\x00", unsigned_tx().serialize()),
+            (b"\x02\x00", (2).to_bytes(4, "little")),
+            (b"\x03\x00", bytes(4)),
+            (b"\x04\x00", compact.to_bytes(1)),
+            (b"\x05\x00", compact.to_bytes(1)),
+            (b"\x06\x00", b"\x00"),
+            (b"\xfb\x00", (2).to_bytes(4, "little")),
+        ]
+        for key, value in fields:
+            self.assertRejected(psbt_v0_globals(key_value(key, value)))
+
+    def test_v0_requires_unsigned_transaction(self):
+        self.assertRejected(PSBT.MAGIC + b"\x00")
+        version = key_value(b"\xfb", (0).to_bytes(4, "little"))
+        self.assertRejected(PSBT.MAGIC + version + b"\x00")
+
+    def test_v2_requires_global_transaction_fields(self):
+        for required_key in [b"\x02", b"\x04", b"\x05"]:
+            fields = tuple(
+                field for field in V2_GLOBAL_FIELDS if field[0] != required_key
+            )
+            self.assertRejected(psbt_v2_globals(fields))
+
+    def test_v2_rejects_malformed_global_fields(self):
+        malformed = [
+            (b"\x02", b"\x02"),
+            (b"\x03", b"\x00"),
+            (b"\x04", b""),
+            (b"\x04", b"\xfd"),
+            (b"\x04", b"\xfd\x00\x00"),
+            (b"\x05", b"\x00\x00"),
+            (b"\x06", b""),
+        ]
+        for key, value in malformed:
+            fields = tuple(field for field in V2_GLOBAL_FIELDS if field[0] != key)
+            self.assertRejected(psbt_v2_globals(fields + ((key, value),)))
+
+    def test_v2_rejects_duplicated_global_fields(self):
+        values = dict(V2_GLOBAL_FIELDS)
+        values.update({b"\x03": bytes(4), b"\x06": b"\x00"})
+        for key in [b"\x02", b"\x03", b"\x04", b"\x05", b"\x06"]:
+            fields = V2_GLOBAL_FIELDS
+            if key not in dict(fields):
+                fields += ((key, values[key]),)
+            self.assertRejected(psbt_v2_globals(fields + ((key, values[key]),)))
+
+    def test_valid_v2_global_fields_remain_compatible(self):
+        raw = psbt_v2_globals()
+        psbt = PSBT.parse(raw)
+        view = PSBTView.view(BytesIO(raw))
+        self.assertEqual(psbt.version, 2)
+        self.assertEqual(psbt.tx_version, 2)
+        self.assertEqual(view.version, 2)
+        self.assertEqual(view.tx_version, 2)
+
+    def test_empty_v2_serialization_round_trip(self):
+        raw = PSBT(version=2).serialize()
+        psbt = PSBT.parse(raw)
+        view = PSBTView.view(BytesIO(raw))
+        self.assertEqual(psbt.tx_version, 2)
+        self.assertEqual(len(psbt.inputs), 0)
+        self.assertEqual(len(psbt.outputs), 0)
+        self.assertEqual(view.tx_version, 2)
+        self.assertEqual(view.num_inputs, 0)
+        self.assertEqual(view.num_outputs, 0)
+
+    def test_view_rejects_oversized_global_values_before_reading(self):
+        for key in [b"\x02", b"\x03", b"\x04", b"\x05", b"\x06", b"\xfb"]:
+            raw = PSBT.MAGIC + key_value(key, bytes(10))
+            with self.assertRaises(PSBTError):
+                PSBTView.view(LimitedReadStream(raw))
+
+    def test_v2_preserves_zero_transaction_version(self):
+        fields = tuple(
+            (key, bytes(4)) if key == b"\x02" else (key, value)
+            for key, value in V2_GLOBAL_FIELDS
+        )
+        raw = psbt_v2_globals(fields)
+        psbt = PSBT.parse(raw)
+        view = PSBTView.view(BytesIO(raw))
+        self.assertEqual(psbt.tx_version, 0)
+        self.assertEqual(psbt.tx.version, 0)
+        self.assertEqual(view.tx_version, 0)
+
+    def test_unknown_global_field_with_key_data_remains_compatible(self):
+        key = b"\xf0\x00"
+        value = b"unknown"
+        raw = psbt_v0_globals(key_value(key, value))
+        self.assertEqual(PSBT.parse(raw).unknown[key], value)
+        self.assertEqual(PSBTView.view(BytesIO(raw)).version, None)
 
     def test_v0_rejects_v2_output_scope(self):
         raw = psbt_v0()
