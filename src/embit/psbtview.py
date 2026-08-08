@@ -29,6 +29,11 @@ from .psbt import (
     read_string,
     ser_string,
     skip_string,
+    _GLOBAL_COUNT_FIELDS,
+    _GLOBAL_FIXED_VALUE_LENGTHS,
+    _GLOBAL_V2_FIELDS,
+    _validate_global_fields,
+    _validate_global_key,
 )
 from .transaction import (
     TransactionOutput,
@@ -37,6 +42,19 @@ from .transaction import (
     hash_amounts,
     hash_script_pubkeys,
 )
+
+
+def _read_global_value(stream, key):
+    value_len = compact.read_from(stream)
+    if key in _GLOBAL_FIXED_VALUE_LENGTHS:
+        if value_len != _GLOBAL_FIXED_VALUE_LENGTHS[key]:
+            raise PSBTError("Invalid global field length")
+    elif key in _GLOBAL_COUNT_FIELDS and value_len > 9:
+        raise PSBTError("Invalid global count length")
+    value = stream.read(value_len)
+    if len(value) != value_len:
+        raise PSBTError("Failed to read %d bytes" % value_len)
+    return value, len(compact.to_bytes(value_len)) + value_len
 
 
 def read_write(sin, sout, sz=None, chunk_size=32) -> int:
@@ -222,6 +240,7 @@ class PSBTView:
         num_inputs = None
         num_outputs = None
         tx_offset = None
+        global_fields = {}
         while True:
             # read key and update cursor
             key = read_string(stream)
@@ -229,9 +248,10 @@ class PSBTView:
             # separator
             if len(key) == 0:
                 break
-            if key in [b"\xfb", b"\x04", b"\x05"]:
-                value = read_string(stream)
-                cur += len(value) + len(compact.to_bytes(len(value)))
+            _validate_global_key(key)
+            if key == b"\xfb" or key in _GLOBAL_V2_FIELDS:
+                value, value_size = _read_global_value(stream, key)
+                cur += value_size
                 if key == b"\xfb":
                     if version is not None:
                         raise PSBTError("Duplicated global version")
@@ -240,19 +260,17 @@ class PSBTView:
                     version = int.from_bytes(value, "little")
                     if version not in [0, 2]:
                         raise PSBTError("Unsupported PSBT version %d" % version)
-                elif key == b"\x04":
-                    if num_inputs is not None:
-                        raise PSBTError("Invalid global input count")
-                    num_inputs = compact.from_bytes(value)
-                elif key == b"\x05":
-                    if num_outputs is not None:
-                        raise PSBTError("Invalid global output count")
-                    num_outputs = compact.from_bytes(value)
+                else:
+                    if key in global_fields:
+                        raise PSBTError("Duplicated global field")
+                    global_fields[key] = value
             elif key == b"\x00":
                 # we found global transaction
+                if tx_offset is not None:
+                    raise PSBTError("Duplicated global transaction")
                 if version == 2:
                     raise PSBTError("Global transaction with version 2 PSBT")
-                if (num_inputs is not None) or (num_outputs is not None):
+                if b"\x04" in global_fields or b"\x05" in global_fields:
                     raise PSBTError("Invalid global transaction")
                 tx_len = compact.read_from(stream)
                 cur += len(compact.to_bytes(tx_len))
@@ -270,6 +288,10 @@ class PSBTView:
         # so repeat it here to stay independent of the global map key order
         if tx_offset is not None and version == 2:
             raise PSBTError("Global transaction with version 2 PSBT")
+        _validate_global_fields(version, tx_offset is not None, global_fields)
+        if tx_offset is None:
+            num_inputs = compact.from_bytes(global_fields[b"\x04"])
+            num_outputs = compact.from_bytes(global_fields[b"\x05"])
         if None in [version or tx_offset, num_inputs, num_outputs]:
             raise PSBTError("Missing something important in PSBT")
         return cls(
