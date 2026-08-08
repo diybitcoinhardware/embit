@@ -256,6 +256,10 @@ class PSBTView:
             else:
                 cur += skip_string(stream)
         first_scope = cur
+        # the check inside the loop only fires if 0xfb was seen before 0x00,
+        # so repeat it here to stay independent of the global map key order
+        if tx_offset is not None and version == 2:
+            raise PSBTError("Global transaction with version 2 PSBT")
         if None in [version or tx_offset, num_inputs, num_outputs]:
             raise PSBTError("Missing something important in PSBT")
         return cls(

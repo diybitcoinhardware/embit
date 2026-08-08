@@ -71,6 +71,21 @@ class PSBTVersionTest(TestCase):
             with self.assertRaises(PSBTError):
                 getattr(view, scope)(0)
 
+    def test_global_version_2_rejected_with_unsigned_tx_in_any_order(self):
+        tx = Transaction(
+            vin=[TransactionInput(bytes(32), 0)],
+            vout=[TransactionOutput(1000, Script(b"\x51"))],
+        )
+        tx_kv = key_value(b"\x00", tx.serialize())
+        version_kv = key_value(b"\xfb", (2).to_bytes(4, "little"))
+        # the global map is unordered, so both orderings must be rejected
+        for globals_ in (version_kv + tx_kv, tx_kv + version_kv):
+            raw = PSBT.MAGIC + globals_ + b"\x00" + b"\x00" + b"\x00"
+            with self.assertRaises(PSBTError):
+                PSBT.parse(raw)
+            with self.assertRaises(PSBTError):
+                PSBTView.view(BytesIO(raw))
+
     def test_v0_rejects_v2_output_scope(self):
         raw = psbt_v0()
         output_data = key_value(
