@@ -287,7 +287,10 @@ class LTransaction(Transaction):
         return res, hashlib.sha256(h.digest()).digest()
 
     @classmethod
-    def read_from(cls, stream):
+    def read_from(cls, stream, segwit=True):
+        # `segwit` is accepted only to match Transaction.read_from's signature
+        # (e.g. PSBT parsing passes segwit=False). Liquid transactions carry an
+        # explicit witness-flag byte after the version, so the flag is ignored.
         ver = int.from_bytes(stream.read(4), "little")
         has_witness = False
         if stream.read(1) == b"\x01":

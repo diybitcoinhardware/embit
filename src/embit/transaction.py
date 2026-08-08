@@ -1,3 +1,4 @@
+from io import BytesIO
 import hashlib
 from . import compact
 from . import hashes
@@ -143,15 +144,21 @@ class Transaction(EmbitBase):
         return res, hashlib.sha256(h.digest()).digest()
 
     @classmethod
-    def read_from(cls, stream):
+    def read_from(cls, stream, segwit=True):
+        # `segwit` controls whether a leading 0x00 input-count is interpreted as
+        # the BIP-144 segwit marker. A standalone network tx may be segwit
+        # (segwit=True, the default). The BIP-174 unsigned tx inside a PSBT is
+        # mandated non-witness, so a 0x00 there is a genuine "no inputs yet"
+        # count and must be parsed with segwit=False — otherwise a legacy
+        # 0-input / 1-output tx is indistinguishable from a segwit prefix.
         ver = int.from_bytes(stream.read(4), "little")
         num_vin = compact.read_from(stream)
-        # if num_vin is zero it is a segwit transaction
-        is_segwit = num_vin == 0
-        if is_segwit:
+        is_segwit = False
+        if segwit and num_vin == 0:
             marker = stream.read(1)
             if marker != b"\x01":
                 raise TransactionError("Invalid segwit marker")
+            is_segwit = True
             num_vin = compact.read_from(stream)
         vin = []
         for i in range(num_vin):
