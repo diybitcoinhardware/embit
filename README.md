@@ -25,8 +25,12 @@ To install run `pip3 install embit`.
 To install in development mode (editable) clone and run `pip3 install -e .` from the root folder.
 
 PyPI artifacts are pure Python and do not bundle prebuilt `libsecp256k1` binaries.
-If a compatible system `libsecp256k1` is installed, `embit` can use the ctypes backend.
-If no compatible system library is available, `embit` automatically falls back to the pure Python implementation.
+On CPython, `libsecp256k1` is a hard runtime requirement -- there is no pure-Python
+fallback. If the library is missing, `import embit` fails fast with
+`embit.util.secp256k1.Libsecp256k1NotAvailable` (a subclass of `ImportError`)
+whose message describes how to build the library. This is a build/setup
+error, not a runtime condition to be detected later.
+
 ctypes library discovery order is:
 
 1. `secp256k1/secp256k1-zkp/.libs` (repo-local build outputs)
@@ -34,7 +38,16 @@ ctypes library discovery order is:
 3. system loader (`secp256k1`)
 4. `src/embit/util/prebuilt/*` (compatibility-only path; no binaries are shipped in package artifacts)
 
-To build and install `libsecp256k1` locally, see: [Building secp256k1 for `embit`](/secp256k1/README.md).
+Build options:
+- **Native build on Linux or macOS** -- the existing Makefile in
+  [`secp256k1/`](/secp256k1/README.md) handles host platform/arch detection.
+  Fast and dependency-light; recommended for macOS and Linux x86_64
+  development.
+- **Docker container** -- the self-contained cross-compile environment in
+  [`docker/`](./docker/README.md) covers ARMv6L (Pi Zero), ARMv7, aarch64,
+  and Windows. Recommended for any embedded ARM target or Windows build.
+  See the Docker README for an honest accounting of what is and isn't
+  reproducible.
 
 
 ## Using non-English BIP39 wordlists
