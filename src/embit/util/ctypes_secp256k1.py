@@ -776,6 +776,9 @@ def ec_pubkey_tweak_mul(pub, tweak, context=_secp.ctx):
         raise ValueError("Tweak should be 32 bytes long")
     if _secp.secp256k1_ec_pubkey_tweak_mul(context, pub, tweak) == 0:
         raise ValueError("Failed to tweak the public key")
+    # returned for parity with the pure-python backend, where the result
+    # cannot always be written back in place
+    return pub
 
 
 @locked
