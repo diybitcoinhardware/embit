@@ -254,21 +254,38 @@ def ec_pubkey_add(pub, tweak, context=None):
 #     for i in range(len(secret)):
 #         secret[i] = res[i]
 
-# def ec_pubkey_tweak_mul(pub, tweak, context=None):
-#     if len(pub)!=64:
-#         raise ValueError("Public key should be 64 bytes long")
-#     if len(tweak)!=32:
-#         raise ValueError("Tweak should be 32 bytes long")
-#     if _secp.secp256k1_ec_pubkey_tweak_mul(context, pub, tweak) == 0:
-#         raise ValueError("Failed to tweak the public key")
+def ec_pubkey_tweak_mul(pub, tweak, context=None):
+    if len(pub) != 64:
+        raise ValueError("Public key should be 64 bytes long")
+    if len(tweak) != 32:
+        raise ValueError("Tweak should be 32 bytes long")
+    t = int.from_bytes(tweak, "big")
+    if t == 0 or t >= _key.SECP256K1_ORDER:
+        raise ValueError("Failed to tweak the public key")
+    pubkey = _pubkey_parse(pub)
+    Q = _key.SECP256K1.affine(_key.SECP256K1.mul([(pubkey.p, t)]))
+    if Q is None:
+        raise ValueError("Failed to tweak the public key")
+    res = Q[0].to_bytes(32, "little") + Q[1].to_bytes(32, "little")
+    # ec_pubkey_parse returns immutable bytes here, so unlike the ctypes
+    # backend the result can't always be written back in place - mutate
+    # when possible, and always return the result like ctypes does
+    if isinstance(pub, bytearray):
+        for i in range(len(pub)):
+            pub[i] = res[i]
+    return res
 
-# def ec_pubkey_combine(*args, context=None):
-#     pub = bytes(64)
-#     pubkeys = (c_char_p * len(args))(*args)
-#     r = _secp.secp256k1_ec_pubkey_combine(context, pub, pubkeys, len(args))
-#     if r == 0:
-#         raise ValueError("Failed to negate pubkey")
-#     return pub
+
+def ec_pubkey_combine(*args, context=None):
+    points = []
+    for pub in args:
+        if len(pub) != 64:
+            raise ValueError("Public key should be 64 bytes long")
+        points.append((_pubkey_parse(pub).p, 1))
+    Q = _key.SECP256K1.affine(_key.SECP256K1.mul(points))
+    if Q is None:
+        raise ValueError("Failed to combine pubkeys")
+    return Q[0].to_bytes(32, "little") + Q[1].to_bytes(32, "little")
 
 # schnorrsig
 
