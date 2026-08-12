@@ -4,6 +4,7 @@ from . import hashes
 from .base import EmbitBase, EmbitError
 from .script import Script, Witness
 from .misc import const
+from typing import NamedTuple
 
 
 class TransactionError(EmbitError):
@@ -398,3 +399,13 @@ class TransactionOutput(EmbitBase):
         value = int.from_bytes(stream.read(8), "little")
         script_pubkey = Script.read_from(stream)
         return cls(value, script_pubkey)
+
+
+class COutPoint(NamedTuple):
+    txid: bytes  # endianness same as hex string displayed; reverse of tx serialization order
+    out_idx: int
+
+    def serialize(self) -> bytes:
+        return self.txid[::-1] + int.to_bytes(
+            self.out_idx, length=4, byteorder="little", signed=False
+        )
