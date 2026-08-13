@@ -247,7 +247,7 @@ class Slip39Test(TestCase):
                     "fraction necklace academic academic award teammate mouse regular testify coding building member verdict purchase blind camera duration email prepare spirit quarter"
                 ],
                 SyntaxError,
-            ],
+            ]
         ]
         for test_name, mnemonics, error in test_cases:
             with self.assertRaises(error):
@@ -342,6 +342,47 @@ class Slip39Test(TestCase):
                 ],
                 "5385577c8cfc6c1a8aa0f7f10ecde0a3318493262591e78b8c14c6686167123b",
             ],
+
+            [
+              "41. Valid mnemonics which can detect some errors in modular arithmetic",
+              [
+                "herald flea academic cage avoid space trend estate dryer hairy evoke eyebrow improve airline artwork garlic premium duration prevent oven",
+                "herald flea academic client blue skunk class goat luxury deny presence impulse graduate clay join blanket bulge survive dish necklace",
+                "herald flea academic acne advance fused brother frozen broken game ranked ajar already believe check install theory angry exercise adult"
+              ],
+              "ad6f2ad8b59bbbaa01369b9006208d9a",
+              # "xprv9s21ZrQH143K2R4HJxcG1eUsudvHM753BZ9vaGkpYCoeEhCQx147C5qEcupPHxcXYfdYMwJmsKXrHDhtEwutxTTvFzdDCZVQwHneeQH8ioH"
+            ],
+            [
+              "42. Valid extendable mnemonic without sharing (128 bits)",
+              [
+                "testify swimming academic academic column loyalty smear include exotic bedroom exotic wrist lobe cover grief golden smart junior estimate learn"
+              ],
+              "1679b4516e0ee5954351d288a838f45e",
+            ],
+            [
+              "43. Extendable basic sharing 2-of-3 (128 bits)",
+              [
+                "enemy favorite academic acid cowboy phrase havoc level response walnut budget painting inside trash adjust froth kitchen learn tidy punish",
+                "enemy favorite academic always academic sniff script carpet romp kind promise scatter center unfair training emphasis evening belong fake enforce"
+              ],
+              "48b1a4b80b8c209ad42c33672bdaa428",
+            ],
+            [
+              "44. Valid extendable mnemonic without sharing (256 bits)",
+              [
+                "impulse calcium academic academic alcohol sugar lyrics pajamas column facility finance tension extend space birthday rainbow swimming purple syndrome facility trial warn duration snapshot shadow hormone rhyme public spine counter easy hawk album"
+              ],
+              "8340611602fe91af634a5f4608377b5235fa2d757c51d720c0c7656249a3035f",
+            ],
+            [
+              "45. Extendable basic sharing 2-of-3 (256 bits)",
+              [
+                "western apart academic always artist resident briefing sugar woman oven coding club ajar merit pecan answer prisoner artist fraction amount desktop mild false necklace muscle photo wealthy alpha category unwrap spew losing making",
+                "western apart academic acid answer ancient auction flip image penalty oasis beaver multiple thunder problem switch alive heat inherit superior teaspoon explain blanket pencil numb lend punish endless aunt garlic humidity kidney observe"
+              ],
+              "8dc652d6d6cd370d8c963141f6d79ba440300f25c467302c1d966bff8f62300d",
+            ]
         ]
         for test_name, mnemonics, expected in test_cases:
             share_set = ShareSet([Share.parse(m) for m in mnemonics])
@@ -354,6 +395,15 @@ class Slip39Test(TestCase):
         for k, n in ((2, 3), (3, 5), (5, 5), (9, 9), (13, 15)):
             share_data = ShareSet.split_secret(secret, k, n)
             self.assertEqual(secret, ShareSet.interpolate(255, share_data[:k]))
+
+
+    def test_split_extendable(self):
+        secret = unhexlify("7c3397a292a5941682d7a4ae2d898d11")
+        mnemonics = ShareSet.generate_shares_from_secret(secret, 3, 5, passphrase=b"TREZOR", identifier=42)
+        share_set = ShareSet([Share.parse(m) for m in mnemonics])
+        self.assertEqual(
+            share_set.recover(passphrase=b"TREZOR"), unhexlify("7c3397a292a5941682d7a4ae2d898d11")
+        )
 
     def test_generate(self):
         test_cases = [
