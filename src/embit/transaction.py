@@ -233,7 +233,8 @@ class Transaction(EmbitBase):
         # data about this input
         h.update(bytes([2 * ext_flag + int(annex is not None)]))
         if anyonecanpay:
-            h.update(self.vin[input_index].serialize())
+            h.update(bytes(reversed(self.vin[input_index].txid)))
+            h.update(self.vin[input_index].vout.to_bytes(4, "little"))
             h.update(values[input_index].to_bytes(8, "little"))
             h.update(script_pubkeys[input_index].serialize())
             h.update(self.vin[input_index].sequence.to_bytes(4, "little"))
@@ -242,7 +243,7 @@ class Transaction(EmbitBase):
         if annex is not None:
             h.update(hashes.sha256(compact.to_bytes(len(annex)) + annex))
         if sh == SIGHASH.SINGLE:
-            h.update(self.vout[input_index].serialize())
+            h.update(hashes.sha256(self.vout[input_index].serialize()))
         if script is not None:
             h.update(
                 hashes.tagged_hash(
