@@ -34,6 +34,11 @@ class Script(EmbitBase):
                 ver = ver % 0x50
             return bech32.encode(network["bech32"], ver, data[2:])
 
+        if script_type == "p2a":
+            # PayToAnchor (OP_1 <2:0x4e73>) hard-codes version 1
+            ver = 1
+            return bech32.encode(network["bech32"], ver, data[2:])
+
         # we should never get here
         raise ValueError("Unsupported script type")
 
@@ -57,6 +62,9 @@ class Script(EmbitBase):
         # OP_1 <x-only-pubkey>
         if len(data) == 34 and data[:2] == b"\x51\x20":
             return "p2tr"
+        # OP_1 <2:0x4e73> (PayToAnchor is always hard-coded to this value)
+        if data == b"\x51\x02\x4e\x73":
+            return "p2a"
         # unknown type
         return None
 
@@ -151,6 +159,12 @@ def p2tr(pubkey, script_tree=None):
     return Script(b"\x51\x20" + output_pubkey.xonly())
 
 
+def p2a():
+    """Return Pay-To-Anchor Script"""
+    # PayToAnchor is hard-coded by definition to: OP_1 <2:0x4e73>
+    return Script(b"\x51\x02\x4e\x73")
+
+
 def p2pkh_from_p2wpkh(script):
     """Convert p2wpkh to p2pkh script"""
     return Script(b"\x76\xa9" + script.serialize()[2:] + b"\x88\xac")
@@ -185,6 +199,9 @@ def address_to_scriptpubkey(addr):
         # fail - then it's bech32 address
         hrp = addr.split("1")[0]
         ver, data = bech32.decode(hrp, addr)
+        if ver == 1 and data == [int.from_bytes(b"\x4e"), int.from_bytes(b"\x73")]:
+            # PayToAnchor address (OP_1 <0x4e73>)
+            return p2a()
         if ver not in [0, 1] or len(data) not in [20, 32]:
             raise EmbitError("Invalid bech32 address")
         if ver == 1 and len(data) != 32:
