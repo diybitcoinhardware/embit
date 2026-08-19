@@ -35,6 +35,7 @@ from .psbt import (
     skip_string,
     _GLOBAL_COUNT_FIELDS,
     _GLOBAL_FIXED_VALUE_LENGTHS,
+    _validate_global_fields,
     _validate_global_key,
 )
 from .transaction import (
@@ -290,7 +291,7 @@ class PSBTView:
                 # PSBT_GLOBAL_VERSION (key order is not guaranteed).
                 if tx_offset is not None:
                     raise PSBTError("Duplicate global transaction")
-                if (num_inputs is not None) or (num_outputs is not None):
+                if b"\x04" in global_kvs or b"\x05" in global_kvs:
                     raise PSBTError("Invalid global transaction")
                 tx_len = compact.read_from(stream)
                 cur += len(compact.to_bytes(tx_len))
@@ -309,10 +310,6 @@ class PSBTView:
                 global_kvs[key] = value
                 if key == b"\xfb":
                     version = int.from_bytes(value, "little")
-                elif key == b"\x04":
-                    num_inputs = compact.from_bytes(value)
-                elif key == b"\x05":
-                    num_outputs = compact.from_bytes(value)
         first_scope = cur
         if version not in (None, 0, 2):
             raise PSBTError("Unsupported PSBT_GLOBAL_VERSION value: %d" % version)
@@ -321,12 +318,12 @@ class PSBTView:
         # PSBTv2 must not have a global unsigned transaction, regardless of key order
         if tx_offset is not None and version == 2:
             raise PSBTError("Global transaction with version 2 PSBT")
-        if version != 2:
-            for k in {b"\x02", b"\x03", b"\x04", b"\x05", b"\x06"}:
-                if k in global_kvs:
-                    raise PSBTError(
-                        "Global key %s is not allowed in PSBTv0" % hexlify(k).decode()
-                    )
+        # Canonical-encoding, fixed-length, and required-field checks for every
+        # global key, shared with PSBT.read_from's two-pass parse.
+        _validate_global_fields(version, tx_offset is not None, global_kvs)
+        if tx_offset is None:
+            num_inputs = compact.from_bytes(global_kvs[b"\x04"])
+            num_outputs = compact.from_bytes(global_kvs[b"\x05"])
         if None in [version or tx_offset, num_inputs, num_outputs]:
             raise PSBTError("Missing something important in PSBT")
         return cls(
