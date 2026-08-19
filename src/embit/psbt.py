@@ -893,6 +893,20 @@ class TxModifiable:
     SIGHASH_SINGLE = 0b00000100
 
 
+def next_tx_modifiable(flags, inp_sighash: int) -> int:
+    """BIP-370: the PSBT_GLOBAL_TX_MODIFIABLE value after a signature using
+    ``inp_sighash`` is added. ``flags`` may be None (field absent)."""
+    flags = flags or 0
+    sighash_type = inp_sighash & 0x1F
+    if not inp_sighash & SIGHASH.ANYONECANPAY:
+        flags &= ~TxModifiable.INPUTS
+    if sighash_type != SIGHASH.NONE:
+        flags &= ~TxModifiable.OUTPUTS
+    if sighash_type == SIGHASH.SINGLE:
+        flags |= TxModifiable.SIGHASH_SINGLE
+    return flags
+
+
 class PSBT(EmbitBase):
     MAGIC = b"psbt\xff"
     # for subclasses
@@ -1557,22 +1571,11 @@ class PSBT(EmbitBase):
 
     def _update_tx_modifiable(self, inp_sighash: int) -> None:
         """Update PSBT_GLOBAL_TX_MODIFIABLE after a signature is added."""
-
         if self.version != 2:
             return
-
-        is_anyonecanpay = bool(inp_sighash & SIGHASH.ANYONECANPAY)
-        sighash_type = inp_sighash & 0x1F
-
-        if self.tx_modifiable_flags is None:
-            self.tx_modifiable_flags = 0
-
-        if not is_anyonecanpay:
-            self.tx_modifiable_flags &= ~TxModifiable.INPUTS
-        if sighash_type != SIGHASH.NONE:
-            self.tx_modifiable_flags &= ~TxModifiable.OUTPUTS
-        if sighash_type == SIGHASH.SINGLE:
-            self.tx_modifiable_flags |= TxModifiable.SIGHASH_SINGLE
+        self.tx_modifiable_flags = next_tx_modifiable(
+            self.tx_modifiable_flags, inp_sighash
+        )
 
     def get_tx_modifiable(self):
         return self.tx_modifiable_flags

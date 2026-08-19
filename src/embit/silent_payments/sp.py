@@ -7,7 +7,6 @@ see: https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki
 
 from .. import bech32, ec
 from ..hashes import tagged_hash
-from ..networks import NETWORKS
 from ..script import p2sh
 from ..util.key import SECP256K1_ORDER
 from ..util.secp256k1 import (

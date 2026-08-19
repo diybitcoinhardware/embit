@@ -508,6 +508,33 @@ class TestSignerBIP375Constraints(unittest.TestCase):
             psbt.sign_with(_root(), sighash=SIGHASH.SINGLE)
 
 
+class TestWatchOnlyDescriptor(unittest.TestCase):
+    """A key that cannot sign must be skipped, not crash the pass.
+
+    The SP send path probes `root` for key material; descriptor `Key.secret`
+    raises ArgumentError on a public key, so a watch-only descriptor used to
+    abort sign_with() instead of returning 0 like PSBT.sign_with() does.
+    """
+
+    SCAN_HEX = "027a487fc19fb769877b8742d6ea18118f3c4e72b1ea8c6de602a7ad4a41dbe068"
+    SPEND_HEX = "0361e1b1e9de5e42cb2007f7ca54b9e0d57ed13938fad56d3f19e57513a8fce039"
+
+    def test_watch_only_descriptor_signs_nothing(self):
+        from embit.descriptor import Descriptor
+
+        root = _root()
+        scan_pub, spend_pub = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+        psbt, _ = _make_p2wpkh_psbt(root, scan_pub, spend_pub)
+        desc = Descriptor.from_string(
+            "wpkh([%s/0]%s/*)"
+            % (root.my_fingerprint.hex(), root.to_public().to_base58())
+        )
+
+        self.assertEqual(psbt.sign_with(desc), 0)
+        self.assertEqual(len(psbt.sp_ecdh_shares), 0)
+        self.assertIsNone(psbt.outputs[0].script_pubkey)
+
+
 class TestAuxRand(unittest.TestCase):
 
     def setUp(self):
