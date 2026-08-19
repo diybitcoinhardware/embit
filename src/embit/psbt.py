@@ -1207,9 +1207,11 @@ class PSBT(EmbitBase):
                     "Unsupported PSBT_GLOBAL_VERSION value: %d" % parsed_version
                 )
 
+        # Canonical-encoding, fixed-length, and required-field checks for every
+        # global key, shared with PSBTView.view()'s streaming parse.
+        _validate_global_fields(version, b"\x00" in global_kvs, global_kvs)
+
         if version == 2:  # PSBTv2
-            if b"\x00" in global_kvs:  # PSBT_GLOBAL_UNSIGNED_TX
-                raise PSBTError("PSBT_GLOBAL_UNSIGNED_TX is not allowed in PSBTv2")
             # Pass all global KVs to unknown; __init__ calls parse_unknowns.
             psbt = cls(tx=None, unknown=global_kvs, version=version)
 
@@ -1225,20 +1227,6 @@ class PSBT(EmbitBase):
             if psbt.tx_version is None:
                 raise PSBTError("PSBTv2 missing required PSBT_GLOBAL_TX_VERSION (0x02)")
         else:  # PSBTv0 (version is None or 0)
-            if b"\x00" not in global_kvs:
-                raise PSBTError("PSBT_GLOBAL_UNSIGNED_TX (0x00) is required for PSBTv0")
-
-            # Check for forbidden v2-only global keys in v0 context.
-            # PSBT_GLOBAL_VERSION (0xfb) with value 0 is explicitly permitted by BIP174
-            # and was already validated above, so it is excluded from this set.
-            v2_only_global_keys = {b"\x02", b"\x03", b"\x04", b"\x05", b"\x06"}
-            for k_v2_only in v2_only_global_keys:
-                if k_v2_only in global_kvs:
-                    raise PSBTError(
-                        "Global key %s is not allowed in PSBTv0"
-                        % hexlify(k_v2_only).decode()
-                    )
-
             tx_bytes = global_kvs.pop(b"\x00")  # Remove so it's not in unknown
             tx_for_v0 = cls.TX_CLS.parse(tx_bytes)
             psbt = cls(tx=tx_for_v0, unknown=global_kvs, version=version)
