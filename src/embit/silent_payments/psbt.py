@@ -363,9 +363,14 @@ class SilentPaymentsPSBT(PSBT):
         # A Descriptor has to be split into its keys before anything else: both
         # the SP send and the SP spend path resolve a fingerprint from the root,
         # and a Descriptor has no key material of its own to resolve.
-        # resolve_signing_root() drops the keys that cannot sign, so no filter here.
         if hasattr(root, "keys"):
             return sum(self.sign_with(k, sighash, aux_rand=aux_rand) for k in root.keys)
+
+        # A public-only descriptor key signs nothing. The SP send path probes
+        # `root` for key material, and that probe raises on such a key, so it
+        # has to be dropped here - the same contract PSBT.sign_with() honours.
+        if not resolve_signing_root(root)[1]:
+            return 0
 
         if self.has_sp_outputs:
             self._assert_sp_sighash_all(sighash)
