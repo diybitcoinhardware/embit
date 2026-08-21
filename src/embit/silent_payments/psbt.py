@@ -14,6 +14,7 @@ from ..base import EmbitError
 from ..script import Script, Witness
 from ..psbt import (
     PSBT,
+    CompressMode,
     DerivationPath,
     InputScope,
     OutputScope,
@@ -73,8 +74,12 @@ class SPInputScope(InputScope):
         self.sp_tweak = None  # 32 bytes or None
         super().__init__(*args, **kwargs)
 
-    def clear_metadata(self, *args, **kwargs):
-        super().clear_metadata(*args, **kwargs)
+    def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
+        super().clear_metadata(compress)
+        # The base contract makes KEEP_ALL a no-op; wiping the BIP-376 fields
+        # anyway leaves an SP-spend input that can no longer be signed.
+        if compress == CompressMode.KEEP_ALL:
+            return
         self.sp_spend_bip32_derivations = OrderedDict()
         self.sp_tweak = None
 
@@ -144,10 +149,18 @@ class SPOutputScope(OutputScope):
         self.sp_label = None  # uint32 label (PSBT_OUT_SP_V0_LABEL)
         super().__init__(*args, **kwargs)
 
-    def clear_metadata(self, *args, **kwargs):
-        super().clear_metadata(*args, **kwargs)
-        self.sp_data = None
+    def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
+        super().clear_metadata(compress)
+        # The base contract makes KEEP_ALL a no-op.
+        if compress == CompressMode.KEEP_ALL:
+            return
         self.sp_label = None
+        # sp_data is only metadata once the script it stands in for exists.
+        # Before that it is the output's whole definition, and dropping it
+        # leaves an output that fails _validate_v2_output - a PSBT that can no
+        # longer be parsed. The base keeps script_pubkey/value for that reason.
+        if self.script_pubkey is not None:
+            self.sp_data = None
 
     def update(self, other):
         super().update(other)
@@ -260,29 +273,30 @@ class SilentPaymentsPSBT(PSBT):
             raise PSBTError("SilentPaymentsPSBT requires SPOutputScope outputs")
         super().add_output(output_scope)
 
+    # BIP-375 global fields: {key type: (name, target attribute, value length)}
+    _SP_GLOBAL_FIELDS = {
+        0x07: ("PSBT_GLOBAL_SP_ECDH_SHARE", "sp_ecdh_shares", 33),
+        0x08: ("PSBT_GLOBAL_SP_DLEQ", "sp_dleq_proofs", 64),
+    }
+
     def parse_unknowns(self):
         super().parse_unknowns()
         for k in list(self.unknown):
-            if k[0] == 0x07 and len(k) == 34:  # PSBT_GLOBAL_SP_ECDH_SHARE
-                if self.version != 2:
-                    continue
-                v = self.unknown.pop(k)
-                if len(v) != 33:
-                    raise PSBTError("PSBT_GLOBAL_SP_ECDH_SHARE value must be 33 bytes")
-                scan_key = k[1:]
-                if scan_key in self.sp_ecdh_shares:
-                    raise PSBTError("Duplicated PSBT_GLOBAL_SP_ECDH_SHARE for scan key")
-                self.sp_ecdh_shares[scan_key] = v
-            elif k[0] == 0x08 and len(k) == 34:  # PSBT_GLOBAL_SP_DLEQ
-                if self.version != 2:
-                    continue
-                v = self.unknown.pop(k)
-                if len(v) != 64:
-                    raise PSBTError("PSBT_GLOBAL_SP_DLEQ value must be 64 bytes")
-                scan_key = k[1:]
-                if scan_key in self.sp_dleq_proofs:
-                    raise PSBTError("Duplicated PSBT_GLOBAL_SP_DLEQ for scan key")
-                self.sp_dleq_proofs[scan_key] = v
+            field = self._SP_GLOBAL_FIELDS.get(k[0])
+            if field is None:
+                continue
+            name, attr, size = field
+            # Malformed keydata used to survive as an unknown field and get
+            # re-serialized verbatim; the per-input/output SP fields reject
+            # both cases, so these do too.
+            if self.version != 2:
+                raise PSBTError("%s not allowed in PSBTv0" % name)
+            if len(k) != 34:
+                raise PSBTError("Invalid %s key length" % name)
+            v = self.unknown.pop(k)
+            if len(v) != size:
+                raise PSBTError("%s value must be %d bytes" % (name, size))
+            getattr(self, attr)[k[1:]] = v
 
     def _write_extra_globals(self, stream) -> int:
         r = 0
@@ -519,6 +533,11 @@ class SilentPaymentsPSBT(PSBT):
         """
         self.validate_sp()
 
+        if not self.has_sp_outputs:
+            raise SPValidationError(
+                "Silent Payment send requires at least one output with "
+                "PSBT_OUT_SP_V0_INFO."
+            )
         if not priv_keys:
             raise SPValidationError(
                 "Silent Payment send requires at least one eligible input "
@@ -537,6 +556,16 @@ class SilentPaymentsPSBT(PSBT):
 
         a_sum_bytes, A_sum_sec, results = derivation
         scripts = self._verify_declared_sp(A_sum_sec, results, output_indices)
+        # Every proof is generated before anything is written: compute_dleq_proof
+        # raises on bad aux_rand, and a half-applied derivation leaves shares
+        # without their proofs - a state validate_sp() rejects forever, so the
+        # PSBT could never be signed again.
+        proofs = {
+            sk_bytes: compute_dleq_proof(
+                a_sum_bytes, scan_spend_groups[sk_bytes][0], aux_rand=aux_rand
+            )
+            for sk_bytes in results
+        }
 
         self.sp_ecdh_shares.clear()
         self.sp_dleq_proofs.clear()
@@ -549,11 +578,7 @@ class SilentPaymentsPSBT(PSBT):
 
         for sk_bytes, (ecdh_share, _outputs) in results.items():
             self.sp_ecdh_shares[sk_bytes] = ecdh_share
-            self.sp_dleq_proofs[sk_bytes] = compute_dleq_proof(
-                a_sum_bytes,
-                scan_spend_groups[sk_bytes][0],
-                aux_rand=aux_rand,
-            )
+            self.sp_dleq_proofs[sk_bytes] = proofs[sk_bytes]
         for out_idx, script in scripts.items():
             self.outputs[out_idx].script_pubkey = script
 

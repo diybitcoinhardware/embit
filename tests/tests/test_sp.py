@@ -374,3 +374,17 @@ class SilentPaymentsTest(TestCase):
 
         # Should not raise.
         sp.apply_label(spend_pub, scan_priv, 0)
+
+    def test_encode_rejects_out_of_range_version(self):
+        """bech32_encode indexes CHARSET with the version, so it is no guard:
+        32 raises a bare IndexError and -1 wraps to 31, emitting an address
+        whose checksum covers a value no decoder can read back."""
+        scan_priv = PrivateKey(b"\x11" * 32)
+        spend_pub = PrivateKey(b"\x22" * 32).get_public_key()
+
+        for version in (-1, 31, 32):
+            with self.subTest(version=version):
+                with self.assertRaises(sp.SPValidationError):
+                    sp.encode_silent_payment_address(
+                        scan_priv.get_public_key(), spend_pub, version=version
+                    )

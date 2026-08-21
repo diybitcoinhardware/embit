@@ -1,12 +1,11 @@
 from . import dleq
-from .psbt import SilentPaymentsPSBT
+from .psbt import SilentPaymentsPSBT, SPValidationError, SPFieldError, SilentPaymentData
 from .sp import (
     get_eligible_inputs,
     encode_silent_payment_address,
     decode_silent_payment_address,
     generate_silent_payment_address,
 )
-from .psbt import SPValidationError, SPFieldError, SilentPaymentData
 
 __all__ = [
     "dleq",
