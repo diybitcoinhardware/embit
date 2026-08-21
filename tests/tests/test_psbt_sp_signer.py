@@ -19,7 +19,13 @@ from pathlib import Path
 
 from embit import bip32, ec
 from embit.silent_payments import dleq
-from embit.psbt import DerivationPath, TxModifiable, derive_hdkey
+from embit.psbt import (
+    CompressMode,
+    DerivationPath,
+    PSBTError,
+    TxModifiable,
+    derive_hdkey,
+)
 from embit.silent_payments import SilentPaymentsPSBT as PSBT
 from embit.silent_payments.signing import match_sp_spend_base, resolve_input_privkey
 from embit.silent_payments.psbt import (
@@ -27,12 +33,13 @@ from embit.silent_payments.psbt import (
     SPOutputScope as OutputScope,
 )
 from embit.silent_payments import (
+    SPFieldError,
     SPValidationError,
     SilentPaymentData,
     get_eligible_inputs,
 )
 from embit.script import Script, p2sh, p2wpkh, p2tr
-from embit.transaction import TransactionOutput
+from embit.transaction import Transaction, TransactionInput, TransactionOutput
 from binascii import unhexlify
 
 
@@ -926,3 +933,214 @@ class TestP2SHRedeemScriptBinding(unittest.TestCase):
         self.assertIsNone(
             resolve_input_privkey(inp, root, root.my_fingerprint, derive_hdkey)
         )
+
+
+class TestTaprootInternalKeyClaimBinding(unittest.TestCase):
+    """BIP-352 makes H the single exception to "the sending wallet MUST have
+    access to the private key corresponding to the taproot output key", so a
+    NUMS internal key is the one PSBT claim that can drop an input from a_sum.
+    The field is unauthenticated and believing it is silent: an excluded input
+    never reaches key resolution to be missed, yet the signer still key-path
+    signs it, so the recipient - who scores eligibility from the on-chain
+    witness - derives a shared secret we never used."""
+
+    SCAN_HEX = "027a487fc19fb769877b8742d6ea18118f3c4e72b1ea8c6de602a7ad4a41dbe068"
+    SPEND_HEX = "0361e1b1e9de5e42cb2007f7ca54b9e0d57ed13938fad56d3f19e57513a8fce039"
+
+    def _psbt(self, script_pubkey, internal_key, merkle_root=None):
+        root = _root()
+        pub = root.derive([0, 0]).get_public_key()
+        scan_pub, spend_pub = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+
+        psbt = PSBT.create_v2()
+
+        inp = InputScope()
+        inp.txid = bytes([0xBE] * 32)
+        inp.vout = 0
+        inp.sequence = 0xFFFFFFFE
+        inp.witness_utxo = TransactionOutput(value=100_000, script_pubkey=script_pubkey)
+        inp.taproot_internal_key = internal_key
+        inp.taproot_merkle_root = merkle_root
+        inp.taproot_bip32_derivations[pub] = (
+            [],
+            DerivationPath(root.my_fingerprint, [0, 0]),
+        )
+        psbt.add_input(inp)
+
+        out = OutputScope()
+        out.value = 99_000
+        out.sp_data = SilentPaymentData(scan_pub, spend_pub)
+        psbt.add_output(out)
+        return psbt
+
+    def test_unproven_nums_claim_stays_eligible(self):
+        """The claim does not reproduce the scriptPubKey, and the input is ours
+        and key-path spendable - so sign_with() signs it and the recipient
+        counts it. Dropping it from a_sum would hand the recipient an output
+        they can never detect."""
+        root = _root()
+        pub = root.derive([0, 0]).get_public_key()
+        psbt = self._psbt(p2tr(pub), ec.NUMS_PUBKEY)
+        honest = self._psbt(p2tr(pub), None)
+
+        self.assertEqual(get_eligible_inputs(psbt.inputs), [0])
+
+        psbt.sign_with(root)
+        honest.sign_with(root)
+        self.assertEqual(psbt.outputs[0].script_pubkey, honest.outputs[0].script_pubkey)
+
+    def test_non_h_nums_input_aborts_the_send(self):
+        """BIP-341 recommends tweaking H by a random r, and such an input is
+        indistinguishable from an ordinary one. It stays eligible, nobody can
+        produce its key, and the send aborts - which is correct: the
+        transaction cannot be a silent payment at all."""
+        root = _root()
+        merkle = bytes([0x55] * 32)
+        hidden_nums = ec.NUMS_PUBKEY.taproot_tweak(bytes([0x77] * 32))
+        script = Script(b"\x51\x20" + hidden_nums.taproot_tweak(merkle).xonly())
+        psbt = self._psbt(script, hidden_nums, merkle_root=merkle)
+
+        self.assertEqual(get_eligible_inputs(psbt.inputs), [0])
+        with self.assertRaises(SPValidationError):
+            psbt.sign_with(root)
+
+    def test_nums_output_key_is_ineligible(self):
+        """The BIP-375 vector shape: the output key is NUMS itself, which
+        proves the claim - nobody knows its discrete log."""
+        script = Script(b"\x51\x20" + ec.NUMS_PUBKEY.xonly())
+        psbt = self._psbt(script, ec.NUMS_PUBKEY)
+
+        self.assertEqual(get_eligible_inputs(psbt.inputs), [])
+
+    def test_nums_tweaked_by_declared_merkle_root_is_ineligible(self):
+        """A real script-path-only input: NUMS tweaked by the declared merkle
+        root reproduces the scriptPubKey, so the claim is proven."""
+        merkle = bytes([0x33] * 32)
+        script = Script(b"\x51\x20" + ec.NUMS_PUBKEY.taproot_tweak(merkle).xonly())
+        psbt = self._psbt(script, ec.NUMS_PUBKEY, merkle_root=merkle)
+
+        self.assertEqual(get_eligible_inputs(psbt.inputs), [])
+
+
+class TestClearMetadataContract(unittest.TestCase):
+    """clear_metadata must not destroy the fields an SP PSBT is defined by."""
+
+    SCAN_HEX = "027a487fc19fb769877b8742d6ea18118f3c4e72b1ea8c6de602a7ad4a41dbe068"
+    SPEND_HEX = "0361e1b1e9de5e42cb2007f7ca54b9e0d57ed13938fad56d3f19e57513a8fce039"
+
+    def _unsigned(self):
+        """An SP PSBT before the send: the output has sp_data and no script."""
+        root = _root()
+        scan_pub, spend_pub = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+        psbt, _ = _make_p2wpkh_psbt(root, scan_pub, spend_pub)
+        psbt.inputs[0].sp_tweak = bytes([0x11] * 32)
+        return psbt
+
+    def test_keep_all_is_a_no_op(self):
+        """The base contract returns early on KEEP_ALL; wiping the SP fields
+        anyway leaves an unsignable input and an undefined output."""
+        psbt = self._unsigned()
+
+        psbt.inputs[0].clear_metadata(CompressMode.KEEP_ALL)
+        psbt.outputs[0].clear_metadata(CompressMode.KEEP_ALL)
+
+        self.assertEqual(psbt.inputs[0].sp_tweak, bytes([0x11] * 32))
+        self.assertIsNotNone(psbt.outputs[0].sp_data)
+
+    def test_sp_data_survives_until_the_script_it_stands_for_exists(self):
+        """Before the send, sp_data is the output's whole definition: dropping
+        it produces a PSBT that can no longer be parsed."""
+        psbt = self._unsigned()
+
+        psbt.outputs[0].clear_metadata()
+
+        self.assertIsNotNone(psbt.outputs[0].sp_data)
+        PSBT.parse(psbt.serialize())
+
+    def test_sp_data_is_dropped_once_the_script_is_derived(self):
+        """After the send it really is metadata, and the base drops metadata."""
+        root = _root()
+        scan_pub, spend_pub = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+        psbt, _ = _make_p2wpkh_psbt(root, scan_pub, spend_pub)
+        psbt.sign_with(root)
+
+        psbt.outputs[0].clear_metadata()
+
+        self.assertIsNone(psbt.outputs[0].sp_data)
+        self.assertIsNotNone(psbt.outputs[0].script_pubkey)
+
+
+class TestGlobalSPFieldParsing(unittest.TestCase):
+    """A malformed or misplaced global SP field must be rejected, not kept as
+    an unknown and re-serialized verbatim - the per-input SP fields already
+    reject both, so a signer displaying shares could be fed fields it never
+    parsed."""
+
+    SCAN_HEX = "027a487fc19fb769877b8742d6ea18118f3c4e72b1ea8c6de602a7ad4a41dbe068"
+    SPEND_HEX = "0361e1b1e9de5e42cb2007f7ca54b9e0d57ed13938fad56d3f19e57513a8fce039"
+
+    def test_malformed_global_key_is_rejected(self):
+        root = _root()
+        scan_pub, spend_pub = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+        for key in (b"\x07", b"\x07" + bytes(5), b"\x08" + bytes(40)):
+            with self.subTest(key=key.hex()):
+                psbt, _ = _make_p2wpkh_psbt(root, scan_pub, spend_pub)
+                psbt.unknown[key] = bytes(33 if key[0] == 0x07 else 64)
+                with self.assertRaises(PSBTError):
+                    PSBT.parse(psbt.serialize())
+
+    def test_global_sp_field_is_rejected_in_v0(self):
+        """BIP-375 fields are v2-only, as the input/output paths already say."""
+        root = _root()
+        pub = root.derive([0, 0]).get_public_key()
+        scan_pub, _ = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+        tx = Transaction(
+            vin=[TransactionInput(bytes([0xAA] * 32), 0)],
+            vout=[TransactionOutput(99_000, p2wpkh(pub))],
+        )
+        psbt = PSBT(tx)
+        psbt.unknown[b"\x07" + scan_pub.sec()] = bytes(33)
+
+        with self.assertRaises(PSBTError):
+            PSBT.parse(psbt.serialize())
+
+
+class TestDeriveSPOutputsPreconditions(unittest.TestCase):
+    """derive_sp_outputs_from_keys() is public and documented to leave the
+    PSBT untouched when it cannot complete."""
+
+    SCAN_HEX = "027a487fc19fb769877b8742d6ea18118f3c4e72b1ea8c6de602a7ad4a41dbe068"
+    SPEND_HEX = "0361e1b1e9de5e42cb2007f7ca54b9e0d57ed13938fad56d3f19e57513a8fce039"
+
+    def _psbt(self):
+        root = _root()
+        scan_pub, spend_pub = _sp_keys(self.SCAN_HEX, self.SPEND_HEX)
+        psbt, _ = _make_p2wpkh_psbt(root, scan_pub, spend_pub)
+        return root, psbt
+
+    def test_no_sp_outputs_raises_instead_of_wiping_state(self):
+        """With nothing to derive it used to clear the global shares and the
+        TX_MODIFIABLE flags and return as if it had succeeded."""
+        root, psbt = self._psbt()
+        psbt.outputs[0].sp_data = None
+        psbt.sp_ecdh_shares[bytes(33)] = bytes(33)
+        modifiable = psbt.get_tx_modifiable()
+
+        with self.assertRaises(SPValidationError):
+            psbt.derive_sp_outputs_from_keys([root.derive([0, 0]).key.secret])
+
+        self.assertEqual(psbt.sp_ecdh_shares[bytes(33)], bytes(33))
+        self.assertEqual(psbt.get_tx_modifiable(), modifiable)
+
+    def test_failed_proof_leaves_the_psbt_signable(self):
+        """The proofs are generated before anything is written: a share
+        written without its proof is a state validate_sp() rejects forever,
+        so the PSBT could never be signed again."""
+        root, psbt = self._psbt()
+
+        with self.assertRaises(SPFieldError):
+            psbt.sign_with(root, aux_rand=bytes(16))  # aux_rand must be 32 bytes
+
+        self.assertEqual(psbt.sp_ecdh_shares, {})
+        self.assertEqual(psbt.sp_dleq_proofs, {})
+        self.assertEqual(psbt.sign_with(root), 1)

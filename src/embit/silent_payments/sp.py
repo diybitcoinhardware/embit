@@ -63,6 +63,13 @@ def apply_label(spend_pubkey, scan_privkey, m):
 def encode_silent_payment_address(scan_pubkey, spend_pubkey, network="main", version=0):
     """Bech32m-encode a BIP-352 Silent Payment address from its scan/spend
     public keys."""
+    # bech32_encode indexes CHARSET with the version, so an out-of-range one is
+    # not an error there: 32 raises IndexError and -1 wraps to 31, silently
+    # emitting an address whose checksum covers a value no decoder can read.
+    if not 0 <= version <= 30:
+        raise SPValidationError(
+            "Silent payment address version must be in [0, 30], got {}".format(version)
+        )
     data = bech32.convertbits(scan_pubkey.sec() + spend_pubkey.sec(), 8, 5)
     hrp = "sp" if network == "main" else "tsp"
     return bech32.bech32_encode(bech32.Encoding.BECH32M, hrp, [version] + data)
@@ -249,6 +256,28 @@ def _p2sh_redeem_script(inp, i):
     return redeem
 
 
+def _proves_nums_commitment(inp, script):
+    """Whether this P2TR input provably commits to H as its internal key.
+
+    BIP-352 makes H the single exception to "the sending wallet MUST have
+    access to the private key corresponding to the taproot output key", so it
+    is the one claim that may drop an input from a_sum. PSBT fields are
+    unauthenticated, so it counts only once it reproduces the scriptPubKey,
+    which is all the UTXO vouches for.
+    """
+    internal = inp.taproot_internal_key
+    if internal is None or internal.xonly() != _NUMS_XONLY:
+        return False
+    output_xonly = bytes(script.data[2:34])
+    if internal.xonly() == output_xonly:
+        return True
+    try:
+        merkle_root = inp.taproot_merkle_root or b""
+        return internal.taproot_tweak(merkle_root).xonly() == output_xonly
+    except EmbitError:
+        return False
+
+
 def get_eligible_inputs(inputs):
     """Get list of eligible input indices for SP computation.
     Per BIP-352: P2PKH, P2WPKH, P2SH-P2WPKH, P2TR.
@@ -267,13 +296,24 @@ def get_eligible_inputs(inputs):
             if _p2sh_redeem_script(inp, i).script_type() == "p2wpkh":
                 eligible.append(i)
         elif stype == "p2tr":
-            # Only a NUMS internal key makes a P2TR input ineligible. A missing
-            # one does not: an SP-spend input derives its key from the SP tweak
-            # and carries no internal key at all. Unlike the P2SH case this
-            # cannot silently corrupt a_sum - an input whose key cannot be
-            # resolved aborts the whole send in _resolve_sp_privkeys.
-            internal = inp.taproot_internal_key
-            if internal is None or internal.xonly() != _NUMS_XONLY:
+            # BIP-352: "For each taproot output spent the sending wallet MUST
+            # have access to the private key corresponding to the taproot
+            # output key, unless H is used as the internal public key." H is
+            # the only exception, so everything else stays eligible and
+            # _resolve_sp_privkeys decides. BIP-341 recommends tweaking H by a
+            # random r to hide it; such an input is simply unspendable here,
+            # and aborting there is the correct outcome - the transaction
+            # cannot be a silent payment at all.
+            #
+            # An unproven H claim stays eligible too, and that is what makes it
+            # safe. Excluding an input on the PSBT's say-so is silent: it never
+            # reaches _resolve_sp_privkeys to be missed, yet the signer still
+            # key-path signs it, so the recipient - who scores eligibility from
+            # the on-chain witness - derives a shared secret we never used and
+            # never finds the payment. Kept eligible, a false claim about an
+            # input we control resolves normally, and a true one has no key to
+            # resolve and aborts the send.
+            if not _proves_nums_commitment(inp, script):
                 eligible.append(i)
     return eligible
 
