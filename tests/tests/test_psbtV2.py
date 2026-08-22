@@ -614,8 +614,8 @@ class TestPSBTViewV2Validation:
 
 
 class TestPSBTv2TransactionVersion:
-    def test_psbt_tx_preserves_zero_and_negative_versions(self):
-        """PSBT_GLOBAL_TX_VERSION is signed and zero must not fall back to 2"""
+    def test_psbt_tx_preserves_zero_and_high_bit_versions(self):
+        """PSBT_GLOBAL_TX_VERSION is copied through verbatim, zero must not fall back to 2"""
         psbt = PSBT.create_v2(tx_version=0)
         inp = InputScope()
         inp.txid = bytes(32)
@@ -627,7 +627,7 @@ class TestPSBTv2TransactionVersion:
         psbt.add_output(out)
         assert psbt.tx.serialize()[:4] == b"\x00\x00\x00\x00"
 
-        psbt.tx_version = -1
+        psbt.tx_version = 0xFFFFFFFF
         assert psbt.tx.serialize()[:4] == b"\xff\xff\xff\xff"
 
 
