@@ -4,8 +4,6 @@ from .transaction import (
     TransactionOutput,
     TransactionInput,
     SIGHASH,
-    _signed_from_bytes,
-    _signed_to_bytes,
 )
 from . import compact
 from . import bip32
@@ -78,7 +76,10 @@ def ser_string(stream, s: bytes) -> int:
 
 
 def read_string(stream) -> bytes:
-    l = compact.read_from(stream)
+    try:
+        l = compact.read_from(stream)
+    except (RuntimeError, TypeError) as e:
+        raise PSBTError("Failed to read key/value length: %s" % e)
     s = stream.read(l)
     if len(s) != l:
         raise PSBTError("Failed to read %d bytes" % l)
@@ -127,6 +128,26 @@ def derive_hdkey(root, derivation):
     return root.derive(der)
 
 
+def choose_locktime(
+    height_locktimes, time_locktimes, num_with_requirements, fallback=0
+):
+    """BIP-370 locktime determination.
+
+    ``height_locktimes``/``time_locktimes`` are the required locktimes collected
+    from the inputs and ``num_with_requirements`` is how many inputs expressed at
+    least one requirement. Height is preferred when every such input supports it.
+    """
+    if num_with_requirements == 0:
+        return fallback
+    if len(height_locktimes) == num_with_requirements:
+        return max(height_locktimes)
+    if len(time_locktimes) == num_with_requirements:
+        return max(time_locktimes)
+    raise PSBTError(
+        "Cannot determine locktime: inputs have conflicting height and time locktime requirements"
+    )
+
+
 class DerivationPath(EmbitBase):
     def __init__(self, fingerprint: bytes, derivation: list):
         self.fingerprint = fingerprint
@@ -155,8 +176,8 @@ class DerivationPath(EmbitBase):
 class PSBTScope(EmbitBase):
     V2_FIELDS = ()
 
-    def __init__(self, unknown: dict = {}):
-        self.unknown = unknown
+    def __init__(self, unknown: dict = None):
+        self.unknown = {} if unknown is None else unknown
         self.parse_unknowns()
 
     def write_to(self, stream, skip_separator=False, **kwargs) -> int:
@@ -215,7 +236,7 @@ class InputScope(PSBTScope):
     TXOUT_CLS = TransactionOutput
     V2_FIELDS = (b"\x0e", b"\x0f", b"\x10", b"\x11", b"\x12")
 
-    def __init__(self, unknown: dict = {}, vin=None, compress=CompressMode.KEEP_ALL):
+    def __init__(self, unknown: dict = None, vin=None, compress=CompressMode.KEEP_ALL):
         self.compress = compress
         self.txid = None
         self.vout = None
@@ -224,7 +245,6 @@ class InputScope(PSBTScope):
             self.txid = vin.txid
             self.vout = vin.vout
             self.sequence = vin.sequence
-        self.unknown = unknown
         self.non_witness_utxo = None
         self.witness_utxo = None
         self._utxo = None
@@ -248,7 +268,7 @@ class InputScope(PSBTScope):
         self.final_scriptwitness = None
         self.required_time_locktime = None
         self.required_height_locktime = None
-        self.parse_unknowns()
+        super().__init__(unknown)
 
     def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
@@ -684,9 +704,16 @@ class InputScope(PSBTScope):
         # index after the non-witness UTXO. Peek only at compact-sized keys and
         # skip values to keep compressed parsing independent of key order.
         res._prescan_vout = None
-        if version == 2 and compress and res.vout is None:
+        if version == 2 and compress:
             try:
+                # Probe seekability BEFORE consuming anything: if we cannot rewind,
+                # a half-finished prescan would leave the cursor mid-map and corrupt
+                # the real parse below.
                 start_pos = stream.tell()
+                stream.seek(start_pos)
+            except (AttributeError, OSError):
+                start_pos = None  # not seekable; OOM protection unavailable
+            if start_pos is not None:
                 while True:
                     k = read_string(stream)
                     if len(k) == 0:
@@ -695,14 +722,10 @@ class InputScope(PSBTScope):
                         v = read_string(stream)
                         if len(v) == 4:
                             res._prescan_vout = int.from_bytes(v, "little")
-                        else:
-                            # Let the real parse raise the precise validation error.
-                            pass
+                        # otherwise let the real parse raise the precise error
                         break
                     skip_string(stream)
                 stream.seek(start_pos)
-            except (AttributeError, OSError):
-                pass  # stream not seekable; OOM protection may be unavailable
         while True:
             key = read_string(stream)
             # separator
@@ -716,20 +739,19 @@ class InputScope(PSBTScope):
 class OutputScope(PSBTScope):
     V2_FIELDS = (b"\x03", b"\x04")
 
-    def __init__(self, unknown: dict = {}, vout=None, compress=CompressMode.KEEP_ALL):
+    def __init__(self, unknown: dict = None, vout=None, compress=CompressMode.KEEP_ALL):
         self.compress = compress
         self.value = None
         self.script_pubkey = None
         if vout is not None:
             self.value = vout.value
             self.script_pubkey = vout.script_pubkey
-        self.unknown = unknown
         self.redeem_script = None
         self.witness_script = None
         self.bip32_derivations = OrderedDict()
         self.taproot_bip32_derivations = OrderedDict()
         self.taproot_internal_key = None
-        self.parse_unknowns()
+        super().__init__(unknown)
 
     def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
@@ -798,8 +820,9 @@ class OutputScope(PSBTScope):
                 raise PSBTError("PSBT_OUT_AMOUNT must be 8 bytes")
             if self.value is not None:
                 raise PSBTError("Duplicated PSBT_OUT_AMOUNT")
-            self.value = _signed_from_bytes(v)
-            if self.value < 0:
+            # BIP370: PSBT_OUT_AMOUNT is a signed int64, so the top half is negative
+            self.value = int.from_bytes(v, "little")
+            if self.value >= 2**63:
                 raise PSBTError("PSBT_OUT_AMOUNT must be non-negative")
         elif k == b"\x04":
             if version != 2:
@@ -844,8 +867,7 @@ class OutputScope(PSBTScope):
         if version == 2:
             if self.value is not None:
                 r += ser_string(stream, b"\x03")
-                # BIP370: PSBT_OUT_AMOUNT is a signed 64-bit integer
-                r += ser_string(stream, _signed_to_bytes(self.value, 8))
+                r += ser_string(stream, self.value.to_bytes(8, "little"))
             if self.script_pubkey is not None:
                 r += ser_string(stream, b"\x04")
                 r += self.script_pubkey.write_to(stream)
@@ -928,10 +950,14 @@ class PSBT(EmbitBase):
             )
 
     @classmethod
+    def _v2_output_has_amount(cls, out):
+        """Subclasses (e.g. PSET) may override to accept alternative amount fields."""
+        return out.value is not None
+
+    @classmethod
     def _validate_v2_output(cls, out, i):
-        """Check that a PSBTv2 output has all required fields.
-        Subclasses (e.g. PSET) may override this to accept alternative fields."""
-        if out.value is None:
+        """Check that a PSBTv2 output has all required fields."""
+        if not cls._v2_output_has_amount(out):
             raise PSBTError(
                 "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
             )
@@ -963,24 +989,6 @@ class PSBT(EmbitBase):
         self.inputs = [self.PSBTIN_CLS(vin=vin) for vin in tx.vin]
         self.outputs = [self.PSBTOUT_CLS(vout=vout) for vout in tx.vout]
 
-    def __eq__(self, other):
-        if type(self) is not type(other):
-            return False
-        return (
-            self.version == other.version
-            and self.tx_version == other.tx_version
-            and self.locktime == other.locktime
-            and self.tx_modifiable_flags == other.tx_modifiable_flags
-            and self.inputs == other.inputs
-            and self.outputs == other.outputs
-            and self.xpubs == other.xpubs
-            and self.unknown == other.unknown
-        )
-
-    def __hash__(self):
-        # defining __eq__ sets __hash__ to None, so restore EmbitBase behaviour
-        return hash(self.serialize())
-
     @staticmethod
     def _classify_locktimes(inputs):
         """Classify inputs by locktime requirement type.
@@ -1011,42 +1019,13 @@ class PSBT(EmbitBase):
         """
         if self.version != 2:
             return self.locktime or 0
-
-        height_locktimes, time_locktimes, inputs_with_locktime_requirements = (
-            self._classify_locktimes(self.inputs)
-        )
-
-        # If no inputs have locktime requirements, use fallback
-        if inputs_with_locktime_requirements == 0:
-            return self.locktime or 0
-
-        # height preferred, if ALL inputs with requirements support it
-        if len(height_locktimes) == inputs_with_locktime_requirements:
-            return max(height_locktimes)
-
-        # fall back to time if ALL inputs with requirements support it
-        if len(time_locktimes) == inputs_with_locktime_requirements:
-            return max(time_locktimes)
-
-        raise PSBTError(
-            "Cannot determine locktime: inputs have conflicting height and time locktime requirements"
+        return choose_locktime(
+            *self._classify_locktimes(self.inputs), fallback=self.locktime or 0
         )
 
     def _validate_locktime_compatibility(self, inputs):
         """Verify that the given input list has mutually compatible locktime requirements."""
-        height_locktimes, time_locktimes, inputs_with_requirements = (
-            self._classify_locktimes(inputs)
-        )
-        if inputs_with_requirements == 0:
-            return
-        if (
-            len(height_locktimes) == inputs_with_requirements
-            or len(time_locktimes) == inputs_with_requirements
-        ):
-            return
-        raise PSBTError(
-            "Input locktime requirements are incompatible with existing inputs"
-        )
+        choose_locktime(*self._classify_locktimes(inputs), fallback=0)
 
     @property
     def tx(self):
@@ -1118,8 +1097,7 @@ class PSBT(EmbitBase):
         if self.version == 2:
             tx_version = self.tx_version if self.tx_version is not None else 2
             r += ser_string(stream, b"\x02")
-            # BIP370: PSBT_GLOBAL_TX_VERSION is a signed int32
-            r += ser_string(stream, _signed_to_bytes(tx_version, 4))
+            r += ser_string(stream, tx_version.to_bytes(4, "little"))
             if self.locktime is not None:
                 r += ser_string(stream, b"\x03")
                 r += ser_string(stream, self.locktime.to_bytes(4, "little"))
@@ -1312,8 +1290,7 @@ class PSBT(EmbitBase):
                     v = self.unknown.pop(k)
                     if len(v) != 4:
                         raise PSBTError("PSBT_GLOBAL_TX_VERSION must be 4 bytes")
-                    # BIP370: PSBT_GLOBAL_TX_VERSION is a signed int32
-                    self.tx_version = _signed_from_bytes(v)
+                    self.tx_version = int.from_bytes(v, "little")
             elif k == b"\x03":
                 if self.version == 2:
                     v = self.unknown.pop(k)

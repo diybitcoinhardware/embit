@@ -27,7 +27,7 @@ class LInputScope(InputScope):
     TX_CLS = LTransaction
     TXOUT_CLS = LTransactionOutput
 
-    def __init__(self, unknown: dict = {}, **kwargs):
+    def __init__(self, unknown: dict = None, **kwargs):
         # liquid-specific fields:
         self.value = None
         self.value_blinding_factor = None
@@ -244,7 +244,7 @@ class LInputScope(InputScope):
 
 
 class LOutputScope(OutputScope):
-    def __init__(self, unknown: dict = {}, vout=None, **kwargs):
+    def __init__(self, unknown: dict = None, vout=None, **kwargs):
         # liquid stuff
         self.value_commitment = None
         self.value_blinding_factor = None
@@ -502,16 +502,9 @@ class PSET(PSBT):
     TX_CLS = LTransaction
 
     @classmethod
-    def _validate_v2_output(cls, out, i):
+    def _v2_output_has_amount(cls, out):
         """PSET allows value_commitment as an alternative to value (blinded outputs)."""
-        if out.value is None and not getattr(out, "value_commitment", None):
-            raise PSBTError(
-                "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
-            )
-        if out.script_pubkey is None:
-            raise PSBTError(
-                "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
-            )
+        return out.value is not None or out.value_commitment is not None
 
     def unblind(self, blinding_key):
         for inp in self.inputs:
