@@ -5,10 +5,11 @@ if sys.implementation.name == "micropython":
     print("This file should run with python3, not micropython!")
     sys.exit(1)
 
+import time
+import unittest
+
 from util.bitcoin import daemon as bitcoind
 from util.liquid import daemon as elementsd
-import unittest
-import time
 
 
 def main():
