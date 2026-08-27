@@ -30,13 +30,14 @@ from embit.silent_payments import (
 
 _VECTOR_FILE = Path(__file__).parent / "data" / "bip375_test_vectors.json"
 
-# TODO: per-input PSBT_IN_SP_ECDH_SHARE (0x1d) / PSBT_IN_SP_DLEQ (0x1e) are not
-# parsed yet (see the FUTURE note in silent_payments/psbt.py), so these vectors
-# cannot be rejected for the reason they were generated for.
+# These vectors are invalid because of a per-input DLEQ proof. Those fields are
+# validated structurally on parse but never verified: BIP-375 only asks a Signer
+# to verify proofs for inputs it does not hold the keys for, and the derivation
+# refuses a PSBT with any such input. It rebuilds every share from the keys
+# below and ignores what the PSBT declares per input, so what makes these
+# vectors invalid has no effect on the result and cannot be detected here.
 _PER_INPUT_SHARE_VECTORS = frozenset(
     {
-        "psbt structure: incorrect byte length for PSBT_IN_SP_ECDH_SHARE field",
-        "psbt structure: incorrect byte length for PSBT_IN_SP_DLEQ field",
         "ecdh coverage: missing PSBT_IN_SP_DLEQ field for input when "
         "PSBT_IN_SP_ECDH_SHARE set",
         "ecdh coverage: invalid proof in PSBT_IN_SP_DLEQ field",

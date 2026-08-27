@@ -330,11 +330,15 @@ def group_sp_outputs_by_scan_key(outputs):
         sk_bytes = out.sp_data.scan_key.sec()
         if sk_bytes not in groups:
             groups[sk_bytes] = (out.sp_data.scan_key, [])
-        groups[sk_bytes][1].append((out_idx, out.sp_data.spend_key))
+        # The sort key is serialized once per output here rather than on every
+        # comparison - sec() is a secp256k1 serialization, and K_MAX allows
+        # thousands of outputs per scan key.
+        spend_key = out.sp_data.spend_key
+        groups[sk_bytes][1].append((spend_key.sec(), out_idx, spend_key))
     scan_spend_groups = {}
     output_indices = {}
-    for sk_bytes, (scan_key, pairs) in groups.items():
-        pairs.sort(key=lambda pair: (pair[1].sec(), pair[0]))
-        scan_spend_groups[sk_bytes] = (scan_key, [spend for _, spend in pairs])
-        output_indices[sk_bytes] = [out_idx for out_idx, _ in pairs]
+    for sk_bytes, (scan_key, entries) in groups.items():
+        entries.sort(key=lambda e: e[:2])
+        scan_spend_groups[sk_bytes] = (scan_key, [spend for _, _, spend in entries])
+        output_indices[sk_bytes] = [out_idx for _, out_idx, _ in entries]
     return scan_spend_groups, output_indices
