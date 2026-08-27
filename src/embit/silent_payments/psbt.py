@@ -6,12 +6,11 @@ Sections:
   2. SilentPaymentsPSBT — PSBT subclass with global SP fields and sign_with() SP hook
 """
 
-import io
 from collections import OrderedDict
 
 from .. import ec
 from ..base import EmbitError
-from ..script import Script, Witness
+from ..script import Script
 from ..psbt import (
     PSBT,
     CompressMode,
@@ -64,11 +63,26 @@ class SilentPaymentData:
             scan_key = ec.PublicKey.parse(data[:33])
             spend_key = ec.PublicKey.parse(data[33:66])
             return cls(scan_key, spend_key)
-        except Exception as e:
+        except EmbitError as e:
             raise SPFieldError("Invalid SP data: {}".format(e))
 
 
 class SPInputScope(InputScope):
+    # PSBT_IN_SP_TWEAK carries no keydata. Listing it here is what makes the
+    # base _validate_key() reject a key with trailing bytes, instead of
+    # letting it fall through to `unknown` and be re-serialized verbatim.
+    V2_FIELDS = InputScope.V2_FIELDS + (b"\x20",)
+
+    # BIP-375 per-input fields this class does not model yet (multi-party SP
+    # sends). They still have to be validated on the way in - the BIP-375
+    # vectors declare a malformed one invalid, and surviving as an unknown
+    # field would re-serialize it verbatim.
+    # {key type: (name, value length)}
+    _SP_PER_INPUT_SHARE_FIELDS = {
+        0x1D: ("PSBT_IN_SP_ECDH_SHARE", 33),
+        0x1E: ("PSBT_IN_SP_DLEQ", 64),
+    }
+
     def __init__(self, *args, **kwargs):
         self.sp_spend_bip32_derivations = OrderedDict()  # pub_bytes -> DerivationPath
         self.sp_tweak = None  # 32 bytes or None
@@ -100,7 +114,14 @@ class SPInputScope(InputScope):
     __hash__ = InputScope.__hash__
 
     def read_value(self, stream, k, version=None):
-        # FUTURE: add per input ecdh shares PSBT_IN_SP_ECDH_SHARE and PSBT_IN_SP_DLEQ for multi-party SP spend inputs.
+        # PSBT_IN_SP_ECDH_SHARE / PSBT_IN_SP_DLEQ are validated on the way in
+        # (see _SP_PER_INPUT_SHARE_FIELDS) and kept as unknowns, never modelled:
+        # BIP-375 lets a Signer holding every eligible input's key set one
+        # global share instead, which is all this class ever does - and it is
+        # the smaller encoding. Modelling them is only needed for multi-party
+        # sends, where a signer contributes a share for some inputs only.
+        if len(k) == 0:  # separator - the base swallows it, so k[0] is unsafe
+            return
         if k[0] == 0x1F:  # PSBT_IN_SP_SPEND_BIP32_DERIVATION (BIP-376)
             v = read_string(stream)
             if version != 2:
@@ -114,9 +135,7 @@ class SPInputScope(InputScope):
                 raise PSBTError(
                     "Duplicated PSBT_IN_SP_SPEND_BIP32_DERIVATION for pubkey"
                 )
-            self.sp_spend_bip32_derivations[pub_bytes] = DerivationPath.read_from(
-                io.BytesIO(v)
-            )
+            self.sp_spend_bip32_derivations[pub_bytes] = DerivationPath.parse(v)
         elif k == b"\x20":  # PSBT_IN_SP_TWEAK (BIP-376)
             v = read_string(stream)
             if version != 2:
@@ -126,6 +145,18 @@ class SPInputScope(InputScope):
             if self.sp_tweak is not None:
                 raise PSBTError("Duplicated PSBT_IN_SP_TWEAK")
             self.sp_tweak = v
+        elif k[0] in self._SP_PER_INPUT_SHARE_FIELDS:
+            name, size = self._SP_PER_INPUT_SHARE_FIELDS[k[0]]
+            v = read_string(stream)
+            if version != 2:
+                raise PSBTError("%s not allowed in PSBTv0" % name)
+            if len(k) != 34:
+                raise PSBTError("Invalid %s key length" % name)
+            if len(v) != size:
+                raise PSBTError("%s value must be %d bytes" % (name, size))
+            if k in self.unknown:
+                raise PSBTError("Duplicated %s" % name)
+            self.unknown[k] = v
         else:
             super().read_value(stream, k, version=version)
 
@@ -144,6 +175,9 @@ class SPInputScope(InputScope):
 
 
 class SPOutputScope(OutputScope):
+    # Neither field carries keydata; see SPInputScope.V2_FIELDS.
+    V2_FIELDS = OutputScope.V2_FIELDS + (b"\x09", b"\x0a")
+
     def __init__(self, *args, **kwargs):
         self.sp_data = None  # SilentPaymentData (PSBT_OUT_SP_V0_INFO)
         self.sp_label = None  # uint32 label (PSBT_OUT_SP_V0_LABEL)
@@ -225,7 +259,10 @@ class SilentPaymentsPSBT(PSBT):
         super().__init__(*args, **kwargs)
 
     def __eq__(self, other):
-        if not super().__eq__(other):
+        # Same reason SPInputScope.__eq__ pins the type: the base compares
+        # serializations only, so a plain PSBT can compare equal and then blow
+        # up on the SP attributes it does not have.
+        if type(self) is not type(other) or not super().__eq__(other):
             return False
         return (
             self.sp_ecdh_shares == other.sp_ecdh_shares
@@ -246,7 +283,7 @@ class SilentPaymentsPSBT(PSBT):
         PSBT_OUT_SCRIPT (the taproot script is derived from ECDH shares, not
         known up front). Used by both the parser and add_output() (see
         base PSBT.add_output)."""
-        if out.value is None:
+        if not cls._v2_output_has_amount(out):
             raise PSBTError(
                 "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
             )
@@ -374,24 +411,30 @@ class SilentPaymentsPSBT(PSBT):
         if self.version != 2 and self.has_sp_outputs:
             raise SPValidationError("Silent Payment signing requires PSBTv2")
 
-        # A Descriptor has to be split into its keys before anything else: both
-        # the SP send and the SP spend path resolve a fingerprint from the root,
-        # and a Descriptor has no key material of its own to resolve.
-        if hasattr(root, "keys"):
-            return sum(self.sign_with(k, sighash, aux_rand=aux_rand) for k in root.keys)
-
-        # A public-only descriptor key signs nothing. The SP send path probes
-        # `root` for key material, and that probe raises on such a key, so it
-        # has to be dropped here - the same contract PSBT.sign_with() honours.
-        if not resolve_signing_root(root)[1]:
+        # A Descriptor has to be split into its keys to sign: the SP spend path
+        # resolves a fingerprint from the root, and a Descriptor has no key
+        # material of its own to resolve. A public-only key signs nothing, and
+        # the SP send probes `root` for key material in a way that raises on
+        # one, so drop it here - the contract PSBT.sign_with() honours.
+        keys = [
+            k
+            for k in (root.keys if hasattr(root, "keys") else [root])
+            if resolve_signing_root(k)[1]
+        ]
+        if not keys:
             return 0
 
+        # The send is derived once for the whole root, not once per key: every
+        # eligible input feeds a single a_sum, so re-deriving per key aborts on
+        # the second key, which controls none of the inputs the first consumed.
         if self.has_sp_outputs:
             self._assert_sp_sighash_all(sighash)
             self.derive_sp_outputs(root, aux_rand=aux_rand)
 
-        counter = super().sign_with(root, sighash=sighash)
-        counter += self._sign_sp_spends(root, sighash=sighash)
+        counter = 0
+        for k in keys:
+            counter += super().sign_with(k, sighash=sighash)
+            counter += self._sign_sp_spends(k, sighash=sighash)
         return counter
 
     def sign_input_with_sp_tweak(
@@ -432,18 +475,12 @@ class SilentPaymentsPSBT(PSBT):
             raise SPValidationError(
                 "Input %d has mismatched sp_tweak and output key" % input_index
             )
-        h = self.sighash(input_index, sighash=sighash)
-        sig = pk.schnorr_sign(h)
-        sigdata = sig.serialize()
-        if sighash != SIGHASH.DEFAULT:
-            sigdata += bytes([sighash])
-        inp.taproot_key_sig = sigdata
-        inp.final_scriptwitness = Witness([sigdata])
+        counter = self._sign_taproot_keypath(pk, input_index, inp, sighash)
         # BIP-370 Signer role: the signature commits to the inputs/outputs this
         # sighash covers, so they are no longer modifiable. PSBT.sign_with()
         # does this for every signature it adds; this path has to do it too.
         self._update_tx_modifiable(sighash)
-        return 1
+        return counter
 
     def _sign_sp_spends(self, root, sighash=SIGHASH.DEFAULT) -> int:
         """BIP-376: sign inputs that carry sp_tweak using sp_spend_bip32_derivations."""
@@ -495,16 +532,32 @@ class SilentPaymentsPSBT(PSBT):
         )
 
     def _resolve_sp_privkeys(self, root) -> list:
-        """Private scalars of every eligible input, resolved from ``root``."""
+        """Private scalars of every eligible input, resolved from ``root``.
+
+        A Descriptor is tried key by key per input: its keys belong to one
+        signer, so a send whose eligible inputs are spread across them is
+        still single-party.
+        """
         eligible = get_eligible_inputs(self.inputs)
 
-        fingerprint, _, root = resolve_signing_root(root)
+        signers = [
+            (fingerprint, r)
+            for fingerprint, can_sign, r in (
+                resolve_signing_root(k)
+                for k in (root.keys if hasattr(root, "keys") else [root])
+            )
+            if can_sign
+        ]
         priv_keys = []
         foreign_inputs = []
         for i in eligible:
-            priv = resolve_input_privkey(
-                self.inputs[i], root, fingerprint, derive_hdkey
-            )
+            priv = None
+            for fingerprint, r in signers:
+                priv = resolve_input_privkey(
+                    self.inputs[i], r, fingerprint, derive_hdkey
+                )
+                if priv is not None:
+                    break
             if priv is None:
                 foreign_inputs.append(i)
             else:
@@ -531,6 +584,11 @@ class SilentPaymentsPSBT(PSBT):
         shares, global DLEQ proofs - must agree with the derivation, otherwise
         SPValidationError is raised and the PSBT is left untouched.
         """
+        # validate_sp() is a no-op outside v2, and _write_extra_globals() drops
+        # the shares it would produce, so a v0 PSBT has to fail here rather
+        # than derive into fields that are silently thrown away on serialize.
+        if self.version != 2:
+            raise SPValidationError("Silent Payment signing requires PSBTv2")
         self.validate_sp()
 
         if not self.has_sp_outputs:
@@ -571,7 +629,9 @@ class SilentPaymentsPSBT(PSBT):
         self.sp_dleq_proofs.clear()
         for inp in self.inputs:
             keys_to_delete = [
-                k for k in inp.unknown if len(k) > 0 and k[0] in (0x1D, 0x1E)
+                k
+                for k in inp.unknown
+                if len(k) > 0 and k[0] in SPInputScope._SP_PER_INPUT_SHARE_FIELDS
             ]
             for k in keys_to_delete:
                 del inp.unknown[k]
