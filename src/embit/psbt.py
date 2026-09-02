@@ -128,6 +128,23 @@ def read_string(stream) -> bytes:
     return read_exact(stream, read_compact(stream))
 
 
+class _BoundedStream:
+    """Hands out at most `limit` bytes of `stream` and counts what was consumed,
+    so a nested parser can be checked against the declared value length
+    without buffering the value or requiring a seekable stream."""
+
+    def __init__(self, stream, limit: int):
+        self.stream = stream
+        self.remaining = limit
+
+    def read(self, n=-1):
+        if n is None or n < 0 or n > self.remaining:
+            n = self.remaining
+        r = self.stream.read(n)
+        self.remaining -= len(r)
+        return r
+
+
 def skip_string(stream) -> int:
     l = read_compact(stream)
     skip_exact(stream, l)
@@ -451,7 +468,10 @@ class InputScope(PSBTScope):
             elif self.non_witness_utxo is not None:
                 raise PSBTError("Duplicated utxo value")
             else:
-                read_compact(stream)
+                # parse the transaction straight from the stream, but hold it to
+                # the declared value length so a wrong length cannot shift the
+                # key/value framing of the rest of the map
+                bounded = _BoundedStream(stream, read_compact(stream))
                 # For PSBTv2, PSBT_IN_OUTPUT_INDEX may follow PSBT_IN_NON_WITNESS_UTXO;
                 # use the pre-scanned vout (set by read_from) when the field hasn't
                 # been parsed yet so the OOM protection is key-order independent.
@@ -462,12 +482,14 @@ class InputScope(PSBTScope):
                 )
                 # we verified and saved utxo
                 if self.compress and effective_vout is not None:
-                    txout, txhash = self.TX_CLS.read_vout(stream, effective_vout)
+                    txout, txhash = self.TX_CLS.read_vout(bounded, effective_vout)
                     self._txhash = txhash
                     self._utxo = txout
                 else:
-                    tx = self.TX_CLS.read_from(stream)
+                    tx = self.TX_CLS.read_from(bounded)
                     self.non_witness_utxo = tx
+                if bounded.remaining != 0:
+                    raise PSBTError("PSBT_IN_NON_WITNESS_UTXO length mismatch")
             return
 
         v = read_string(stream)

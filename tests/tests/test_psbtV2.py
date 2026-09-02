@@ -1056,3 +1056,31 @@ class TestPSBTViewParity:
             PSBTView.view(BytesIO(raw)).sign_with(SIGNING_ROOT, BytesIO())
         with pytest.raises(PSBTError):
             PSBT.parse(raw).fee()
+
+
+class TestNonWitnessUtxoLength:
+    """The declared PSBT_IN_NON_WITNESS_UTXO length must match the transaction"""
+
+    @pytest.mark.parametrize("delta", [-2, -1, 1, 2, 40])
+    @pytest.mark.parametrize("compress", [CompressMode.KEEP_ALL, CompressMode.PARTIAL])
+    def test_length_mismatch_rejected(self, delta, compress):
+        for b64 in [VIEW_PSBTS[0], VIEW_PSBTS[1]]:
+            psbt = PSBT.from_string(b64)
+            tx = psbt.inputs[0].non_witness_utxo.serialize()
+            raw = psbt.serialize()
+            good = kv(b"\x00", tx)
+            assert raw.count(good) == 1
+            bad = compact.to_bytes(len(tx) + delta) + tx
+            if delta > 0:
+                # pad so the value itself is still present, the framing is off
+                bad += b"\x00" * delta
+            raw = raw.replace(good, b"\x01" + bad, 1)
+            with pytest.raises(PSBTError):
+                PSBT.parse(raw, compress=compress)
+            # the shifted framing is caught by the scope walk in view() or,
+            # when the framing happens to line up, by the value parse
+            with pytest.raises(PSBTError):
+                view = PSBTView.view(BytesIO(raw), compress=compress)
+                view.input(0)
+                view.vin(0)
+                view.sighash(0)
