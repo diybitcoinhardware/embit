@@ -28,8 +28,8 @@ from .psbt import (
     CompressMode,
     InputScope,
     OutputScope,
-    TxModifiable,
     LOCKTIME_THRESHOLD,
+    next_tx_modifiable,
     read_string,
     ser_string,
     skip_string,
@@ -859,19 +859,9 @@ class PSBTView:
     def _update_tx_modifiable(self, inp_sighash: int) -> None:
         if self.version != 2:
             return
-
-        is_anyonecanpay = bool(inp_sighash & SIGHASH.ANYONECANPAY)
-        sighash_type = inp_sighash & 0x1F
-
-        if self.tx_modifiable_flags is None:
-            self.tx_modifiable_flags = 0
-
-        if not is_anyonecanpay:
-            self.tx_modifiable_flags &= ~TxModifiable.INPUTS
-        if sighash_type != SIGHASH.NONE:
-            self.tx_modifiable_flags &= ~TxModifiable.OUTPUTS
-        if sighash_type == SIGHASH.SINGLE:
-            self.tx_modifiable_flags |= TxModifiable.SIGHASH_SINGLE
+        self.tx_modifiable_flags = next_tx_modifiable(
+            self.tx_modifiable_flags, inp_sighash
+        )
 
     def sign_input(
         self, i, root, sig_stream, sighash=SIGHASH.DEFAULT, extra_scope_data=None
@@ -1043,11 +1033,6 @@ class PSBTView:
                 counter += self.sign_input(i, root, sig_stream, sighash=sighash)
             # add separator
             sig_stream.write(b"\x00")
-        # BIP-370: signer must set PSBT_GLOBAL_TX_MODIFIABLE for PSBTv2.
-        # Default to 0 (nothing modifiable) when no signing occurred and the
-        # field was absent — avoids leaving the field missing after a sign pass.
-        if self.version == 2 and self.tx_modifiable_flags is None:
-            self.tx_modifiable_flags = 0
         return counter
 
     def write_to(
