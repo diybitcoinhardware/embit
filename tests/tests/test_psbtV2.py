@@ -785,10 +785,8 @@ class TestPSBTErrorHygiene:
             for n in range(len(raw)):
                 with pytest.raises(PSBTError):
                     PSBT.parse(raw[:n], compress=compress)
-                try:
-                    _exercise_view(raw[:n], compress=compress)
-                except PSBTError:
-                    pass
+                with pytest.raises(PSBTError):
+                    PSBTView.view(BytesIO(raw[:n]), compress=compress)
 
     @pytest.mark.parametrize("compress", [CompressMode.KEEP_ALL, CompressMode.PARTIAL])
     def test_corrupted_byte(self, compress):
@@ -846,10 +844,25 @@ class TestPSBTErrorHygiene:
         with pytest.raises(PSBTError):
             _exercise_view(corrupt)
 
-    def test_parse_rejects_trailing_bytes(self):
+    @pytest.mark.parametrize("trailing", [b"\x00", b"\xff", V2_OUT + b"\x00"])
+    def test_rejects_trailing_bytes(self, trailing):
         raw = raw_v2([V2_IN], [V2_OUT])
         with pytest.raises(PSBTError):
-            PSBT.parse(raw + b"\x00")
+            PSBT.parse(raw + trailing)
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(raw + trailing))
+        raw = a2b_base64(VIEW_PSBTS[0])
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(raw + trailing))
+
+    def test_view_rejects_count_larger_than_maps(self):
+        raw = raw_v2([V2_IN, V2_IN], [V2_OUT])
+        assert raw[raw.index(b"\x01\x04\x01") + 3] == 2
+        raw = raw.replace(b"\x01\x04\x01\x02", b"\x01\x04\x01\x03", 1)
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw)
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(raw))
 
     def test_corrupted_nested_value_reports_key(self):
         # bip32 derivation with a 1-byte pubkey in the key
