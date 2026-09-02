@@ -142,8 +142,7 @@ def get_input_hash(outpoints, A_sum):
     """BIP-352 input_hash: tagged_hash("BIP0352/Inputs", lowest_outpoint || A)."""
     if not outpoints:
         raise SPValidationError("get_input_hash requires at least one outpoint")
-    serialized = [_serialize_outpoint(o) for o in outpoints]
-    lowest = min(serialized)
+    lowest = min(_serialize_outpoint(o) for o in outpoints)
     return tagged_hash("BIP0352/Inputs", lowest + A_sum)
 
 
@@ -158,7 +157,7 @@ def derive_recipient_outputs(shared_secret, spend_keys):
     result = []
     for k, spend_key in enumerate(spend_keys):
         t_k = tagged_hash("BIP0352/SharedSecret", shared_secret + k.to_bytes(4, "big"))
-        p_k = bytearray(ec_pubkey_parse(spend_key.sec()))
+        p_k = bytearray(spend_key._point)
         ec_pubkey_tweak_add(p_k, t_k)
         result.append(ec_pubkey_serialize(p_k, EC_COMPRESSED)[1:])
     return result
@@ -269,7 +268,7 @@ def _proves_nums_commitment(inp, script):
     if internal is None or internal.xonly() != _NUMS_XONLY:
         return False
     output_xonly = bytes(script.data[2:34])
-    if internal.xonly() == output_xonly:
+    if output_xonly == _NUMS_XONLY:
         return True
     try:
         merkle_root = inp.taproot_merkle_root or b""
@@ -330,15 +329,15 @@ def group_sp_outputs_by_scan_key(outputs):
         sk_bytes = out.sp_data.scan_key.sec()
         if sk_bytes not in groups:
             groups[sk_bytes] = (out.sp_data.scan_key, [])
-        # The sort key is serialized once per output here rather than on every
-        # comparison - sec() is a secp256k1 serialization, and K_MAX allows
-        # thousands of outputs per scan key.
-        spend_key = out.sp_data.spend_key
-        groups[sk_bytes][1].append((spend_key.sec(), out_idx, spend_key))
+        # the sort key is serialized once per output, rather than on every comaprison
+        groups[sk_bytes][1].append((out.sp_data.spend_key.sec(), out_idx))
     scan_spend_groups = {}
     output_indices = {}
     for sk_bytes, (scan_key, entries) in groups.items():
-        entries.sort(key=lambda e: e[:2])
-        scan_spend_groups[sk_bytes] = (scan_key, [spend for _, _, spend in entries])
-        output_indices[sk_bytes] = [out_idx for _, out_idx, _ in entries]
+        entries.sort()
+        scan_spend_groups[sk_bytes] = (
+            scan_key,
+            [outputs[i].sp_data.spend_key for _, i in entries],
+        )
+        output_indices[sk_bytes] = [i for _, i in entries]
     return scan_spend_groups, output_indices
