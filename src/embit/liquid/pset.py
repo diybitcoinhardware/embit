@@ -508,6 +508,16 @@ class PSET(PSBT):
         """PSET allows value_commitment as an alternative to value (blinded outputs)."""
         return out.value is not None or out.value_commitment is not None
 
+    @classmethod
+    def _validate_v2_output(cls, out, i):
+        super()._validate_v2_output(out, i)
+        # LOutputScope.vout serializes asset_commitment or asset; without
+        # either the output cannot be hashed or extracted
+        if out.asset is None and out.asset_commitment is None:
+            raise PSBTError(
+                "PSETv2 output %d missing required PSBT_ELEMENTS_OUT_ASSET" % i
+            )
+
     def unblind(self, blinding_key):
         for inp in self.inputs:
             inp.unblind(blinding_key)

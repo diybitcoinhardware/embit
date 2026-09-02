@@ -1,5 +1,6 @@
 from ..psbtview import *
 from .pset import *
+from ..psbt import _PARSE_ERRORS
 import hashlib
 
 

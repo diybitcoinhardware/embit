@@ -138,8 +138,13 @@ class _BoundedStream:
         self.remaining = limit
 
     def read(self, n=-1):
-        if n is None or n < 0 or n > self.remaining:
+        if n is None or n < 0:
             n = self.remaining
+        elif n > self.remaining:
+            # the nested parser wants more than the value holds: a short read
+            # would let it finish on a truncated transaction (e.g. the trailing
+            # locktime bytes) and re-read the cut bytes as the next key
+            raise PSBTError("PSBT_IN_NON_WITNESS_UTXO length mismatch")
         r = self.stream.read(n)
         self.remaining -= len(r)
         return r

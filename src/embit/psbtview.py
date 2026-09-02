@@ -425,10 +425,11 @@ class PSBTView:
 
         Keys are matched exactly, so a keyless BIP-370 field carrying keydata
         (e.g. 0x0e||xx) never stands in for the real one, a duplicate of a
-        requested key is rejected, and when scope_cls is given every key in the
-        scope is checked with its _validate_key() - the same checks the full
-        scope parser applies."""
+        key in the map is rejected, and when scope_cls is given every key in
+        the scope is checked with its _validate_key() - the same checks the
+        full scope parser applies."""
         found = {}
+        seen = set()
         while True:
             key = read_string(self.stream)
             # separator - end of scope
@@ -436,9 +437,12 @@ class PSBTView:
                 return found
             if scope_cls is not None:
                 scope_cls._validate_key(key)
+            # PSBT maps must not repeat a key; the scope parser rejects that
+            # for every key, so do the same here
+            if key in seen:
+                raise PSBTError("Duplicated key: %s" % hexlify(key).decode())
+            seen.add(key)
             if key in keys:
-                if key in found:
-                    raise PSBTError("Duplicated key: %s" % hexlify(key).decode())
                 found[key] = read_string(self.stream)
             else:
                 skip_string(self.stream)

@@ -1193,3 +1193,58 @@ class TestPSBTv2Signing:
         v0.sign_with(SIGNING_ROOT)
         for a, b in zip(v0.inputs, psbt.inputs):
             assert a.partial_sigs == b.partial_sigs
+
+
+class TestNonWitnessUtxoResync:
+    def test_short_length_cannot_resync_on_a_following_key(self):
+        """A utxo length one byte short must not let the trailing locktime byte
+        be re-read as the next key length and land on a valid framing."""
+        from embit.psbt import ser_string
+
+        spk = Script(unhexlify("76a914" + "22" * 20 + "88ac"))
+        prev = Transaction(
+            version=1,
+            vin=[TransactionInput(b"\x11" * 32, 0)],
+            vout=[TransactionOutput(100000, spk)],
+            locktime=0x32000000,
+        )
+        trunc = Transaction(version=1, vin=prev.vin, vout=prev.vout, locktime=0)
+        raw_tx = prev.serialize()
+        assert raw_tx[-1] == 0x32
+        s = BytesIO()
+        ser_string(s, b"\x00")
+        s.write(compact.to_bytes(len(raw_tx) - 1))  # declared one short
+        s.write(raw_tx)
+        # an unknown entry the leftover 0x32 byte swallows as a 50-byte key
+        s.write(b"\x30" + b"\x30" + b"K" * 47 + b"\x01" + b"\x00")
+        ser_string(s, b"\x0e")
+        ser_string(s, bytes(reversed(trunc.txid())))
+        ser_string(s, b"\x0f")
+        ser_string(s, (0).to_bytes(4, "little"))
+        raw = raw_v2([s.getvalue()], [V2_OUT])
+        for compress in [CompressMode.KEEP_ALL, CompressMode.PARTIAL]:
+            with pytest.raises(PSBTError):
+                PSBT.parse(raw, compress=compress)
+            with pytest.raises(PSBTError):
+                view = PSBTView.view(BytesIO(raw), compress=compress)
+                view.input(0)
+                view.vin(0)
+
+
+class TestViewDuplicateKeys:
+    def test_duplicate_non_prevout_key_rejected_when_hashing(self):
+        """A duplicated key in another input must fail even when only one
+        input is signed, like PSBT.parse does."""
+        psbt = PSBT.from_string(SIGNABLE_V2_B64)
+        raw_inputs = [inp.serialize(version=2)[:-1] for inp in psbt.inputs]
+        raw_outputs = [out.serialize(version=2)[:-1] for out in psbt.outputs]
+        dup = kv(b"\x01", psbt.inputs[1].witness_utxo.serialize())
+        raw_inputs[1] = dup + raw_inputs[1]
+        raw = raw_v2(raw_inputs, raw_outputs)
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw)
+        view = PSBTView.view(BytesIO(raw))
+        sigs = BytesIO()
+        with pytest.raises(PSBTError):
+            view.sign_input(0, SIGNING_ROOT, sigs)
+        assert sigs.getvalue() == b""
