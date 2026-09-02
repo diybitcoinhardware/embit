@@ -342,7 +342,7 @@ class PSBTView:
                     raise PSBTError("Invalid global transaction")
                 # every input takes at least 41 bytes and every output 9,
                 # so the counts must fit in the declared transaction length
-                if tx.vout0_offset + 9 * num_outputs > tx_offset + tx_len:
+                if tx.vout0_offset + 9 * num_outputs > cur + tx_len:
                     raise PSBTError("Invalid global transaction")
                 # seek to the end of transaction
                 try:
@@ -401,7 +401,7 @@ class PSBTView:
         # Walk every input and output map once, reading only the key/value
         # lengths: the declared counts must match the maps actually present
         # and nothing may follow the last one, like PSBT.parse enforces.
-        res.seek_to_scope(num_inputs + num_outputs)
+        res.seek_to_scope(res.num_inputs + res.num_outputs)
         if len(stream.read(1)) > 0:
             raise PSBTError("Unexpected extra bytes")
         return res
