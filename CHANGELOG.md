@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add PSBT version 2 (BIP 370) support to `PSBT` and `PSBTView`: parsing,
+  validation and serialization of the v2 global, input and output fields,
+  unsigned transaction reconstruction, and `PSBT_GLOBAL_TX_MODIFIABLE`
+  updates on signing.
+
+### Fixed
+
+- Validate PSBTv2 count fields canonically and raise `PSBTError` instead of
+  `RuntimeError`/`ValueError` on malformed values in both parse paths.
+
 ## [0.8.2] - 2026-08-08
 
 ### Changed
