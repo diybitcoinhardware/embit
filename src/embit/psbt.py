@@ -218,9 +218,9 @@ class DerivationPath(EmbitBase):
 class PSBTScope(EmbitBase):
     V2_FIELDS = ()
 
-    def __init__(self, unknown: dict = None):
+    def __init__(self, unknown: dict = None, version=None):
         self.unknown = {} if unknown is None else unknown
-        self.parse_unknowns()
+        self.parse_unknowns(version)
 
     def write_to(self, stream, skip_separator=False, **kwargs) -> int:
         # unknown
@@ -233,13 +233,14 @@ class PSBTScope(EmbitBase):
             r += stream.write(b"\x00")
         return r
 
-    def parse_unknowns(self):
-        # go through all the unknowns and parse them
+    def parse_unknowns(self, version=None):
+        # go through all the unknowns and parse them: known keys land in their
+        # fields, the rest is put back into self.unknown by read_value()
         for k in list(self.unknown):
             s = BytesIO()
-            ser_string(s, self.unknown[k])
+            ser_string(s, self.unknown.pop(k))
             s.seek(0)
-            self._read_value_checked(s, k)
+            self._read_value_checked(s, k, version=version)
 
     def _read_value_checked(self, stream, key, version=None):
         """read_value() that reports malformed nested data as PSBTError."""
@@ -288,7 +289,13 @@ class InputScope(PSBTScope):
     TXOUT_CLS = TransactionOutput
     V2_FIELDS = (b"\x0e", b"\x0f", b"\x10", b"\x11", b"\x12")
 
-    def __init__(self, unknown: dict = None, vin=None, compress=CompressMode.KEEP_ALL):
+    def __init__(
+        self,
+        unknown: dict = None,
+        vin=None,
+        compress=CompressMode.KEEP_ALL,
+        version=None,
+    ):
         self.compress = compress
         self.txid = None
         self.vout = None
@@ -320,7 +327,7 @@ class InputScope(PSBTScope):
         self.final_scriptwitness = None
         self.required_time_locktime = None
         self.required_height_locktime = None
-        super().__init__(unknown)
+        super().__init__(unknown, version=version)
 
     def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
@@ -407,7 +414,8 @@ class InputScope(PSBTScope):
 
     @property
     def is_taproot(self):
-        return self.utxo.script_pubkey.script_type() == "p2tr"
+        utxo = self.utxo
+        return utxo is not None and utxo.script_pubkey.script_type() == "p2tr"
 
     def verify(self, ignore_missing=False):
         """Verifies the hash of previous transaction provided in non_witness_utxo.
@@ -794,7 +802,13 @@ class InputScope(PSBTScope):
 class OutputScope(PSBTScope):
     V2_FIELDS = (b"\x03", b"\x04")
 
-    def __init__(self, unknown: dict = None, vout=None, compress=CompressMode.KEEP_ALL):
+    def __init__(
+        self,
+        unknown: dict = None,
+        vout=None,
+        compress=CompressMode.KEEP_ALL,
+        version=None,
+    ):
         self.compress = compress
         self.value = None
         self.script_pubkey = None
@@ -806,7 +820,7 @@ class OutputScope(PSBTScope):
         self.bip32_derivations = OrderedDict()
         self.taproot_bip32_derivations = OrderedDict()
         self.taproot_internal_key = None
-        super().__init__(unknown)
+        super().__init__(unknown, version=version)
 
     def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
@@ -1404,10 +1418,17 @@ class PSBT(EmbitBase):
 
     def sighash(self, i, sighash=SIGHASH.ALL, **kwargs):
         inp = self.inputs[i]
+        if inp.utxo is None:
+            raise PSBTError("Missing previous utxo on input %d" % i)
 
         if inp.is_taproot:
-            values = [inp.utxo.value for inp in self.inputs]
-            scripts = [inp.utxo.script_pubkey for inp in self.inputs]
+            values = []
+            scripts = []
+            for j, other in enumerate(self.inputs):
+                if other.utxo is None:
+                    raise PSBTError("Missing previous utxo on input %d" % j)
+                values.append(other.utxo.value)
+                scripts.append(other.utxo.script_pubkey)
             return self.sighash_taproot(
                 i,
                 script_pubkeys=scripts,

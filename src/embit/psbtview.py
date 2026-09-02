@@ -52,6 +52,9 @@ from .transaction import (
     hash_script_pubkeys,
 )
 
+# global key order used by PSBT.write_to after the xpubs
+_GLOBAL_V2_ORDER = (b"\x02", b"\x03", b"\x04", b"\x05", b"\x06", b"\xfb")
+
 
 def _read_global_value(stream, key):
     value_len = read_compact(stream)
@@ -263,6 +266,7 @@ class PSBTView:
 
     def clear_cache(self):
         # cache for digests
+        self._tx_locktime = None
         self._hash_prevouts = None
         self._hash_sequence = None
         self._hash_outputs = None
@@ -287,11 +291,11 @@ class PSBTView:
         tx_offset = None
         # Collect all non-global-tx key-value pairs for PSBTv2 global scope rewriting.
         # The global scope is small, so materialising it avoids byte-level injection.
-        global_kvs = {}
+        global_kvs = OrderedDict()
         # key -> (value_offset, value_len) for globals whose value is only needed
         # if this turns out to be a PSBTv2. PSBTView is RAM-constrained, so we
         # skip them on the first pass and read them back below only when used.
-        deferred_kvs = {}
+        deferred_kvs = OrderedDict()
         while True:
             # read key and update cursor
             key = read_string(stream)
@@ -545,13 +549,22 @@ class PSBTView:
 
     @property
     def locktime(self):
-        if self._locktime is None:
-            if self.version == 2:
-                self._locktime = self._determine_locktime_v2()
-            else:
-                v = self.get_value(b"\x03")
-                self._locktime = int.from_bytes(v, "little") if v is not None else 0
+        """Same meaning as PSBT.locktime: the global transaction locktime for
+        PSBTv0 and PSBT_GLOBAL_FALLBACK_LOCKTIME (or None) for PSBTv2.
+        The locktime of the transaction being signed is determine_locktime()."""
+        if self.version == 2:
+            v = self._global_kvs.get(b"\x03")
+            return int.from_bytes(v, "little") if v is not None else None
         return self._locktime
+
+    def determine_locktime(self):
+        """The transaction locktime, derived per BIP-370 for PSBTv2."""
+        if self._tx_locktime is None:
+            if self.version == 2:
+                self._tx_locktime = self._determine_locktime_v2()
+            else:
+                self._tx_locktime = self._locktime or 0
+        return self._tx_locktime
 
     def _determine_locktime_v2(self):
         """BIP370 locktime determination for PSBTv2.
@@ -701,7 +714,7 @@ class PSBTView:
         h = hashes.tagged_hash_init("TapSighash", b"\x00")
         h.update(bytes([sighash]))
         h.update(self.tx_version.to_bytes(4, "little"))
-        h.update(self.locktime.to_bytes(4, "little"))
+        h.update(self.determine_locktime().to_bytes(4, "little"))
         if not anyonecanpay:
             h.update(self.hash_prevouts())
             h.update(self.hash_amounts(values))
@@ -772,7 +785,7 @@ class PSBTView:
             )
         else:
             h.update(zero)
-        h.update(self.locktime.to_bytes(4, "little"))
+        h.update(self.determine_locktime().to_bytes(4, "little"))
         h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
@@ -821,12 +834,14 @@ class PSBTView:
         else:
             # shouldn't happen
             raise PSBTError("Invalid sighash")
-        h.update(self.locktime.to_bytes(4, "little"))
+        h.update(self.determine_locktime().to_bytes(4, "little"))
         h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
     def sighash(self, i, sighash=SIGHASH.ALL, input_scope=None, **kwargs):
         inp = self.input(i) if input_scope is None else input_scope
+        if inp.utxo is None:
+            raise PSBTError("Missing previous utxo on input %d" % i)
 
         if inp.is_taproot:
             values = []
@@ -834,6 +849,8 @@ class PSBTView:
             # TODO: not very optimal. Maybe use build_cache() or something?
             for idx in range(self.num_inputs):
                 inp = self.input(idx)
+                if inp.utxo is None:
+                    raise PSBTError("Missing previous utxo on input %d" % idx)
                 values.append(inp.utxo.value)
                 scripts.append(inp.utxo.script_pubkey)
             return self.sighash_taproot(
@@ -887,11 +904,12 @@ class PSBTView:
                 sighash=sighash,
             )
             sig = pk.schnorr_sign(h)
-            wit = sig.serialize()
+            sigdata = sig.serialize()
             if sighash != SIGHASH.DEFAULT:
-                wit += bytes([sighash])
-            # TODO: maybe better to put into internal key sig field
-            inp.final_scriptwitness = Witness([wit])
+                sigdata += bytes([sighash])
+            # same fields PSBT._sign_taproot_keypath fills
+            inp.taproot_key_sig = sigdata
+            inp.final_scriptwitness = Witness([sigdata])
             # no need to sign anything else
             return 1
         counter = 0
@@ -1048,6 +1066,9 @@ class PSBTView:
             if inp.final_scriptwitness:
                 ser_string(sig_stream, b"\x08")
                 ser_string(sig_stream, inp.final_scriptwitness.serialize())
+            if inp.taproot_key_sig:
+                ser_string(sig_stream, b"\x13")
+                ser_string(sig_stream, inp.taproot_key_sig)
 
             for pub, leaf in inp.taproot_sigs:
                 ser_string(sig_stream, b"\x14" + pub.xonly() + leaf)
@@ -1085,6 +1106,11 @@ class PSBTView:
         Sighash kwarg is set to SIGHASH.DEFAULT, for segwit and legacy it's replaced to SIGHASH.ALL
         so if PSBT is asking to sign with a different sighash this function won't sign.
         If you want to sign with sighashes provided in the PSBT - set sighash=None.
+
+        The sig_stream only carries per-input fields. For PSBTv2 the signer
+        also has to update PSBT_GLOBAL_TX_MODIFIABLE (BIP-370); that update is
+        kept on this view (tx_modifiable_flags) and emitted by write_to(), so
+        write the signed PSBT with the same view that produced the signatures.
         """
         counter = 0
         for i in range(self.num_inputs):
@@ -1123,11 +1149,19 @@ class PSBTView:
 
         # first we write global scope
         if self._global_kvs is not None:
-            # PSBTv2: reconstruct global scope from the materialised key-value dict.
-            # This sidesteps byte-level injection and gives deterministic key ordering.
+            # PSBTv2: reconstruct global scope from the materialised key-value dict
+            # in the same order PSBT.write_to uses: xpubs, the BIP-370 fields,
+            # then the unknown fields as they appeared in the source.
             writable_stream.write(self.MAGIC)
             res = len(self.MAGIC)
-            for k in sorted(self._global_kvs.keys()):
+            keys = [k for k in self._global_kvs if k[:1] == b"\x01"]
+            keys += [k for k in _GLOBAL_V2_ORDER if k in self._global_kvs]
+            keys += [
+                k
+                for k in self._global_kvs
+                if k[:1] != b"\x01" and k not in _GLOBAL_V2_ORDER
+            ]
+            for k in keys:
                 res += ser_string(writable_stream, k)
                 res += ser_string(writable_stream, self._global_kvs[k])
             writable_stream.write(b"\x00")  # global scope separator

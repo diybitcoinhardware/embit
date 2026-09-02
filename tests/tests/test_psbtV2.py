@@ -914,3 +914,145 @@ class TestPSBTErrorHygiene:
         psbt.outputs[0].value = 2**63
         with pytest.raises(PSBTError):
             psbt.serialize()
+
+
+def to_v2(psbt):
+    """Rebuilds a parsed PSBTv0 as an equivalent PSBTv2."""
+    v2 = PSBT.create_v2(tx_version=psbt.tx.version, fallback_locktime=psbt.locktime)
+    for inp in psbt.inputs:
+        v2.add_input(inp)
+    for out in psbt.outputs:
+        v2.add_output(out)
+    v2.tx_modifiable_flags = None
+    return PSBT.parse(v2.serialize())
+
+
+def sign_both(raw, root, sighash=SIGHASH.DEFAULT, compress=CompressMode.KEEP_ALL):
+    """Signs raw with PSBT and PSBTView, returns (psbt, view, psbt bytes, view bytes)."""
+    psbt = PSBT.parse(raw, compress=compress)
+    view = PSBTView.view(BytesIO(raw), compress=compress)
+    n1 = psbt.sign_with(root, sighash)
+    sigs = BytesIO()
+    n2 = view.sign_with(root, sigs, sighash)
+    assert n1 == n2
+    sigs.seek(0)
+    out = BytesIO()
+    # write_to() applies the view's compress mode to every scope
+    view.write_to(out, extra_input_streams=[sigs])
+    for sc in psbt.inputs + psbt.outputs:
+        sc.clear_metadata(compress=compress)
+    return psbt, view, psbt.serialize(), out.getvalue()
+
+
+class TestPSBTViewParity:
+    """PSBT and PSBTView expose the same values and produce the same bytes"""
+
+    LOCKTIME_VECTORS = [
+        # (hex, fallback field, determined locktime)
+        (
+            "70736274ff0102040200000001030400000000010401020105010101fb040200000000010e200f758dbfbd4da7c16c8a3309c3c81e1100f561ea646db5b01752c485e1bdde9f010f04010000000112041027000000010e203a1b3b3c837d6489ea7a31d8e6c7dd503c001bef3e06958e7574808d68ca78a5010f0400000000000103084f9335770000000001041600140b1352cacd03cf6aa1b7f3c8d6388671b34a5e1100",
+            0,
+            10000,
+        ),
+        (
+            "70736274ff01020402000000010401010105010201fb040200000000010e200b0ad921419c1c8719735d72dc739f9ea9e0638d1fe4c1eef0f9944084815fc8010f0400000000000103080008af2f000000000104160014c430f64c4756da310dbd1a085572ef299926272c000103088bbdeb0b0000000001041600144dd193ac964a56ac1b9e1cca8454fe2f474f851300",
+            None,
+            0,
+        ),
+    ]
+
+    @pytest.mark.parametrize("hex_data, fallback, determined", LOCKTIME_VECTORS)
+    def test_locktime_api(self, hex_data, fallback, determined):
+        raw = unhexlify(hex_data)
+        psbt = PSBT.parse(raw)
+        view = PSBTView.view(BytesIO(raw))
+        assert psbt.locktime == view.locktime == fallback
+        assert psbt.determine_locktime() == view.determine_locktime() == determined
+        assert psbt.tx.locktime == determined
+        # v0: both are the global tx locktime
+        raw = a2b_base64(VIEW_PSBTS[0])
+        psbt = PSBT.parse(raw)
+        view = PSBTView.view(BytesIO(raw))
+        assert psbt.locktime == view.locktime == psbt.tx.locktime
+        assert psbt.determine_locktime() == view.determine_locktime() == psbt.locktime
+
+    def test_unknown_and_xpub_globals_keep_order(self):
+        xpub = SIGNING_ROOT.to_public().serialize()
+        extra = (
+            kv(b"\xf0", b"first")
+            + kv(b"\x01" + xpub, SIGNING_ROOT.my_fingerprint + bytes(4))
+            + kv(b"\x07", b"second")
+        )
+        raw = raw_v2([V2_IN], [V2_OUT], extra_globals=extra)
+        psbt = PSBT.parse(raw)
+        assert list(psbt.unknown) == [b"\xf0", b"\x07"]
+        assert len(psbt.xpubs) == 1
+        out = BytesIO()
+        PSBTView.view(BytesIO(raw)).write_to(out)
+        assert psbt.serialize() == out.getvalue()
+        # PSBT and PSBTView agree even when the source order differs from theirs
+        assert PSBT.parse(out.getvalue()).serialize() == out.getvalue()
+
+    def test_scope_constructor_accepts_v2_unknowns(self):
+        txid = bytes(range(32))
+        inp = InputScope(
+            {b"\x0e": txid[::-1], b"\x0f": (3).to_bytes(4, "little")}, version=2
+        )
+        assert inp.txid == txid and inp.vout == 3 and inp.unknown == {}
+        with pytest.raises(PSBTError):
+            InputScope({b"\x0e": txid[::-1]})
+        out = OutputScope({b"\x03": (5).to_bytes(8, "little")}, version=2)
+        assert out.value == 5
+        with pytest.raises(PSBTError):
+            OutputScope({b"\x03": (5).to_bytes(8, "little")})
+
+    @pytest.mark.parametrize("compress", [CompressMode.KEEP_ALL, CompressMode.PARTIAL])
+    def test_taproot_keypath_signing_matches(self, compress):
+        from .test_taproot import TAP_PSBTS, KEY_A
+
+        for raw in [
+            a2b_base64(TAP_PSBTS[0]),
+            to_v2(PSBT.from_string(TAP_PSBTS[0])).serialize(),
+        ]:
+            psbt, view, ser1, ser2 = sign_both(raw, KEY_A, compress=compress)
+            assert psbt.inputs[0].taproot_key_sig is not None
+            assert ser1 == ser2
+            if psbt.version == 2:
+                assert psbt.tx_modifiable_flags == view.tx_modifiable_flags == 0
+
+    def test_taproot_scriptpath_signing_matches(self):
+        from .test_taproot import TAPTREE_PSBT, TAPTREE_KEYS
+
+        for raw in [
+            a2b_base64(TAPTREE_PSBT),
+            to_v2(PSBT.from_string(TAPTREE_PSBT)).serialize(),
+        ]:
+            psbt = PSBT.parse(raw)
+            view = PSBTView.view(BytesIO(raw))
+            sigs = BytesIO()
+            for key in TAPTREE_KEYS:
+                assert psbt.sign_with(key) == view.sign_with(key, sigs)
+            # one scope per key per input in the stream; merge them all
+            sigs.seek(0)
+            out = BytesIO()
+            streams = [BytesIO(sigs.getvalue()) for _ in TAPTREE_KEYS]
+            # each stream must be positioned at its own signing pass
+            for n, s in enumerate(streams):
+                for _ in range(n * view.num_inputs):
+                    InputScope.read_from(s, version=view.version)
+            view.write_to(out, extra_input_streams=streams)
+            assert psbt.serialize() == out.getvalue()
+
+    def test_missing_utxo_is_psbterror(self):
+        raw = a2b_base64(VIEW_PSBTS[1])
+        psbt = PSBT.parse(raw)
+        psbt.inputs[1].witness_utxo = None
+        psbt.inputs[1].non_witness_utxo = None
+        raw = psbt.serialize()
+        assert not psbt.inputs[1].is_taproot
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw).sign_with(SIGNING_ROOT)
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(raw)).sign_with(SIGNING_ROOT, BytesIO())
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw).fee()

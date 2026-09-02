@@ -253,7 +253,7 @@ class PSETView(PSBTView):
                 )
         else:
             h.update(zero)
-        h.update(self.locktime.to_bytes(4, "little"))
+        h.update(self.determine_locktime().to_bytes(4, "little"))
         h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
