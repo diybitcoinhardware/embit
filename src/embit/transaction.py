@@ -143,11 +143,14 @@ class Transaction(EmbitBase):
         return res, hashlib.sha256(h.digest()).digest()
 
     @classmethod
-    def read_from(cls, stream):
+    def read_from(cls, stream, segwit=True):
+        """segwit=False parses a transaction known to be serialized without
+        witness data (BIP-174's unsigned tx), where a leading zero is a real
+        input count and not the BIP-144 marker."""
         ver = int.from_bytes(stream.read(4), "little")
         num_vin = compact.read_from(stream)
         # if num_vin is zero it is a segwit transaction
-        is_segwit = num_vin == 0
+        is_segwit = segwit and num_vin == 0
         if is_segwit:
             marker = stream.read(1)
             if marker != b"\x01":

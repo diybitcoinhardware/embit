@@ -15,7 +15,7 @@ from embit.psbt import (
     CompressMode,
 )
 from embit.psbtview import PSBTView
-from embit.script import Script
+from embit.script import Script, Witness
 from embit import compact
 from embit.base import EmbitError
 from .test_psbtview import PSBTS as VIEW_PSBTS, ROOT as SIGNING_ROOT
@@ -1322,3 +1322,54 @@ class TestBIP341Sighash:
             PSBTView.view(BytesIO(psbt.serialize())).sighash(
                 index, sighash=SIGHASH.SINGLE
             )
+
+
+class TestZeroInputUnsignedTx:
+    """BIP-174: the unsigned tx is non-witness serialized, so a PSBT whose
+    transaction has no inputs yet starts its input count with a plain 0x00"""
+
+    def test_parses_and_round_trips(self):
+        tx = Transaction(vin=[], vout=[TransactionOutput(1000, Script(b"\x51"))])
+        raw = PSBT(tx).serialize()
+        psbt = PSBT.parse(raw)
+        assert len(psbt.inputs) == 0 and len(psbt.outputs) == 1
+        assert psbt.serialize() == raw
+        assert psbt.tx.serialize() == tx.serialize()
+        view = PSBTView.view(BytesIO(raw))
+        assert view.num_inputs == 0 and view.num_outputs == 1
+        assert view.vout(0).serialize() == tx.vout[0].serialize()
+        out = BytesIO()
+        view.write_to(out)
+        assert out.getvalue() == raw
+
+    def test_witness_serialized_unsigned_tx_rejected(self):
+        tx = Transaction(
+            vin=[TransactionInput(bytes(32), 0)],
+            vout=[TransactionOutput(1000, Script(b"\x51"))],
+        )
+        tx.vin[0].witness = Witness([b"\x01"])
+        assert tx.serialize()[4:6] == b"\x00\x01"
+        raw = PSBT.MAGIC + kv(b"\x00", tx.serialize()) + b"\x00" + b"\x00" + b"\x00"
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw)
+        # a network transaction still auto-detects the marker
+        assert Transaction.parse(tx.serialize()).serialize() == tx.serialize()
+
+
+class TestSequenceZero:
+    """#146: nSequence=0 must survive into the signed transaction"""
+
+    def test_sequence_zero_is_signed_as_is(self):
+        psbt = PSBT.from_string(SIGNABLE_V2_B64)
+        v0 = PSBT.parse(a2b_base64(VIEW_PSBTS[0]))
+        for p in (psbt, v0):
+            p.inputs[0].sequence = 0
+            raw = p.serialize()
+            parsed = PSBT.parse(raw)
+            assert parsed.inputs[0].sequence == 0
+            assert parsed.tx.vin[0].sequence == 0
+            view = PSBTView.view(BytesIO(raw))
+            assert view.vin(0).sequence == 0
+            _, _, ser1, ser2 = sign_both(raw, SIGNING_ROOT)
+            assert ser1 == ser2
+            assert PSBT.parse(ser1).tx.vin[0].sequence == 0
