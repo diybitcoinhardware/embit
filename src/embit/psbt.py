@@ -302,7 +302,7 @@ class PSBTScope(EmbitBase):
                 break
             if version != 2 and key in res.V2_FIELDS:
                 raise PSBTError("PSBTv2 field is not allowed in PSBTv0")
-            res._read_value_checked(stream, key)
+            res._read_value_checked(stream, key, version=version)
         return res
 
 

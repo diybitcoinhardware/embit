@@ -1373,3 +1373,28 @@ class TestSequenceZero:
             _, _, ser1, ser2 = sign_both(raw, SIGNING_ROOT)
             assert ser1 == ser2
             assert PSBT.parse(ser1).tx.vin[0].sequence == 0
+
+
+class TestBaseScopeVersion:
+    def test_base_read_from_passes_version_to_read_value(self):
+        """A scope built on PSBTScope.read_from must see the PSBT version."""
+        from embit.psbt import PSBTScope
+
+        seen = []
+
+        class Scope(PSBTScope):
+            V2_FIELDS = (b"\x0e",)
+
+            def read_value(self, stream, key, version=None):
+                seen.append((key, version))
+                super().read_value(stream, key, version=version)
+
+        raw = kv(b"\x0e", bytes(32)) + kv(b"\xf0", b"x") + b"\x00"
+        scope = Scope.read_from(BytesIO(raw), version=2)
+        assert seen == [(b"\x0e", 2), (b"\xf0", 2)]
+        assert list(scope.unknown) == [b"\x0e", b"\xf0"]
+        seen.clear()
+        Scope.read_from(BytesIO(kv(b"\xf0", b"x") + b"\x00"))
+        assert seen == [(b"\xf0", None)]
+        with pytest.raises(PSBTError):
+            Scope.read_from(BytesIO(raw))
