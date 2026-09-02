@@ -124,7 +124,7 @@ class LInputScope(InputScope):
         return LTransactionInput(
             self.txid,
             self.vout,
-            sequence=(self.sequence or 0xFFFFFFFF),
+            sequence=(self.sequence if self.sequence is not None else 0xFFFFFFFF),
             asset_issuance=self.asset_issuance,
         )
 
@@ -133,7 +133,7 @@ class LInputScope(InputScope):
         return LTransactionInput(
             self.txid,
             self.vout,
-            sequence=(self.sequence or 0xFFFFFFFF),
+            sequence=(self.sequence if self.sequence is not None else 0xFFFFFFFF),
             asset_issuance=self.asset_issuance,
             witness=TxInWitness(self.issue_rangeproof, self.token_rangeproof),
         )
@@ -349,10 +349,12 @@ class LOutputScope(OutputScope):
             self.value_commitment or self.value,
             self.script_pubkey,
             self.ecdh_pubkey,
-            None
-            if not self.surjection_proof
-            else TxOutWitness(
-                Proof(self.surjection_proof), RangeProof(self.range_proof)
+            (
+                None
+                if not self.surjection_proof
+                else TxOutWitness(
+                    Proof(self.surjection_proof), RangeProof(self.range_proof)
+                )
             ),
         )
 
@@ -641,7 +643,8 @@ class PSET(PSBT):
     def blinded_tx(self):
         return self.TX_CLS(
             version=2 if self.tx_version is None else self.tx_version,
-            locktime=self.locktime or 0,
+            # BIP-370: PSBTv2 derives the locktime from the per-input requirements
+            locktime=self.determine_locktime(),
             vin=[inp.blinded_vin for inp in self.inputs],
             vout=[out.blinded_vout for out in self.outputs],
         )
