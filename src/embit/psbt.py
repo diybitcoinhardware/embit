@@ -1355,6 +1355,21 @@ class PSBT(EmbitBase):
             h = self.sighash_legacy(i, sc, sighash=sighash)
         return h
 
+    def _sign_taproot_keypath(self, pk, input_index: int, inp, sighash) -> int:
+        """Store a BIP-341 key-path signature made with the already-tweaked pk.
+
+        Shared with subclasses that tweak the key differently (BIP-376 SP
+        spends) but encode and store the signature identically.
+        """
+        sig = pk.schnorr_sign(self.sighash(input_index, sighash=sighash))
+        sigdata = sig.serialize()
+        # append sighash if necessary
+        if sighash != SIGHASH.DEFAULT:
+            sigdata += bytes([sighash])
+        inp.taproot_key_sig = sigdata
+        inp.final_scriptwitness = Witness([sigdata])
+        return 1
+
     def sign_input_with_tapkey(
         self,
         key: ec.PrivateKey,
@@ -1370,18 +1385,8 @@ class PSBT(EmbitBase):
         # check if key is internal key
         pk = key.taproot_tweak(inp.taproot_merkle_root or b"")
         if pk.xonly() in inp.utxo.script_pubkey.data:
-            h = self.sighash(
-                input_index,
-                sighash=sighash,
-            )
-            sig = pk.schnorr_sign(h)
-            sigdata = sig.serialize()
-            if sighash != SIGHASH.DEFAULT:
-                sigdata += bytes([sighash])
-            inp.taproot_key_sig = sigdata
-            inp.final_scriptwitness = Witness([sigdata])
             # no need to sign anything else
-            return 1
+            return self._sign_taproot_keypath(pk, input_index, inp, sighash)
         counter = 0
         # negate if necessary
         pub = ec.PublicKey.from_xonly(key.xonly())
