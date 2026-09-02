@@ -115,6 +115,7 @@ class PSETView(PSBTView):
     PSBTIN_CLS = LInputScope
     PSBTOUT_CLS = LOutputScope
     TX_CLS = GlobalLTransactionView
+    PSBT_CLS = PSET
 
     def clear_cache(self):
         # cache for digests

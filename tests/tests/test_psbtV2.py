@@ -16,6 +16,11 @@ from embit.psbt import (
 )
 from embit.psbtview import PSBTView
 from embit.script import Script
+from embit import compact
+from .test_psbtview import PSBTS as VIEW_PSBTS, ROOT as SIGNING_ROOT
+
+# native segwit single key, 3 inputs 4 outputs, PSBTv2, signable with SIGNING_ROOT
+SIGNABLE_V2_B64 = VIEW_PSBTS[1]
 from embit.transaction import SIGHASH, Transaction, TransactionInput, TransactionOutput
 
 
@@ -654,3 +659,98 @@ class TestPSBTv2Compression:
         assert parsed.inputs[0].non_witness_utxo is None
         assert parsed.inputs[0]._utxo.value == 1234
         assert parsed.verify()
+
+
+def kv(key, value):
+    return compact.to_bytes(len(key)) + key + compact.to_bytes(len(value)) + value
+
+
+TXID_A = bytes(range(32))
+TXID_B = bytes(range(0x20, 0x40))
+V2_IN = kv(b"\x0e", TXID_A) + kv(b"\x0f", (0).to_bytes(4, "little"))
+V2_OUT = kv(b"\x03", (1000).to_bytes(8, "little")) + kv(b"\x04", b"\x51")
+
+
+def raw_v2(inputs, outputs, extra_globals=b""):
+    """A raw PSBTv2 from already serialized input and output maps (no separators)."""
+    g = (
+        kv(b"\x02", (2).to_bytes(4, "little"))
+        + kv(b"\x04", compact.to_bytes(len(inputs)))
+        + kv(b"\x05", compact.to_bytes(len(outputs)))
+        + extra_globals
+        + kv(b"\xfb", (2).to_bytes(4, "little"))
+    )
+    return (
+        PSBT.MAGIC
+        + g
+        + b"\x00"
+        + b"".join(m + b"\x00" for m in inputs)
+        + b"".join(m + b"\x00" for m in outputs)
+    )
+
+
+class TestPSBTViewV2ScopeFields:
+    """PSBTView must reject the same malformed v2 scope fields as PSBT"""
+
+    def test_baseline_valid(self):
+        raw = raw_v2([V2_IN], [V2_OUT])
+        psbt = PSBT.parse(raw)
+        view = PSBTView.view(BytesIO(raw))
+        assert view.vin(0).serialize() == psbt.inputs[0].vin.serialize()
+        assert view.vout(0).serialize() == psbt.outputs[0].vout.serialize()
+
+    @pytest.mark.parametrize(
+        "bogus_in, bogus_out",
+        [
+            (kv(b"\x0e\xaa", TXID_B), b""),
+            (kv(b"\x0f\xaa", (7).to_bytes(4, "little")), b""),
+            (kv(b"\x10\xaa", (7).to_bytes(4, "little")), b""),
+            (b"", kv(b"\x03\xaa", (999999).to_bytes(8, "little"))),
+            (b"", kv(b"\x04\xaa", b"\x52")),
+        ],
+    )
+    def test_keyed_variants_of_keyless_fields_rejected(self, bogus_in, bogus_out):
+        # the bogus key precedes the real one so a prefix match would pick it up
+        raw = raw_v2([bogus_in + V2_IN], [bogus_out + V2_OUT])
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw)
+        view = PSBTView.view(BytesIO(raw))
+        with pytest.raises(PSBTError):
+            view.vin(0)
+            view.vout(0)
+        with pytest.raises(PSBTError):
+            view.input(0)
+            view.output(0)
+
+    def test_duplicate_prevout_fields_rejected(self):
+        raw = raw_v2([kv(b"\x0e", TXID_B) + V2_IN], [V2_OUT])
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw)
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(raw)).vin(0)
+        raw = raw_v2([V2_IN], [kv(b"\x03", bytes(8)) + V2_OUT])
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(raw)).vout(0)
+
+    def test_input_and_output_validate_required_fields(self):
+        raw = raw_v2([kv(b"\x0f", bytes(4))], [V2_OUT])
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(raw)).input(0)
+        raw = raw_v2([V2_IN], [kv(b"\x04", b"\x51")])
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(raw)).output(0)
+
+    def test_sign_does_not_emit_sigs_before_rejecting_a_later_input(self):
+        """A malformed input 1 must be caught while hashing input 0, not after."""
+        psbt = PSBT.from_string(SIGNABLE_V2_B64)
+        raw_inputs = [inp.serialize(version=2)[:-1] for inp in psbt.inputs]
+        raw_outputs = [out.serialize(version=2)[:-1] for out in psbt.outputs]
+        raw_inputs[1] = kv(b"\x0e\xaa", TXID_B) + raw_inputs[1]
+        raw = raw_v2(raw_inputs, raw_outputs)
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw)
+        view = PSBTView.view(BytesIO(raw))
+        sigs = BytesIO()
+        with pytest.raises(PSBTError):
+            view.sign_with(SIGNING_ROOT, sigs)
+        assert sigs.getvalue() == b""

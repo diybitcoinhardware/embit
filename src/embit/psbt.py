@@ -199,8 +199,9 @@ class PSBTScope(EmbitBase):
             s.seek(0)
             self.read_value(s, k)
 
-    def _validate_key(self, key):
-        if len(key) != 1 and key[:1] in self.V2_FIELDS:
+    @classmethod
+    def _validate_key(cls, key):
+        if len(key) != 1 and key[:1] in cls.V2_FIELDS:
             raise PSBTError("Invalid PSBTv2 field key")
 
     def read_value(self, stream, key, version=None):

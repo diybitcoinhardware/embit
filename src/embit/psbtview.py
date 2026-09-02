@@ -24,6 +24,7 @@ from . import script
 from .script import Script, Witness
 from . import hashes
 from .psbt import (
+    PSBT,
     PSBTError,
     CompressMode,
     InputScope,
@@ -191,6 +192,11 @@ class PSBTView:
     PSBTIN_CLS = InputScope
     PSBTOUT_CLS = OutputScope
     TX_CLS = GlobalTransactionView
+    # provides the per-scope PSBTv2 validation hooks shared with PSBT
+    PSBT_CLS = PSBT
+    # PSBTv2 fields needed to rebuild a TransactionInput / TransactionOutput
+    _V2_VIN_KEYS = (b"\x0e", b"\x0f", b"\x10")
+    _V2_VOUT_KEYS = (b"\x03", b"\x04")
 
     def __init__(
         self,
@@ -369,16 +375,26 @@ class PSBTView:
             off += skip_string(self.stream)
         return off
 
-    def _scan_scope_values(self, keys):
+    def _scan_scope_values(self, keys, scope_cls=None):
         """Reads the scope at the current cursor and returns {key: value} for the
-        requested (exact-match) keys. Leaves the cursor at the next scope."""
+        requested (exact-match) keys. Leaves the cursor at the next scope.
+
+        Keys are matched exactly, so a keyless BIP-370 field carrying keydata
+        (e.g. 0x0e||xx) never stands in for the real one, a duplicate of a
+        requested key is rejected, and when scope_cls is given every key in the
+        scope is checked with its _validate_key() - the same checks the full
+        scope parser applies."""
         found = {}
         while True:
             key = read_string(self.stream)
             # separator - end of scope
             if len(key) == 0:
                 return found
-            if key in keys and key not in found:
+            if scope_cls is not None:
+                scope_cls._validate_key(key)
+            if key in keys:
+                if key in found:
+                    raise PSBTError("Duplicated key: %s" % hexlify(key).decode())
                 found[key] = read_string(self.stream)
             else:
                 skip_string(self.stream)
@@ -414,9 +430,12 @@ class PSBTView:
             raise PSBTError("Invalid input index")
         vin = self.tx.vin(i) if self.tx else None
         self.seek_to_scope(i)
-        return self.PSBTIN_CLS.read_from(
+        inp = self.PSBTIN_CLS.read_from(
             self.stream, vin=vin, compress=compress, version=self.version
         )
+        if self.version == 2:
+            self.PSBT_CLS._validate_v2_input(inp, i)
+        return inp
 
     def output(self, i, compress=None):
         """Reads, parses and returns PSBT OutputScope #i"""
@@ -426,19 +445,16 @@ class PSBTView:
             raise PSBTError("Invalid output index")
         vout = self.tx.vout(i) if self.tx else None
         self.seek_to_scope(self.num_inputs + i)
-        return self.PSBTOUT_CLS.read_from(
+        out = self.PSBTOUT_CLS.read_from(
             self.stream, vout=vout, compress=compress, version=self.version
         )
+        if self.version == 2:
+            self.PSBT_CLS._validate_v2_output(out, i)
+        return out
 
-    # compress is not used here, but may be used by subclasses (liquid)
-    def vin(self, i, compress=None):
-        if i < 0 or i >= self.num_inputs:
-            raise PSBTError("Invalid input index")
-        if self.tx:
-            return self.tx.vin(i)
-
-        self.seek_to_scope(i)
-        v = self.get_value(b"\x0e", from_current=True)
+    def _v2_vin(self, found, i):
+        """Builds a TransactionInput from the PSBTv2 fields of input scope i."""
+        v = found.get(b"\x0e")
         if v is None:
             raise PSBTError(
                 "PSBTv2 input %d missing required PSBT_IN_PREVIOUS_TXID (0x0e)" % i
@@ -447,8 +463,7 @@ class PSBTView:
             raise PSBTError("PSBT_IN_PREVIOUS_TXID must be 32 bytes")
         txid = bytes(reversed(v))
 
-        self.seek_to_scope(i)
-        v = self.get_value(b"\x0f", from_current=True)
+        v = found.get(b"\x0f")
         if v is None:
             raise PSBTError(
                 "PSBTv2 input %d missing required PSBT_IN_OUTPUT_INDEX (0x0f)" % i
@@ -457,8 +472,7 @@ class PSBTView:
             raise PSBTError("PSBT_IN_OUTPUT_INDEX must be 4 bytes")
         vout = int.from_bytes(v, "little")
 
-        self.seek_to_scope(i)
-        v = self.get_value(b"\x10", from_current=True)
+        v = found.get(b"\x10")
         if v is None:
             v = b"\xff\xff\xff\xff"
         elif len(v) != 4:
@@ -467,15 +481,9 @@ class PSBTView:
 
         return TransactionInput(txid, vout, sequence=sequence)
 
-    # compress is not used here, but may be used by subclasses (liquid)
-    def vout(self, i, compress=None):
-        if i < 0 or i >= self.num_outputs:
-            raise PSBTError("Invalid output index")
-        if self.tx:
-            return self.tx.vout(i)
-
-        self.seek_to_scope(self.num_inputs + i)
-        v = self.get_value(b"\x03", from_current=True)
+    def _v2_vout(self, found, i):
+        """Builds a TransactionOutput from the PSBTv2 fields of output scope i."""
+        v = found.get(b"\x03")
         if v is None:
             raise PSBTError(
                 "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
@@ -487,15 +495,32 @@ class PSBTView:
         if value >= 2**63:
             raise PSBTError("PSBT_OUT_AMOUNT must be non-negative")
 
-        self.seek_to_scope(self.num_inputs + i)
-        v = self.get_value(b"\x04", from_current=True)
+        v = found.get(b"\x04")
         if v is None:
             raise PSBTError(
                 "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
             )
-        script_pubkey = Script(v)
+        return TransactionOutput(value, Script(v))
 
-        return TransactionOutput(value, script_pubkey)
+    # compress is not used here, but may be used by subclasses (liquid)
+    def vin(self, i, compress=None):
+        if i < 0 or i >= self.num_inputs:
+            raise PSBTError("Invalid input index")
+        if self.tx:
+            return self.tx.vin(i)
+        self.seek_to_scope(i)
+        found = self._scan_scope_values(self._V2_VIN_KEYS, self.PSBTIN_CLS)
+        return self._v2_vin(found, i)
+
+    # compress is not used here, but may be used by subclasses (liquid)
+    def vout(self, i, compress=None):
+        if i < 0 or i >= self.num_outputs:
+            raise PSBTError("Invalid output index")
+        if self.tx:
+            return self.tx.vout(i)
+        self.seek_to_scope(self.num_inputs + i)
+        found = self._scan_scope_values(self._V2_VOUT_KEYS, self.PSBTOUT_CLS)
+        return self._v2_vout(found, i)
 
     @property
     def locktime(self):
@@ -514,13 +539,9 @@ class PSBTView:
         Falls back to PSBT_GLOBAL_FALLBACK_LOCKTIME (or 0) when no input imposes
         a requirement.
         """
-        v = self.get_value(b"\x03")
-        if v is not None:
-            if len(v) != 4:
-                raise PSBTError("PSBT_GLOBAL_FALLBACK_LOCKTIME must be 4 bytes")
-            fallback = int.from_bytes(v, "little")
-        else:
-            fallback = 0
+        # lengths of the v2 globals were already checked by _validate_global_fields
+        v = self._global_kvs.get(b"\x03")
+        fallback = int.from_bytes(v, "little") if v is not None else 0
 
         height_locktimes = []
         time_locktimes = []
@@ -530,7 +551,7 @@ class PSBTView:
         # which is where the next scope begins, so no O(n^2) re-seeking per input.
         self.seek_to_scope(0)
         for _ in range(self.num_inputs):
-            found = self._scan_scope_values((b"\x11", b"\x12"))
+            found = self._scan_scope_values((b"\x11", b"\x12"), self.PSBTIN_CLS)
             v_height = found.get(b"\x12")
             v_time = found.get(b"\x11")
 
@@ -566,15 +587,9 @@ class PSBTView:
     @property
     def tx_version(self):
         if self._tx_version is None:
-            v = self.get_value(b"\x02")
-            if v is None:
-                if self.version == 2:
-                    raise PSBTError("Missing PSBT_GLOBAL_TX_VERSION in PSBTv2")
-                self._tx_version = 0
-            else:
-                if len(v) != 4:
-                    raise PSBTError("Invalid PSBT_GLOBAL_TX_VERSION length")
-                self._tx_version = int.from_bytes(v, "little")
+            # only reached for PSBTv2 - v0 takes it from the global tx.
+            # _validate_global_fields already checked presence and length.
+            self._tx_version = int.from_bytes(self._global_kvs[b"\x02"], "little")
         return self._tx_version
 
     def seek_to_value(self, key_start, from_current=False):
