@@ -163,14 +163,35 @@ class GlobalTransactionView:
             self._locktime = int.from_bytes(self.stream.read(4), "little")
         return self._locktime
 
-    def vin(self, i):
-        if i < 0 or i >= self.num_vin:
-            raise PSBTError("Invalid input index")
-        self.stream.seek(self.vin0_offset + self.LEN_VIN * i)
+    def _read_vin(self):
         try:
             return TransactionInput.read_from(self.stream)
         except _PARSE_ERRORS as e:
             raise PSBTError("Invalid global transaction input: %s" % e)
+
+    def _read_vout(self):
+        try:
+            return TransactionOutput.read_from(self.stream)
+        except _PARSE_ERRORS as e:
+            raise PSBTError("Invalid global transaction output: %s" % e)
+
+    def vin(self, i):
+        if i < 0 or i >= self.num_vin:
+            raise PSBTError("Invalid input index")
+        self.stream.seek(self.vin0_offset + self.LEN_VIN * i)
+        return self._read_vin()
+
+    def iter_vin(self):
+        """Yields every input in one sequential pass over the stream."""
+        self.stream.seek(self.vin0_offset)
+        for _ in range(self.num_vin):
+            yield self._read_vin()
+
+    def iter_vout(self):
+        """Yields every output in one sequential pass over the stream."""
+        self.stream.seek(self.vout0_offset)
+        for _ in range(self.num_vout):
+            yield self._read_vout()
 
     def _skip_output(self):
         """Seeks over one output"""
@@ -185,10 +206,7 @@ class GlobalTransactionView:
         while n:
             self._skip_output()
             n -= 1
-        try:
-            return TransactionOutput.read_from(self.stream)
-        except _PARSE_ERRORS as e:
-            raise PSBTError("Invalid global transaction output: %s" % e)
+        return self._read_vout()
 
 
 class PSBTView:
@@ -267,6 +285,7 @@ class PSBTView:
     def clear_cache(self):
         # cache for digests
         self._tx_locktime = None
+        self._utxo_cache = None
         self._hash_prevouts = None
         self._hash_sequence = None
         self._hash_outputs = None
@@ -537,6 +556,62 @@ class PSBTView:
         found = self._scan_scope_values(self._V2_VIN_KEYS, self.PSBTIN_CLS)
         return self._v2_vin(found, i)
 
+    def _iter_vins(self):
+        """Yields the TransactionInput of every input in one sequential pass,
+        instead of seeking from the first scope for each of them."""
+        if self.tx:
+            for vin in self.tx.iter_vin():
+                yield vin
+            return
+        self.seek_to_scope(0)
+        for i in range(self.num_inputs):
+            found = self._scan_scope_values(self._V2_VIN_KEYS, self.PSBTIN_CLS)
+            yield self._v2_vin(found, i)
+
+    def _iter_vouts(self):
+        """Yields the TransactionOutput of every output in one sequential pass."""
+        if self.tx:
+            for vout in self.tx.iter_vout():
+                yield vout
+            return
+        self.seek_to_scope(self.num_inputs)
+        for i in range(self.num_outputs):
+            found = self._scan_scope_values(self._V2_VOUT_KEYS, self.PSBTOUT_CLS)
+            yield self._v2_vout(found, i)
+
+    def _utxo_values_and_scripts(self):
+        """(values, script_pubkeys) of every input's utxo, parsed once per view.
+
+        Taproot sighashes commit to all of them, so without the cache every
+        signed input re-parsed every input scope."""
+        if self._utxo_cache is None:
+            values = []
+            scripts = []
+            # walk the input scopes sequentially when the stream can tell()
+            # where a parsed scope ended; otherwise seek to each one
+            sequential = hasattr(self.stream, "tell")
+            off = self.seek_to_scope(0) if sequential else None
+            for i in range(self.num_inputs):
+                if sequential:
+                    # tx.vin(i) moves the cursor, so restore it before parsing
+                    vin = self.tx.vin(i) if self.tx else None
+                    self.stream.seek(off)
+                    inp = self.PSBTIN_CLS.read_from(
+                        self.stream,
+                        vin=vin,
+                        compress=CompressMode.PARTIAL,
+                        version=self.version,
+                    )
+                    off = self.stream.tell()
+                else:
+                    inp = self.input(i, compress=CompressMode.PARTIAL)
+                if inp.utxo is None:
+                    raise PSBTError("Missing previous utxo on input %d" % i)
+                values.append(inp.utxo.value)
+                scripts.append(inp.utxo.script_pubkey)
+            self._utxo_cache = (values, scripts)
+        return self._utxo_cache
+
     # compress is not used here, but may be used by subclasses (liquid)
     def vout(self, i, compress=None):
         if i < 0 or i >= self.num_outputs:
@@ -654,30 +729,31 @@ class PSBTView:
         if off:
             return read_string(self.stream)
 
+    def _hash_prevouts_and_sequence(self):
+        """Both digests need the same walk over the inputs, so do it once."""
+        hp = hashlib.sha256()
+        hs = hashlib.sha256()
+        for inp in self._iter_vins():
+            hp.update(bytes(reversed(inp.txid)))
+            hp.update(inp.vout.to_bytes(4, "little"))
+            hs.update(inp.sequence.to_bytes(4, "little"))
+        self._hash_prevouts = hp.digest()
+        self._hash_sequence = hs.digest()
+
     def hash_prevouts(self):
         if self._hash_prevouts is None:
-            h = hashlib.sha256()
-            for i in range(self.num_inputs):
-                inp = self.vin(i)
-                h.update(bytes(reversed(inp.txid)))
-                h.update(inp.vout.to_bytes(4, "little"))
-            self._hash_prevouts = h.digest()
+            self._hash_prevouts_and_sequence()
         return self._hash_prevouts
 
     def hash_sequence(self):
         if self._hash_sequence is None:
-            h = hashlib.sha256()
-            for i in range(self.num_inputs):
-                inp = self.vin(i)
-                h.update(inp.sequence.to_bytes(4, "little"))
-            self._hash_sequence = h.digest()
+            self._hash_prevouts_and_sequence()
         return self._hash_sequence
 
     def hash_outputs(self):
         if self._hash_outputs is None:
             h = hashlib.sha256()
-            for i in range(self.num_outputs):
-                out = self.vout(i)
+            for out in self._iter_vouts():
                 h.update(out.serialize())
             self._hash_outputs = h.digest()
         return self._hash_outputs
@@ -808,8 +884,7 @@ class PSBTView:
             h.update(self.vin(input_index).serialize(script_pubkey))
         else:
             h.update(compact.to_bytes(self.num_inputs))
-            for i in range(self.num_inputs):
-                inp = self.vin(i)
+            for i, inp in enumerate(self._iter_vins()):
                 if input_index == i:
                     h.update(inp.serialize(script_pubkey))
                 else:
@@ -828,8 +903,7 @@ class PSBTView:
             h.update(self.vout(input_index).serialize())
         elif sh == SIGHASH.ALL:
             h.update(compact.to_bytes(self.num_outputs))
-            for i in range(self.num_outputs):
-                out = self.vout(i)
+            for out in self._iter_vouts():
                 h.update(out.serialize())
         else:
             # shouldn't happen
@@ -844,15 +918,7 @@ class PSBTView:
             raise PSBTError("Missing previous utxo on input %d" % i)
 
         if inp.is_taproot:
-            values = []
-            scripts = []
-            # TODO: not very optimal. Maybe use build_cache() or something?
-            for idx in range(self.num_inputs):
-                inp = self.input(idx)
-                if inp.utxo is None:
-                    raise PSBTError("Missing previous utxo on input %d" % idx)
-                values.append(inp.utxo.value)
-                scripts.append(inp.utxo.script_pubkey)
+            values, scripts = self._utxo_values_and_scripts()
             return self.sighash_taproot(
                 i,
                 script_pubkeys=scripts,
@@ -899,10 +965,7 @@ class PSBTView:
         # check if key is internal key
         pk = key.taproot_tweak(inp.taproot_merkle_root or b"")
         if pk.xonly() in inp.utxo.script_pubkey.data:
-            h = self.sighash(
-                input_index,
-                sighash=sighash,
-            )
+            h = self.sighash(input_index, sighash=sighash, input_scope=inp)
             sig = pk.schnorr_sign(h)
             sigdata = sig.serialize()
             if sighash != SIGHASH.DEFAULT:
@@ -924,6 +987,7 @@ class PSBTView:
             h = self.sighash(
                 input_index,
                 sighash=sighash,
+                input_scope=inp,
                 ext_flag=1,
                 script=script,
                 leaf_version=leaf_version,

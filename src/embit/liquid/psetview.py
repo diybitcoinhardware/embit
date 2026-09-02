@@ -62,7 +62,19 @@ class GlobalLTransactionView(GlobalTransactionView):
         self.stream.seek(self.vin0_offset)
         for j in range(i):
             self._skip_input()
-        return LTransactionInput.read_from(self.stream)
+        return self._read_vin()
+
+    def _read_vin(self):
+        try:
+            return LTransactionInput.read_from(self.stream)
+        except _PARSE_ERRORS as e:
+            raise PSBTError("Invalid global transaction input: %s" % e)
+
+    def _read_vout(self):
+        try:
+            return LTransactionOutput.read_from(self.stream)
+        except _PARSE_ERRORS as e:
+            raise PSBTError("Invalid global transaction output: %s" % e)
 
     def _skip_input(self):
         off = 32 + 4 + 5
@@ -102,7 +114,7 @@ class GlobalLTransactionView(GlobalTransactionView):
         while n:
             self._skip_output()
             n -= 1
-        return LTransactionOutput.read_from(self.stream)
+        return self._read_vout()
 
 
 class PSETView(PSBTView):
@@ -125,6 +137,16 @@ class PSETView(PSBTView):
 
     def vin(self, i, compress=None):
         return self.input(i, True).vin
+
+    # Liquid inputs carry issuance data the plain v2 prevout scan lacks,
+    # so keep going through the full input scope.
+    def _iter_vins(self):
+        for i in range(self.num_inputs):
+            yield self.vin(i)
+
+    def _iter_vouts(self):
+        for i in range(self.num_outputs):
+            yield self.vout(i)
 
     def blinded_vin(self, i, compress=None):
         return self.input(i, compress).blinded_vin
