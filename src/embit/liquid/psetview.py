@@ -45,7 +45,7 @@ class GlobalLTransactionView(GlobalTransactionView):
     def num_vout(self):
         if self._num_vout is None:
             self.stream.seek(self.num_vout_offset)
-            self._num_vout = compact.read_from(self.stream)
+            self._num_vout = read_compact(self.stream)
         return self._num_vout
 
     @property
@@ -91,8 +91,8 @@ class GlobalLTransactionView(GlobalTransactionView):
         c = self.stream.read(1)
         if c != b"\x00":
             self.stream.seek(32, 1)  # ecdh_pubkey
-        l = compact.read_from(self.stream)
-        self.stream.seek(l, 1)  # scriptpubkey
+        l = read_compact(self.stream)
+        skip_exact(self.stream, l)  # scriptpubkey
 
     def vout(self, i):
         if i < 0 or i >= self.num_vout:
@@ -169,7 +169,7 @@ class PSETView(PSBTView):
                 if not rangeproof_offset:
                     h.update(b"\x00")
                 else:
-                    l = compact.read_from(self.stream)
+                    l = read_compact(self.stream)
                     h.update(compact.to_bytes(l))
                     self._hash_to(h, l)
 
@@ -185,7 +185,7 @@ class PSETView(PSBTView):
                 if not surj_proof_offset:
                     h.update(b"\x00")
                 else:
-                    l = compact.read_from(self.stream)
+                    l = read_compact(self.stream)
                     h.update(compact.to_bytes(l))
                     self._hash_to(h, l)
             self._hash_rangeproofs = h.digest()

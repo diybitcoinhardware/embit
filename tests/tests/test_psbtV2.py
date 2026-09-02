@@ -4,7 +4,7 @@ https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki#user-content-Test
 """
 
 import pytest
-from binascii import unhexlify
+from binascii import unhexlify, a2b_base64
 from io import BytesIO
 from embit.psbt import (
     PSBT,
@@ -754,3 +754,150 @@ class TestPSBTViewV2ScopeFields:
         with pytest.raises(PSBTError):
             view.sign_with(SIGNING_ROOT, sigs)
         assert sigs.getvalue() == b""
+
+
+def _exercise_view(raw, compress=CompressMode.KEEP_ALL):
+    """Parses with PSBTView and touches every lazily-read field."""
+    view = PSBTView.view(BytesIO(raw), compress=compress)
+    view.tx_version
+    view.locktime
+    for i in range(view.num_inputs):
+        view.input(i)
+        view.vin(i)
+    for i in range(view.num_outputs):
+        view.output(i)
+        view.vout(i)
+    view.write_to(BytesIO())
+    return view
+
+
+class TestPSBTErrorHygiene:
+    """Malformed input must surface as PSBTError from every parse path"""
+
+    V2_UPDATED = unhexlify(
+        "70736274ff01020402000000010401010105010201fb0402000000000100520200000001c1aa256e214b96a1822f93de42bff3b5f3ff8d0519306e3515d7515a5e805b120000000000ffffffff0118c69a3b00000000160014b0a3af144208412693ca7d166852b52db0aef06e0000000001011f18c69a3b00000000160014b0a3af144208412693ca7d166852b52db0aef06e010e200b0ad921419c1c8719735d72dc739f9ea9e0638d1fe4c1eef0f9944084815fc8010f040000000000220202d601f84846a6755f776be00e3d9de8fb10acc935fb83c45fb0162d4cad5ab79218f69d873e540000800100008000000080000000002a0000000103080008af2f000000000104160014c430f64c4756da310dbd1a085572ef299926272c00220202e36fbff53dd534070cf8fd396614680f357a9b85db7340bf1cfa745d2ad7b34018f69d873e54000080010000800000008001000000640000000103088bbdeb0b0000000001041600144dd193ac964a56ac1b9e1cca8454fe2f474f851300"
+    )
+    SAMPLES = [V2_UPDATED, a2b_base64(VIEW_PSBTS[0]), a2b_base64(VIEW_PSBTS[1])]
+
+    @pytest.mark.parametrize("compress", [CompressMode.KEEP_ALL, CompressMode.PARTIAL])
+    def test_truncated_input(self, compress):
+        for raw in self.SAMPLES:
+            for n in range(len(raw)):
+                with pytest.raises(PSBTError):
+                    PSBT.parse(raw[:n], compress=compress)
+                try:
+                    _exercise_view(raw[:n], compress=compress)
+                except PSBTError:
+                    pass
+
+    @pytest.mark.parametrize("compress", [CompressMode.KEEP_ALL, CompressMode.PARTIAL])
+    def test_corrupted_byte(self, compress):
+        for raw in self.SAMPLES:
+            for n in range(len(raw)):
+                flipped = raw[:n] + bytes([raw[n] ^ 0xFF]) + raw[n + 1 :]
+                try:
+                    PSBT.parse(flipped, compress=compress)
+                except PSBTError:
+                    pass
+                try:
+                    _exercise_view(flipped, compress=compress)
+                except PSBTError:
+                    pass
+
+    @pytest.mark.parametrize("separator", [b"\xfd\x00\x00", b"\xfd", b"\xfe\x00\x00"])
+    def test_non_canonical_or_truncated_separator(self, separator):
+        raw = raw_v2([V2_IN], [V2_OUT])
+        assert raw.endswith(b"\x00")
+        raw = raw[:-1] + separator
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw)
+        with pytest.raises(PSBTError):
+            _exercise_view(raw)
+
+    def test_compact_rejects_non_canonical_and_truncated(self):
+        with pytest.raises(ValueError):
+            compact.from_bytes(b"\xfd\x00\x00")
+        with pytest.raises(ValueError):
+            compact.from_bytes(b"\xfe\xff\xff\x00\x00")
+        with pytest.raises(RuntimeError):
+            compact.from_bytes(b"\xfd\x00")
+        assert compact.from_bytes(b"\xfd\xfd\x00") == 0xFD
+        assert compact.from_bytes(b"\xfe\x00\x00\x01\x00") == 0x10000
+
+    def test_malformed_xpub_global(self):
+        raw = raw_v2([V2_IN], [V2_OUT], extra_globals=kv(b"\x01\x00", bytes(4)))
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw)
+        with pytest.raises(PSBTError):
+            _exercise_view(raw)
+        # right length, garbage content
+        raw = raw_v2([V2_IN], [V2_OUT], extra_globals=kv(b"\x01" + bytes(78), bytes(4)))
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw)
+
+    def test_corrupted_global_transaction(self):
+        raw = a2b_base64(VIEW_PSBTS[0])
+        # global tx value starts right after magic + key(00) + value length
+        assert raw[5:7] == b"\x01\x00"
+        tx_len_size = len(compact.to_bytes(len(raw)))  # >= 1
+        corrupt = raw[: 7 + tx_len_size + 4] + b"\xff" * 8 + raw[7 + tx_len_size + 12 :]
+        with pytest.raises(PSBTError):
+            PSBT.parse(corrupt)
+        with pytest.raises(PSBTError):
+            _exercise_view(corrupt)
+
+    def test_parse_rejects_trailing_bytes(self):
+        raw = raw_v2([V2_IN], [V2_OUT])
+        with pytest.raises(PSBTError):
+            PSBT.parse(raw + b"\x00")
+
+    def test_corrupted_nested_value_reports_key(self):
+        # bip32 derivation with a 1-byte pubkey in the key
+        raw = raw_v2([V2_IN + kv(b"\x06\x02", bytes(8))], [V2_OUT])
+        with pytest.raises(PSBTError, match="0602"):
+            PSBT.parse(raw)
+        with pytest.raises(PSBTError):
+            _exercise_view(raw)
+
+    def test_bad_global_count_in_constructor(self):
+        with pytest.raises(PSBTError):
+            PSBT(unknown={b"\x04": b"\xfd"}, version=2)
+
+    def test_serialize_rejects_out_of_range_fields(self):
+        def v2():
+            psbt = PSBT.create_v2()
+            inp = InputScope()
+            inp.txid = bytes(32)
+            inp.vout = 0
+            psbt.add_input(inp)
+            out = OutputScope()
+            out.value = 1
+            out.script_pubkey = Script(b"\x51")
+            psbt.add_output(out)
+            return psbt
+
+        psbt = v2()
+        psbt.serialize()
+        for attr, value in [
+            ("tx_modifiable_flags", 300),
+            ("locktime", 2**32),
+            ("tx_version", -1),
+        ]:
+            psbt = v2()
+            setattr(psbt, attr, value)
+            with pytest.raises(PSBTError):
+                psbt.serialize()
+        for attr, value in [
+            ("sequence", -1),
+            ("vout", 2**32),
+            ("required_height_locktime", 2**40),
+            ("txid", bytes(31)),
+        ]:
+            psbt = v2()
+            setattr(psbt.inputs[0], attr, value)
+            with pytest.raises(PSBTError):
+                psbt.serialize()
+        psbt = v2()
+        psbt.outputs[0].value = 2**63
+        with pytest.raises(PSBTError):
+            psbt.serialize()

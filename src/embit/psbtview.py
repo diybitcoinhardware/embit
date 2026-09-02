@@ -35,6 +35,10 @@ from .psbt import (
     read_string,
     ser_string,
     skip_string,
+    read_compact,
+    read_exact,
+    skip_exact,
+    _PARSE_ERRORS,
     _GLOBAL_COUNT_FIELDS,
     _GLOBAL_FIXED_VALUE_LENGTHS,
     _validate_global_fields,
@@ -50,15 +54,13 @@ from .transaction import (
 
 
 def _read_global_value(stream, key):
-    value_len = compact.read_from(stream)
+    value_len = read_compact(stream)
     if key in _GLOBAL_FIXED_VALUE_LENGTHS:
         if value_len != _GLOBAL_FIXED_VALUE_LENGTHS[key]:
             raise PSBTError("Invalid global field length")
     elif key in _GLOBAL_COUNT_FIELDS and value_len > 9:
         raise PSBTError("Invalid global count length")
-    value = stream.read(value_len)
-    if len(value) != value_len:
-        raise PSBTError("Failed to read %d bytes" % value_len)
+    value = read_exact(stream, value_len)
     return value, len(compact.to_bytes(value_len)) + value_len
 
 
@@ -118,7 +120,7 @@ class GlobalTransactionView:
     def num_vin(self):
         if self._num_vin is None:
             self.stream.seek(self.offset + self.NUM_VIN_OFFSET)
-            self._num_vin = compact.read_from(self.stream)
+            self._num_vin = read_compact(self.stream)
         return self._num_vin
 
     @property
@@ -126,7 +128,7 @@ class GlobalTransactionView:
         if self._num_vout is None:
             # version, n_vin, n_vin * len(vin)
             self.stream.seek(self.vin0_offset + self.LEN_VIN * self.num_vin)
-            self._num_vout = compact.read_from(self.stream)
+            self._num_vout = read_compact(self.stream)
         return self._num_vout
 
     @property
@@ -162,13 +164,15 @@ class GlobalTransactionView:
         if i < 0 or i >= self.num_vin:
             raise PSBTError("Invalid input index")
         self.stream.seek(self.vin0_offset + self.LEN_VIN * i)
-        return TransactionInput.read_from(self.stream)
+        try:
+            return TransactionInput.read_from(self.stream)
+        except _PARSE_ERRORS as e:
+            raise PSBTError("Invalid global transaction input: %s" % e)
 
     def _skip_output(self):
         """Seeks over one output"""
         self.stream.seek(8, 1)
-        l = compact.read_from(self.stream)
-        self.stream.seek(l, 1)
+        skip_exact(self.stream, read_compact(self.stream))
 
     def vout(self, i):
         if i < 0 or i >= self.num_vout:
@@ -178,7 +182,10 @@ class GlobalTransactionView:
         while n:
             self._skip_output()
             n -= 1
-        return TransactionOutput.read_from(self.stream)
+        try:
+            return TransactionOutput.read_from(self.stream)
+        except _PARSE_ERRORS as e:
+            raise PSBTError("Invalid global transaction output: %s" % e)
 
 
 class PSBTView:
@@ -301,14 +308,24 @@ class PSBTView:
                     raise PSBTError("Duplicate global transaction")
                 if b"\x04" in global_kvs or b"\x05" in global_kvs:
                     raise PSBTError("Invalid global transaction")
-                tx_len = compact.read_from(stream)
+                tx_len = read_compact(stream)
                 cur += len(compact.to_bytes(tx_len))
                 tx_offset = cur
                 tx = cls.TX_CLS(stream, tx_offset)
-                num_inputs = tx.num_vin
-                num_outputs = tx.num_vout
+                try:
+                    num_inputs = tx.num_vin
+                    num_outputs = tx.num_vout
+                except (OverflowError, ValueError, OSError):
+                    raise PSBTError("Invalid global transaction")
+                # every input takes at least 41 bytes and every output 9,
+                # so the counts must fit in the declared transaction length
+                if tx.vout0_offset + 9 * num_outputs > tx_offset + tx_len:
+                    raise PSBTError("Invalid global transaction")
                 # seek to the end of transaction
-                stream.seek(tx_offset + tx_len)
+                try:
+                    stream.seek(tx_offset + tx_len)
+                except (OverflowError, ValueError, OSError):
+                    raise PSBTError("Invalid global transaction length")
                 cur += tx_len
             else:
                 if key in global_kvs or key in deferred_kvs:
@@ -320,10 +337,10 @@ class PSBTView:
                     if key == b"\xfb":
                         version = int.from_bytes(value, "little")
                 else:
-                    value_len = compact.read_from(stream)
+                    value_len = read_compact(stream)
                     header = len(compact.to_bytes(value_len))
                     deferred_kvs[key] = (cur + header, value_len)
-                    stream.seek(value_len, 1)
+                    skip_exact(stream, value_len)
                     cur += header + value_len
         first_scope = cur
         if version not in (None, 0, 2):
@@ -346,10 +363,7 @@ class PSBTView:
             # (and only now) we need the values we skipped over above.
             for k, (v_off, v_len) in deferred_kvs.items():
                 stream.seek(v_off)
-                v = stream.read(v_len)
-                if len(v) != v_len:
-                    raise PSBTError("Failed to read %d bytes" % v_len)
-                global_kvs[k] = v
+                global_kvs[k] = read_exact(stream, v_len)
         return cls(
             stream,
             num_inputs,

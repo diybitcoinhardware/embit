@@ -43,6 +43,9 @@ _GLOBAL_COUNT_FIELDS = (b"\x04", b"\x05")
 def _validate_global_key(key):
     if len(key) != 1 and key[:1] in _GLOBAL_SINGLETON_FIELDS:
         raise PSBTError("Invalid global field key")
+    # PSBT_GLOBAL_XPUB: keydata is a 78-byte serialized extended public key
+    if key[:1] == b"\x01" and len(key) != 79:
+        raise PSBTError("Invalid PSBT_GLOBAL_XPUB key length")
 
 
 def _validate_global_fields(version, has_tx, fields):
@@ -71,24 +74,63 @@ def _validate_global_fields(version, has_tx, fields):
                 raise PSBTError("Invalid global count")
 
 
+# exceptions nested parsers (Transaction, Script, keys, compact) raise on
+# malformed input; PSBT parse paths convert them to PSBTError
+_PARSE_ERRORS = (EmbitError, ValueError, IndexError, OverflowError, RuntimeError)
+
+
 def ser_string(stream, s: bytes) -> int:
     return stream.write(compact.to_bytes(len(s))) + stream.write(s)
 
 
-def read_string(stream) -> bytes:
+def _ser_uint(stream, key: bytes, value, length: int, name: str) -> int:
+    """Serializes a keyless field holding a fixed-width little-endian unsigned int."""
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 0
+        or value >> (8 * length)
+    ):
+        raise PSBTError("%s must be an unsigned %d-byte integer" % (name, length))
+    return ser_string(stream, key) + ser_string(
+        stream, value.to_bytes(length, "little")
+    )
+
+
+def read_compact(stream) -> int:
+    """compact.read_from() that raises PSBTError on truncated or non-canonical input"""
     try:
-        l = compact.read_from(stream)
-    except (RuntimeError, TypeError) as e:
-        raise PSBTError("Failed to read key/value length: %s" % e)
-    s = stream.read(l)
+        return compact.read_from(stream)
+    except (RuntimeError, ValueError) as e:
+        raise PSBTError("Failed to read compact int: %s" % e)
+
+
+def read_exact(stream, l: int) -> bytes:
+    """Reads exactly l bytes or raises PSBTError (also on absurd lengths)."""
+    try:
+        s = stream.read(l)
+    except (OverflowError, MemoryError):
+        raise PSBTError("Failed to read %d bytes" % l)
     if len(s) != l:
         raise PSBTError("Failed to read %d bytes" % l)
     return s
 
 
+def skip_exact(stream, l: int) -> None:
+    """Moves the cursor l bytes forward or raises PSBTError on absurd lengths."""
+    try:
+        stream.seek(l, 1)
+    except (OverflowError, MemoryError, OSError, ValueError):
+        raise PSBTError("Failed to skip %d bytes" % l)
+
+
+def read_string(stream) -> bytes:
+    return read_exact(stream, read_compact(stream))
+
+
 def skip_string(stream) -> int:
-    l = compact.read_from(stream)
-    stream.seek(l, 1)
+    l = read_compact(stream)
+    skip_exact(stream, l)
     return len(compact.to_bytes(l)) + l
 
 
@@ -197,7 +239,16 @@ class PSBTScope(EmbitBase):
             s = BytesIO()
             ser_string(s, self.unknown[k])
             s.seek(0)
-            self.read_value(s, k)
+            self._read_value_checked(s, k)
+
+    def _read_value_checked(self, stream, key, version=None):
+        """read_value() that reports malformed nested data as PSBTError."""
+        try:
+            self.read_value(stream, key, version=version)
+        except PSBTError:
+            raise
+        except _PARSE_ERRORS as e:
+            raise PSBTError("Invalid value for key %s: %s" % (hexlify(key).decode(), e))
 
     @classmethod
     def _validate_key(cls, key):
@@ -228,7 +279,7 @@ class PSBTScope(EmbitBase):
                 break
             if version != 2 and key in res.V2_FIELDS:
                 raise PSBTError("PSBTv2 field is not allowed in PSBTv0")
-            res.read_value(stream, key)
+            res._read_value_checked(stream, key)
         return res
 
 
@@ -392,7 +443,7 @@ class InputScope(PSBTScope):
             elif self.non_witness_utxo is not None:
                 raise PSBTError("Duplicated utxo value")
             else:
-                compact.read_from(stream)
+                read_compact(stream)
                 # For PSBTv2, PSBT_IN_OUTPUT_INDEX may follow PSBT_IN_NON_WITNESS_UTXO;
                 # use the pre-scanned vout (set by read_from) when the field hasn't
                 # been parsed yet so the OOM protection is key-order independent.
@@ -578,7 +629,7 @@ class InputScope(PSBTScope):
             pub = ec.PublicKey.from_xonly(k[1:])
             if pub not in self.taproot_bip32_derivations:
                 b = BytesIO(v)
-                num_leaf_hashes = compact.read_from(b)
+                num_leaf_hashes = read_compact(b)
                 leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
                 if not all([len(leaf) == 32 for leaf in leaf_hashes]):
                     raise PSBTError("Invalid length of taproot leaf hashes")
@@ -610,8 +661,9 @@ class InputScope(PSBTScope):
             r += ser_string(stream, b"\x02" + pub.serialize())
             r += ser_string(stream, self.partial_sigs[pub])
         if self.sighash_type is not None:
-            r += stream.write(b"\x01\x03")
-            r += ser_string(stream, self.sighash_type.to_bytes(4, "little"))
+            r += _ser_uint(
+                stream, b"\x03", self.sighash_type, 4, "PSBT_IN_SIGHASH_TYPE"
+            )
         if self.redeem_script is not None:
             r += stream.write(b"\x01\x04")
             r += self.redeem_script.write_to(stream)  # script serialization has length
@@ -630,27 +682,29 @@ class InputScope(PSBTScope):
 
         if version == 2:
             if self.txid is not None:
+                if len(self.txid) != 32:
+                    raise PSBTError("PSBT_IN_PREVIOUS_TXID must be 32 bytes")
                 r += ser_string(stream, b"\x0e")
                 r += ser_string(stream, bytes(reversed(self.txid)))
             if self.vout is not None:
-                r += ser_string(stream, b"\x0f")
-                r += ser_string(stream, self.vout.to_bytes(4, "little"))
+                r += _ser_uint(stream, b"\x0f", self.vout, 4, "PSBT_IN_OUTPUT_INDEX")
             if self.sequence is not None:
-                r += ser_string(stream, b"\x10")
-                r += ser_string(stream, self.sequence.to_bytes(4, "little"))
-
-            # Add required time locktime if present
+                r += _ser_uint(stream, b"\x10", self.sequence, 4, "PSBT_IN_SEQUENCE")
             if self.required_time_locktime is not None:
-                r += ser_string(stream, b"\x11")
-                r += ser_string(
-                    stream, self.required_time_locktime.to_bytes(4, "little")
+                r += _ser_uint(
+                    stream,
+                    b"\x11",
+                    self.required_time_locktime,
+                    4,
+                    "PSBT_IN_REQUIRED_TIME_LOCKTIME",
                 )
-
-            # Add required height locktime if present
             if self.required_height_locktime is not None:
-                r += ser_string(stream, b"\x12")
-                r += ser_string(
-                    stream, self.required_height_locktime.to_bytes(4, "little")
+                r += _ser_uint(
+                    stream,
+                    b"\x12",
+                    self.required_height_locktime,
+                    4,
+                    "PSBT_IN_REQUIRED_HEIGHT_LOCKTIME",
                 )
 
         # PSBT_IN_TAP_KEY_SIG
@@ -732,7 +786,7 @@ class InputScope(PSBTScope):
             # separator
             if len(key) == 0:
                 break
-            res.read_value(stream, key, version=version)
+            res._read_value_checked(stream, key, version=version)
         del res._prescan_vout
         return res
 
@@ -841,7 +895,7 @@ class OutputScope(PSBTScope):
             pub = ec.PublicKey.from_xonly(k[1:])
             if pub not in self.taproot_bip32_derivations:
                 b = BytesIO(v)
-                num_leaf_hashes = compact.read_from(b)
+                num_leaf_hashes = read_compact(b)
                 leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
                 if not all([len(leaf) == 32 for leaf in leaf_hashes]):
                     raise PSBTError("Invalid length of taproot leaf hashes")
@@ -867,8 +921,10 @@ class OutputScope(PSBTScope):
 
         if version == 2:
             if self.value is not None:
-                r += ser_string(stream, b"\x03")
-                r += ser_string(stream, self.value.to_bytes(8, "little"))
+                # BIP-370: signed int64, the top half is not representable
+                if self.value >= 2**63:
+                    raise PSBTError("PSBT_OUT_AMOUNT must be non-negative")
+                r += _ser_uint(stream, b"\x03", self.value, 8, "PSBT_OUT_AMOUNT")
             if self.script_pubkey is not None:
                 r += ser_string(stream, b"\x04")
                 r += self.script_pubkey.write_to(stream)
@@ -906,7 +962,7 @@ class OutputScope(PSBTScope):
             # separator
             if len(key) == 0:
                 break
-            res.read_value(stream, key, version=version)
+            res._read_value_checked(stream, key, version=version)
         return res
 
 
@@ -1097,20 +1153,24 @@ class PSBT(EmbitBase):
 
         if self.version == 2:
             tx_version = self.tx_version if self.tx_version is not None else 2
-            r += ser_string(stream, b"\x02")
-            r += ser_string(stream, tx_version.to_bytes(4, "little"))
+            r += _ser_uint(stream, b"\x02", tx_version, 4, "PSBT_GLOBAL_TX_VERSION")
             if self.locktime is not None:
-                r += ser_string(stream, b"\x03")
-                r += ser_string(stream, self.locktime.to_bytes(4, "little"))
+                r += _ser_uint(
+                    stream, b"\x03", self.locktime, 4, "PSBT_GLOBAL_FALLBACK_LOCKTIME"
+                )
             r += ser_string(stream, b"\x04")
             r += ser_string(stream, compact.to_bytes(len(self.inputs)))
             r += ser_string(stream, b"\x05")
             r += ser_string(stream, compact.to_bytes(len(self.outputs)))
             if self.tx_modifiable_flags is not None:
-                r += ser_string(stream, b"\x06")
-                r += ser_string(stream, bytes([self.tx_modifiable_flags]))
-            r += ser_string(stream, b"\xfb")
-            r += ser_string(stream, self.version.to_bytes(4, "little"))
+                r += _ser_uint(
+                    stream,
+                    b"\x06",
+                    self.tx_modifiable_flags,
+                    1,
+                    "PSBT_GLOBAL_TX_MODIFIABLE",
+                )
+            r += _ser_uint(stream, b"\xfb", self.version, 4, "PSBT_GLOBAL_VERSION")
 
         r += self._write_extra_globals(stream)
         # unknown
@@ -1126,6 +1186,14 @@ class PSBT(EmbitBase):
         for out in self.outputs:
             r += out.write_to(stream, version=self.version)
         return r
+
+    @classmethod
+    def parse(cls, s: bytes, *args, **kwargs):
+        stream = BytesIO(s)
+        res = cls.read_from(stream, *args, **kwargs)
+        if len(stream.read(1)) > 0:
+            raise PSBTError("Unexpected extra bytes")
+        return res
 
     @classmethod
     def from_base64(cls, b64, compress=CompressMode.KEEP_ALL):
@@ -1207,7 +1275,10 @@ class PSBT(EmbitBase):
                 raise PSBTError("PSBTv2 missing required PSBT_GLOBAL_TX_VERSION (0x02)")
         else:  # PSBTv0 (version is None or 0)
             tx_bytes = global_kvs.pop(b"\x00")  # Remove so it's not in unknown
-            tx_for_v0 = cls.TX_CLS.parse(tx_bytes)
+            try:
+                tx_for_v0 = cls.TX_CLS.parse(tx_bytes)
+            except _PARSE_ERRORS as e:
+                raise PSBTError("Invalid global transaction: %s" % e)
             psbt = cls(tx=tx_for_v0, unknown=global_kvs, version=version)
 
         if version == 2:
@@ -1270,6 +1341,13 @@ class PSBT(EmbitBase):
 
         return psbt
 
+    @staticmethod
+    def _parse_count(value):
+        try:
+            return compact.from_bytes(value)
+        except (ValueError, RuntimeError) as e:
+            raise PSBTError("Invalid global count: %s" % e)
+
     def parse_unknowns(self):
         # Handle PSBT_GLOBAL_VERSION first
         if b"\xfb" in self.unknown:
@@ -1284,8 +1362,13 @@ class PSBT(EmbitBase):
         for k in list(self.unknown):
             # xpub field
             if k[0] == 0x01:
-                xpub = bip32.HDKey.parse(k[1:])
-                self.xpubs[xpub] = DerivationPath.parse(self.unknown.pop(k))
+                try:
+                    xpub = bip32.HDKey.parse(k[1:])
+                    self.xpubs[xpub] = DerivationPath.parse(self.unknown.pop(k))
+                except PSBTError:
+                    raise
+                except _PARSE_ERRORS as e:
+                    raise PSBTError("Invalid PSBT_GLOBAL_XPUB: %s" % e)
             elif k == b"\x02":
                 if self.version == 2:
                     v = self.unknown.pop(k)
@@ -1303,7 +1386,7 @@ class PSBT(EmbitBase):
                     if self._raw_input_count_from_global is not None:
                         self.unknown.pop(k, None)
                         continue
-                    self._raw_input_count_from_global = compact.from_bytes(
+                    self._raw_input_count_from_global = self._parse_count(
                         self.unknown.pop(k)
                     )
                     # Store count only; do not pre-allocate objects to avoid
@@ -1313,7 +1396,7 @@ class PSBT(EmbitBase):
                     if self._raw_output_count_from_global is not None:
                         self.unknown.pop(k, None)
                         continue
-                    self._raw_output_count_from_global = compact.from_bytes(
+                    self._raw_output_count_from_global = self._parse_count(
                         self.unknown.pop(k)
                     )
                     # Store count only; do not pre-allocate objects to avoid
