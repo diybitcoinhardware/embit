@@ -44,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   constructor argument with `version=2`.
 - Signing an input without a utxo raises `PSBTError` instead of
   `AttributeError`.
+- Taproot sighashes with `ANYONECANPAY` hashed the whole serialized input
+  instead of the outpoint, and `SIGHASH_SINGLE` hashed the output instead of
+  its SHA256, in both `Transaction` and `PSBTView` (#65).
+- `PSBT.parse` rejected a PSBTv0 whose unsigned transaction has no inputs,
+  taking the zero input count for a segwit marker (#117).
+- `PSET` v2 outputs without an asset or asset commitment are rejected at parse
+  time instead of failing with `TypeError` when hashed.
 
 ## [0.8.2] - 2026-08-08
 
