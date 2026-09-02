@@ -14,10 +14,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unsigned transaction reconstruction, and `PSBT_GLOBAL_TX_MODIFIABLE`
   updates on signing.
 
+### Changed
+
+- `PSBTView.locktime` now has the same meaning as `PSBT.locktime` (the raw
+  fallback field for PSBTv2); the derived transaction locktime is
+  `PSBTView.determine_locktime()`.
+- `PSBTView.view()` walks every input and output map once and rejects a PSBT
+  with trailing data or fewer maps than the global counts declare.
+- `compact.read_from` rejects non-canonical and truncated compact-size
+  encodings, as Bitcoin Core does.
+- `PSBTView` hashes prevouts, sequences and outputs in a single pass and
+  caches the per-input utxo data used by taproot sighashes.
+
 ### Fixed
 
 - Validate PSBTv2 count fields canonically and raise `PSBTError` instead of
   `RuntimeError`/`ValueError` on malformed values in both parse paths.
+- `PSBTView` matched PSBTv2 prevout and output fields by key prefix, so a
+  keyed or duplicated field could feed a wrong value into the sighash.
+- Every malformed PSBT now raises `PSBTError` from both `PSBT` and
+  `PSBTView`, including truncated input, corrupted nested transactions,
+  keys and scripts, and out-of-range values on serialization.
+- `PSBT_IN_NON_WITNESS_UTXO` is held to its declared length.
+- `PSET` signed PSETv2 with the fallback locktime instead of the BIP-370
+  derived one, and rewrote a zero input sequence to `0xffffffff`.
+- `PSBT` and `PSBTView` now write the PSBTv2 global map in the same order and
+  both store `PSBT_IN_TAP_KEY_SIG` for taproot key-path signatures.
+- `InputScope`/`OutputScope` accept PSBTv2 fields through the `unknown`
+  constructor argument with `version=2`.
+- Signing an input without a utxo raises `PSBTError` instead of
+  `AttributeError`.
 
 ## [0.8.2] - 2026-08-08
 
