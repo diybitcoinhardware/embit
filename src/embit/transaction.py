@@ -16,6 +16,8 @@ class SIGHASH:
     ALL = const(1)
     NONE = const(2)
     SINGLE = const(3)
+    # Opt-in to the unified signature hash; see Tx.sighash_unified().
+    UNIFIED = const(0x20)
     ANYONECANPAY = const(0x80)
 
     @classmethod
@@ -28,6 +30,40 @@ class SIGHASH:
         if sighash not in [cls.DEFAULT, cls.ALL, cls.NONE, cls.SINGLE]:
             raise TransactionError("Invalid SIGHASH type")
         return sighash, anyonecanpay
+
+    @classmethod
+    def check_unified(cls, sighash: int, script_type: int = 0):
+        """Validate a hash type for the unified algorithm.
+
+        The opt-in bit must be set. Beyond that each script type keeps the
+        reading it has today: bare and witness v0 take the legacy one, where
+        anything that is not NONE or SINGLE means ALL, while taproot and
+        tapscript keep BIP341's, which refuses a hash type it does not define.
+        """
+        # Consensus only ever sees the last byte of a signature, so anything
+        # outside that range is a caller error rather than a hash type.
+        if not 0 <= sighash <= 0xFF:
+            raise TransactionError("SIGHASH type out of range")
+        if not sighash & cls.UNIFIED:
+            raise TransactionError("SIGHASH_UNIFIED is not set")
+        anyonecanpay = bool(sighash & cls.ANYONECANPAY)
+        sh = sighash & 0x1F
+        if script_type in (2, 3):
+            if sighash & ~(0x1F | cls.UNIFIED | cls.ANYONECANPAY):
+                raise TransactionError("Undefined bits set in SIGHASH type")
+            if sh not in [cls.ALL, cls.NONE, cls.SINGLE]:
+                raise TransactionError("Invalid SIGHASH type")
+        return sh, anyonecanpay
+
+
+class UNIFIED_SCRIPT_TYPE:
+    """Domain separation, so a signature made for one script type can never be
+    valid for another."""
+
+    BARE = const(0)  # bare and P2SH
+    WITNESS_V0 = const(1)
+    TAPROOT = const(2)  # key path
+    TAPSCRIPT = const(3)
 
 
 # util functions
@@ -191,15 +227,111 @@ class Transaction(EmbitBase):
             self._hash_outputs = h.digest()
         return self._hash_outputs
 
+    # Keyed on what it was computed over, because these take the spent outputs as an
+    # argument rather than reading them off self: one Transaction can be asked for two
+    # digests over two different sets, and each must get its own.
     def hash_amounts(self, amounts):
-        if self._hash_amounts is None:
-            self._hash_amounts = hash_amounts(amounts)
-        return self._hash_amounts
+        key = tuple(amounts)
+        if self._hash_amounts is None or self._hash_amounts[0] != key:
+            self._hash_amounts = (key, hash_amounts(amounts))
+        return self._hash_amounts[1]
 
     def hash_script_pubkeys(self, script_pubkeys):
-        if self._hash_script_pubkeys is None:
-            self._hash_script_pubkeys = hash_script_pubkeys(script_pubkeys)
-        return self._hash_script_pubkeys
+        key = tuple(bytes(s.data) for s in script_pubkeys)
+        if self._hash_script_pubkeys is None or self._hash_script_pubkeys[0] != key:
+            self._hash_script_pubkeys = (key, hash_script_pubkeys(script_pubkeys))
+        return self._hash_script_pubkeys[1]
+
+    def sighash_unified(
+        self,
+        input_index,
+        script_type,
+        script_pubkeys,
+        values,
+        sighash,
+        script_code=None,
+        annex=None,
+        tapleaf_hash=None,
+        codeseparator_pos=None,
+    ):
+        """Unified opt-in signature hash, one message format for every script
+        type. See doc/unified-sighash.md in Bitcoin Knots.
+
+        script_code is required for BARE and WITNESS_V0: the scriptPubKey for a
+        bare input, the redeemScript for P2SH, the witnessScript for P2WSH, and
+        for P2WPKH the implied P2PKH script as in BIP143.
+
+        tapleaf_hash and codeseparator_pos apply to TAPSCRIPT only.
+        """
+        if input_index < 0 or input_index >= len(self.vin):
+            raise TransactionError("Invalid input index")
+        if len(values) != len(self.vin) or len(script_pubkeys) != len(self.vin):
+            raise TransactionError("All spent outputs are required")
+        if script_type not in (0, 1, 2, 3):
+            raise TransactionError("Invalid script type")
+        if script_type in (0, 1) and script_code is None:
+            raise TransactionError("script_code is required for this script type")
+        if script_type == 3 and tapleaf_hash is None:
+            raise TransactionError("tapleaf_hash is required for tapscript")
+        sh, anyonecanpay = SIGHASH.check_unified(sighash, script_type)
+
+        h = hashes.tagged_hash_init("UnifiedSighash", b"")
+        # Laid out as BIP341 lays out its message, so the two can be read side by side. The epoch
+        # is BIP341's, kept so a later revision has the same room to move that BIP341 left itself.
+        h.update(b"\x00")
+        # One byte, as BIP341 writes it and as the signature carries it: consensus reads the hash
+        # type from the last byte of the signature, so a wider field could hold a value no
+        # verifier would ever reconstruct.
+        h.update(bytes([sighash]))
+        h.update(self.version.to_bytes(4, "little"))
+        # The locktime is committed to as five bytes rather than the four it occupies in a
+        # transaction. Four run out on 2106-02-07, and a hardfork widening the field later
+        # would otherwise have to change this message and invalidate every signature made
+        # under it. The fifth byte is zero until something sets it.
+        h.update(self.locktime.to_bytes(4, "little"))
+        h.update(b"\x00")
+        if not anyonecanpay:
+            h.update(self.hash_prevouts())
+            h.update(self.hash_amounts(values))
+            h.update(self.hash_script_pubkeys(script_pubkeys))
+            h.update(self.hash_sequence())
+        if sh not in (SIGHASH.NONE, SIGHASH.SINGLE):
+            # ALL, and every value that is neither NONE nor SINGLE.
+            h.update(self.hash_outputs())
+        # Where BIP341 writes its spend type. It has an annex bit to pack in there and this has
+        # none to pack, so the byte carries the script type alone.
+        h.update(bytes([script_type]))
+        if anyonecanpay:
+            h.update(bytes(reversed(self.vin[input_index].txid)))
+            h.update(self.vin[input_index].vout.to_bytes(4, "little"))
+            h.update(values[input_index].to_bytes(8, "little"))
+            h.update(script_pubkeys[input_index].serialize())
+            h.update(self.vin[input_index].sequence.to_bytes(4, "little"))
+        else:
+            h.update(input_index.to_bytes(4, "little"))
+
+        if script_type in (0, 1):
+            h.update(script_code.serialize())
+        else:
+            h.update(b"\x01" if annex is not None else b"\x00")
+            if annex is not None:
+                h.update(hashes.sha256(compact.to_bytes(len(annex)) + annex))
+
+        # The single output, where BIP341 puts it.
+        if sh == SIGHASH.SINGLE:
+            if input_index >= len(self.vout):
+                raise TransactionError("SIGHASH_SINGLE with no matching output")
+            h.update(hashlib.sha256(self.vout[input_index].serialize()).digest())
+
+        if script_type == 3:
+            h.update(tapleaf_hash)
+            h.update(b"\x00")  # key version
+            h.update(
+                b"\xff\xff\xff\xff"
+                if codeseparator_pos is None
+                else codeseparator_pos.to_bytes(4, "little")
+            )
+        return h.digest()
 
     def sighash_taproot(
         self,
