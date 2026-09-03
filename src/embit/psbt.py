@@ -665,9 +665,9 @@ class InputScope(PSBTScope):
             if pub not in self.taproot_bip32_derivations:
                 b = BytesIO(v)
                 num_leaf_hashes = read_compact(b)
-                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
-                if not all([len(leaf) == 32 for leaf in leaf_hashes]):
+                if num_leaf_hashes * 32 > len(v) - b.tell():
                     raise PSBTError("Invalid length of taproot leaf hashes")
+                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
                 der = DerivationPath.read_from(b)
                 self.taproot_bip32_derivations[pub] = (leaf_hashes, der)
 
@@ -937,9 +937,9 @@ class OutputScope(PSBTScope):
             if pub not in self.taproot_bip32_derivations:
                 b = BytesIO(v)
                 num_leaf_hashes = read_compact(b)
-                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
-                if not all([len(leaf) == 32 for leaf in leaf_hashes]):
+                if num_leaf_hashes * 32 > len(v) - b.tell():
                     raise PSBTError("Invalid length of taproot leaf hashes")
+                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
                 der = DerivationPath.read_from(b)
                 self.taproot_bip32_derivations[pub] = (leaf_hashes, der)
 

@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   taking the zero input count for a segwit marker (#117).
 - `PSET` v2 outputs without an asset or asset commitment are rejected at parse
   time instead of failing with `TypeError` when hashed.
+- `PSBT_IN_TAP_BIP32_DERIVATION` and `PSBT_OUT_TAP_BIP32_DERIVATION` check
+  the declared leaf hash count against the value length before building the
+  list, so a crafted count cannot exhaust memory.
 
 ## [0.8.2] - 2026-08-08
 
