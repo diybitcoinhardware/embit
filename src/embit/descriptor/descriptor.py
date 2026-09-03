@@ -160,6 +160,10 @@ class Descriptor(DescriptorBase):
         return s
 
     def derive(self, idx, branch_index=None):
+        """Derive the descriptor, filling in the wildcard index and branch.
+
+        Key order is preserved: ``derived.keys[i]`` matches ``self.keys[i]``.
+        """
         if self.miniscript:
             return type(self)(
                 self.miniscript.derive(idx, branch_index),
