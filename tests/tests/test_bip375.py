@@ -63,10 +63,16 @@ def _vector_privkeys(psbt, vector):
 
 
 def _drive(vector):
-    """Run a vector through the library the way a signer would."""
+    """Run a vector through the library the way a signer would.
+
+    A vector whose "checks" ask only for input_eligibility stops at
+    validate_sp(): it carries no keys and no eligible input to derive from,
+    the eligibility verdict is the whole point of the vector.
+    """
     psbt = SilentPaymentsPSBT.from_base64(vector["psbt"])
     psbt.validate_sp()
-    psbt.derive_sp_outputs_from_keys(_vector_privkeys(psbt, vector))
+    if vector.get("checks") != ["input_eligibility"]:
+        psbt.derive_sp_outputs_from_keys(_vector_privkeys(psbt, vector))
     return psbt
 
 
