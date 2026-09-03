@@ -256,6 +256,21 @@ class PSETView(PSBTView):
         h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
+    def sighash(self, i, sighash=LSIGHASH.ALL, **kwargs):
+        # The same refusal PSET.sighash makes, for the streaming class. Without it
+        # PSBTView.sighash routes the unified opt-in at the Bitcoin digest over Liquid
+        # data, where a confidential value is a commitment rather than an int. Reached
+        # with default arguments, because PSETView inherits PSBTView.sign_with, whose
+        # default is SIGHASH.DEFAULT rather than PSET's LSIGHASH.ALL, so the bit is
+        # never stripped on the way in. It is a Bitcoin consensus rule and does not
+        # apply to Liquid.
+        if sighash & SIGHASH.UNIFIED:
+            raise PSBTError(
+                "The unified opt-in signature hash is a Bitcoin rule "
+                "and does not apply to Liquid"
+            )
+        return super().sighash(i, sighash=sighash, **kwargs)
+
     def sighash_legacy(self, input_index, script_pubkey, sighash=SIGHASH.ALL):
         raise NotImplementedError()
 
