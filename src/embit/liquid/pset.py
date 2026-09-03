@@ -5,10 +5,8 @@ if sys.implementation.name == "micropython":
 else:
     from ..util import secp256k1
 
-from .. import compact, hashes
+from .. import hashes
 from ..psbt import *
-from collections import OrderedDict
-from io import BytesIO
 from .transaction import (
     LTransaction,
     LTransactionOutput,
@@ -29,7 +27,7 @@ class LInputScope(InputScope):
     TX_CLS = LTransaction
     TXOUT_CLS = LTransactionOutput
 
-    def __init__(self, unknown: dict = {}, **kwargs):
+    def __init__(self, unknown: dict = None, **kwargs):
         # liquid-specific fields:
         self.value = None
         self.value_blinding_factor = None
@@ -126,7 +124,7 @@ class LInputScope(InputScope):
         return LTransactionInput(
             self.txid,
             self.vout,
-            sequence=(self.sequence or 0xFFFFFFFF),
+            sequence=(self.sequence if self.sequence is not None else 0xFFFFFFFF),
             asset_issuance=self.asset_issuance,
         )
 
@@ -135,15 +133,15 @@ class LInputScope(InputScope):
         return LTransactionInput(
             self.txid,
             self.vout,
-            sequence=(self.sequence or 0xFFFFFFFF),
+            sequence=(self.sequence if self.sequence is not None else 0xFFFFFFFF),
             asset_issuance=self.asset_issuance,
             witness=TxInWitness(self.issue_rangeproof, self.token_rangeproof),
         )
 
-    def read_value(self, stream, k):
+    def read_value(self, stream, k, version=None):
         # standard bitcoin stuff
         if (b"\xfc\x08elements" not in k) and (b"\xfc\x04pset" not in k):
-            super().read_value(stream, k)
+            super().read_value(stream, k, version=version)
         elif k == b"\xfc\x04pset\x0e":
             # range proof is very large,
             # so we don't load it if compress flag is set.
@@ -191,8 +189,8 @@ class LInputScope(InputScope):
             else:
                 self.unknown[k] = v
 
-    def write_to(self, stream, skip_separator=False, **kwargs) -> int:
-        r = super().write_to(stream, skip_separator=True, **kwargs)
+    def write_to(self, stream, skip_separator=False, version=None, **kwargs) -> int:
+        r = super().write_to(stream, skip_separator=True, version=version, **kwargs)
         # liquid-specific keys
         if self.value is not None:
             r += ser_string(stream, b"\xfc\x08elements\x00")
@@ -246,7 +244,7 @@ class LInputScope(InputScope):
 
 
 class LOutputScope(OutputScope):
-    def __init__(self, unknown: dict = {}, vout=None, **kwargs):
+    def __init__(self, unknown: dict = None, vout=None, **kwargs):
         # liquid stuff
         self.value_commitment = None
         self.value_blinding_factor = None
@@ -351,10 +349,12 @@ class LOutputScope(OutputScope):
             self.value_commitment or self.value,
             self.script_pubkey,
             self.ecdh_pubkey,
-            None
-            if not self.surjection_proof
-            else TxOutWitness(
-                Proof(self.surjection_proof), RangeProof(self.range_proof)
+            (
+                None
+                if not self.surjection_proof
+                else TxOutWitness(
+                    Proof(self.surjection_proof), RangeProof(self.range_proof)
+                )
             ),
         )
 
@@ -386,9 +386,9 @@ class LOutputScope(OutputScope):
             secp256k1.generator_parse(self.asset_commitment),
         )
 
-    def read_value(self, stream, k):
+    def read_value(self, stream, k, version=None):
         if (b"\xfc\x08elements" not in k) and (b"\xfc\x04pset" not in k):
-            super().read_value(stream, k)
+            super().read_value(stream, k, version=version)
         # range proof and surjection proof are very large,
         # so we don't load them if compress flag is set.
         elif k in [b"\xfc\x08elements\x04", b"\xfc\x04pset\x04"]:
@@ -502,6 +502,21 @@ class PSET(PSBT):
     PSBTIN_CLS = LInputScope
     PSBTOUT_CLS = LOutputScope
     TX_CLS = LTransaction
+
+    @classmethod
+    def _v2_output_has_amount(cls, out):
+        """PSET allows value_commitment as an alternative to value (blinded outputs)."""
+        return out.value is not None or out.value_commitment is not None
+
+    @classmethod
+    def _validate_v2_output(cls, out, i):
+        super()._validate_v2_output(out, i)
+        # LOutputScope.vout serializes asset_commitment or asset; without
+        # either the output cannot be hashed or extracted
+        if out.asset is None and out.asset_commitment is None:
+            raise PSBTError(
+                "PSETv2 output %d missing required PSBT_ELEMENTS_OUT_ASSET" % i
+            )
 
     def unblind(self, blinding_key):
         for inp in self.inputs:
@@ -638,7 +653,8 @@ class PSET(PSBT):
     def blinded_tx(self):
         return self.TX_CLS(
             version=2 if self.tx_version is None else self.tx_version,
-            locktime=self.locktime or 0,
+            # BIP-370: PSBTv2 derives the locktime from the per-input requirements
+            locktime=self.determine_locktime(),
             vin=[inp.blinded_vin for inp in self.inputs],
             vout=[out.blinded_vout for out in self.outputs],
         )

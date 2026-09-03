@@ -1,4 +1,5 @@
-""" Compact Int parsing / serialization """
+"""Compact Int parsing / serialization"""
+
 import io
 
 
@@ -36,6 +37,14 @@ def read_from(stream) -> int:
     i = c[0]
     if i >= 0xFD:
         bytes_to_read = 2 ** (i - 0xFC)
-        return int.from_bytes(stream.read(bytes_to_read), "little")
+        b = stream.read(bytes_to_read)
+        if len(b) != bytes_to_read:
+            raise RuntimeError("Can't read %d bytes from the stream" % bytes_to_read)
+        res = int.from_bytes(b, "little")
+        # reject non-canonical encodings like Bitcoin Core does: the value must
+        # not fit in the next shorter encoding
+        if res < (0xFD if i == 0xFD else 1 << (4 * bytes_to_read)):
+            raise ValueError("Non-canonical compact int encoding")
+        return res
     else:
         return i

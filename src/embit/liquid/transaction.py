@@ -287,7 +287,9 @@ class LTransaction(Transaction):
         return res, hashlib.sha256(h.digest()).digest()
 
     @classmethod
-    def read_from(cls, stream):
+    def read_from(cls, stream, segwit=True):
+        # segwit= only mirrors Transaction.read_from: Liquid transactions
+        # carry an explicit witness flag byte, so nothing is ambiguous here
         ver = int.from_bytes(stream.read(4), "little")
         has_witness = False
         if stream.read(1) == b"\x01":
