@@ -22,6 +22,7 @@ from . import script
 from .script import Script, Witness
 from . import hashes
 from .psbt import (
+    sighash_types_agree,
     PSBTError,
     CompressMode,
     InputScope,
@@ -36,9 +37,11 @@ from .psbt import (
     _validate_global_key,
 )
 from .transaction import (
+    TransactionError,
     TransactionOutput,
     TransactionInput,
     SIGHASH,
+    UNIFIED_SCRIPT_TYPE,
     hash_amounts,
     hash_script_pubkeys,
 )
@@ -223,6 +226,7 @@ class PSBTView:
         self._hash_outputs = None
         self._hash_amounts = None
         self._hash_script_pubkeys = None
+        self._spent_output_hashes_cache = None
 
     @classmethod
     def view(cls, stream, offset=None, compress=CompressMode.KEEP_ALL):
@@ -473,15 +477,19 @@ class PSBTView:
             self._hash_outputs = h.digest()
         return self._hash_outputs
 
+    # Keyed on what it was computed over: a caller may supply an input's spent output out
+    # of band, which changes the list, and each list must get its own digest.
     def hash_amounts(self, amounts):
-        if self._hash_amounts is None:
-            self._hash_amounts = hash_amounts(amounts)
-        return self._hash_amounts
+        key = tuple(amounts)
+        if self._hash_amounts is None or self._hash_amounts[0] != key:
+            self._hash_amounts = (key, hash_amounts(amounts))
+        return self._hash_amounts[1]
 
     def hash_script_pubkeys(self, script_pubkeys):
-        if self._hash_script_pubkeys is None:
-            self._hash_script_pubkeys = hash_script_pubkeys(script_pubkeys)
-        return self._hash_script_pubkeys
+        key = tuple(bytes(s.data) for s in script_pubkeys)
+        if self._hash_script_pubkeys is None or self._hash_script_pubkeys[0] != key:
+            self._hash_script_pubkeys = (key, hash_script_pubkeys(script_pubkeys))
+        return self._hash_script_pubkeys[1]
 
     def sighash_taproot(
         self,
@@ -629,8 +637,253 @@ class PSBTView:
         h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
+    def _spent_output_hashes(self, i, scope=None):
+        """The two aggregates the message commits to: sha256 over every spent output's
+        amount, and over every spent output's scriptPubKey.
+
+        Neither depends on which input is being signed, so one pass over the stream
+        answers for the whole transaction. They are accumulated as the outputs are read
+        and the outputs themselves are not kept, which is the point: this class exists
+        so a signer never has to hold the whole transaction at once, and keeping one
+        spent output per input to build these would give that up for a large PSBT.
+        """
+        # A value supplied out of band applies to the input being signed and to nothing
+        # else, so where the stream carries a different one for it the siblings would
+        # still be the stream's, and the signatures this view hands back would commit to
+        # two different spent output vectors. At most one of them can verify and nothing
+        # tells the caller which, so refuse rather than produce them.
+        if scope is not None and self.num_inputs > 1:
+            supplied = self._scoped_utxo(i, scope)
+            carried = self.input(i).utxo
+            if carried is not None and carried.serialize() != supplied.serialize():
+                raise PSBTError(
+                    "Input %d was supplied a previous utxo the PSBT contradicts" % i
+                )
+            # Past that check the supplied output either equals the stream's or is the
+            # only one for that input, so it is the stream that decides the rest.
+            if carried is not None:
+                scope = None
+
+        if scope is None and self._spent_output_hashes_cache is not None:
+            return self._spent_output_hashes_cache
+
+        amounts = hashlib.sha256()
+        script_pubkeys = hashlib.sha256()
+        for idx in range(self.num_inputs):
+            utxo = (
+                self._scoped_utxo(idx, scope)
+                if (scope is not None and idx == i)
+                else self._stream_utxo(idx)
+            )
+            amounts.update(utxo.value.to_bytes(8, "little"))
+            script_pubkeys.update(utxo.script_pubkey.serialize())
+        pair = (amounts.digest(), script_pubkeys.digest())
+
+        # Only what the stream itself carries is cached. A scope supplied out of band
+        # belongs to one call and one input, so caching its answer would hand the
+        # caller's value to every later input as a sibling amount.
+        if scope is None:
+            self._spent_output_hashes_cache = pair
+        return pair
+
+    def _stream_utxo(self, idx):
+        """The spent output of one input as the stream carries it.
+
+        Deliberately not memoized: the caller folds it into a running hash and drops
+        it, and the aggregate cache already saves the repeated pass that memoizing
+        these was for.
+        """
+        utxo = self.input(idx).utxo
+        if utxo is None:
+            raise PSBTError("Missing previous utxo on input %d" % idx)
+        return utxo
+
+    def _scoped_utxo(self, idx, scope=None):
+        """The spent output of the input being signed, preferring a scope supplied
+        out of band for it."""
+        utxo = (scope if scope is not None else self.input(idx)).utxo
+        if utxo is None:
+            raise PSBTError("Missing previous utxo on input %d" % idx)
+        return utxo
+
+    def sighash_unified(
+        self,
+        input_index,
+        script_type,
+        script_pubkeys,
+        values,
+        sighash,
+        script_code=None,
+        annex=None,
+        tapleaf_hash=None,
+        codeseparator_pos=None,
+    ):
+        """Streaming form of Transaction.sighash_unified. The two must agree
+        byte for byte; a signer must not get a different digest depending on
+        which class it used."""
+        if input_index < 0 or input_index >= self.num_inputs:
+            raise PSBTError("Invalid input index")
+        if len(values) != self.num_inputs or len(script_pubkeys) != self.num_inputs:
+            raise PSBTError("All spent outputs are required")
+        if script_type not in (0, 1, 2, 3):
+            raise PSBTError("Invalid script type")
+        if script_type in (0, 1) and script_code is None:
+            raise PSBTError("script_code is required for this script type")
+        if script_type == 3 and tapleaf_hash is None:
+            raise PSBTError("tapleaf_hash is required for tapscript")
+        _, anyonecanpay = SIGHASH.check_unified(sighash, script_type)
+        return self._unified_digest(
+            input_index,
+            script_type,
+            sighash,
+            own=(values[input_index], script_pubkeys[input_index])
+            if anyonecanpay
+            else None,
+            aggregates=None
+            if anyonecanpay
+            else (
+                self.hash_amounts(values),
+                self.hash_script_pubkeys(script_pubkeys),
+            ),
+            script_code=script_code,
+            annex=annex,
+            tapleaf_hash=tapleaf_hash,
+            codeseparator_pos=codeseparator_pos,
+        )
+
+    def _unified_digest(
+        self,
+        input_index,
+        script_type,
+        sighash,
+        aggregates=None,
+        own=None,
+        script_code=None,
+        annex=None,
+        tapleaf_hash=None,
+        codeseparator_pos=None,
+    ):
+        """The message itself, over what it actually commits to.
+
+        Without ANYONECANPAY that is the two aggregates over every spent output, which
+        do not depend on the input being signed. With it, only this input's own spent
+        output. Taking those rather than the full lists is what lets the streaming
+        caller build the digest without holding every spent output at once.
+        """
+        sh, anyonecanpay = SIGHASH.check_unified(sighash, script_type)
+
+        h = hashes.tagged_hash_init("UnifiedSighash", b"")
+        # Laid out as BIP341 lays out its message, so the two can be read side by side. The epoch
+        # is BIP341's, kept so a later revision has the same room to move that BIP341 left itself.
+        h.update(b"\x00")
+        # One byte, as BIP341 writes it and as the signature carries it: consensus reads the hash
+        # type from the last byte of the signature, so a wider field could hold a value no
+        # verifier would ever reconstruct.
+        h.update(bytes([sighash]))
+        h.update(self.tx_version.to_bytes(4, "little"))
+        # The locktime is committed to as five bytes rather than the four it occupies in a
+        # transaction. Four run out on 2106-02-07, and a hardfork widening the field later
+        # would otherwise have to change this message and invalidate every signature made
+        # under it. The fifth byte is zero until something sets it.
+        h.update(self.locktime.to_bytes(4, "little"))
+        h.update(b"\x00")
+        if not anyonecanpay:
+            h.update(self.hash_prevouts())
+            h.update(aggregates[0])
+            h.update(aggregates[1])
+            h.update(self.hash_sequence())
+        if sh not in (SIGHASH.NONE, SIGHASH.SINGLE):
+            # ALL, and every value that is neither NONE nor SINGLE.
+            h.update(self.hash_outputs())
+        # Where BIP341 writes its spend type. It has an annex bit to pack in there and this has
+        # none to pack, so the byte carries the script type alone.
+        h.update(bytes([script_type]))
+        if anyonecanpay:
+            inp = self.vin(input_index)
+            h.update(bytes(reversed(inp.txid)))
+            h.update(inp.vout.to_bytes(4, "little"))
+            h.update(own[0].to_bytes(8, "little"))
+            h.update(own[1].serialize())
+            h.update(inp.sequence.to_bytes(4, "little"))
+        else:
+            h.update(input_index.to_bytes(4, "little"))
+
+        if script_type in (0, 1):
+            h.update(script_code.serialize())
+        else:
+            h.update(b"\x01" if annex is not None else b"\x00")
+            if annex is not None:
+                h.update(hashes.sha256(compact.to_bytes(len(annex)) + annex))
+
+        # The single output, where BIP341 puts it.
+        if sh == SIGHASH.SINGLE:
+            if input_index >= self.num_outputs:
+                raise TransactionError("SIGHASH_SINGLE with no matching output")
+            h.update(hashlib.sha256(self.vout(input_index).serialize()).digest())
+
+        if script_type == 3:
+            h.update(tapleaf_hash)
+            h.update(b"\x00")
+            h.update(
+                b"\xff\xff\xff\xff"
+                if codeseparator_pos is None
+                else codeseparator_pos.to_bytes(4, "little")
+            )
+        return h.digest()
+
     def sighash(self, i, sighash=SIGHASH.ALL, input_scope=None, **kwargs):
         inp = self.input(i) if input_scope is None else input_scope
+
+        # The unified algorithm covers every script type, so it is selected by
+        # the opt-in bit rather than by the input's kind. Kept in step with
+        # PSBT.sighash; a signer must not get a different digest here.
+        if sighash & SIGHASH.UNIFIED:
+            # Only what the message commits to is read, and under ANYONECANPAY that is
+            # this input's spent output alone: requiring the siblings there would reject
+            # PSBTs the algorithm does not need them for.
+            if sighash & SIGHASH.ANYONECANPAY:
+                utxo = self._scoped_utxo(i, input_scope)
+                spent = {"own": (utxo.value, utxo.script_pubkey)}
+            else:
+                spent = {"aggregates": self._spent_output_hashes(i, input_scope)}
+            leaf_script = kwargs.pop("script", None)
+            leaf_version = kwargs.pop("leaf_version", 0xC0)
+            kwargs.pop("ext_flag", None)
+            if inp.is_taproot:
+                if leaf_script is not None:
+                    return self._unified_digest(
+                        i,
+                        UNIFIED_SCRIPT_TYPE.TAPSCRIPT,
+                        sighash,
+                        tapleaf_hash=hashes.tagged_hash(
+                            "TapLeaf", bytes([leaf_version]) + leaf_script.serialize()
+                        ),
+                        **spent,
+                        **kwargs,
+                    )
+                return self._unified_digest(
+                    i, UNIFIED_SCRIPT_TYPE.TAPROOT, sighash, **spent, **kwargs
+                )
+            sc = inp.witness_script or inp.redeem_script or inp.utxo.script_pubkey
+            is_segwit = (
+                inp.witness_script
+                or inp.witness_utxo
+                or inp.utxo.script_pubkey.script_type() in {"p2wpkh", "p2wsh"}
+                or (
+                    inp.redeem_script
+                    and inp.redeem_script.script_type() in {"p2wpkh", "p2wsh"}
+                )
+            )
+            if sc.script_type() == "p2wpkh":
+                sc = script.p2pkh_from_p2wpkh(sc)
+            return self._unified_digest(
+                i,
+                UNIFIED_SCRIPT_TYPE.WITNESS_V0 if is_segwit else UNIFIED_SCRIPT_TYPE.BARE,
+                sighash,
+                script_code=sc,
+                **spent,
+                **kwargs,
+            )
 
         if inp.is_taproot:
             values = []
@@ -777,12 +1030,35 @@ class PSBTView:
         # if input sighash is set and is different from required sighash
         # we don't sign this input
         # except DEFAULT is functionally the same as ALL
-        if required_sighash is not None and inp_sighash != required_sighash:
-            if inp_sighash not in {
-                SIGHASH.DEFAULT,
-                SIGHASH.ALL,
-            } or required_sighash not in {SIGHASH.DEFAULT, SIGHASH.ALL}:
-                return 0
+        if required_sighash is not None and not sighash_types_agree(
+            inp_sighash, required_sighash
+        ):
+            return 0
+
+        # Sign the type the caller asked for, as in PSBT.sign_with. An untouched
+        # default names nothing, and there the PSBT's own type stands. Confined to the
+        # opt-in, so without it this is embit's own behaviour.
+        if (
+            required_sighash is not None
+            and sighash != SIGHASH.DEFAULT
+            and (inp_sighash | required_sighash) & SIGHASH.UNIFIED
+        ):
+            inp_sighash = required_sighash
+        # A bare opt-in names no output type, and on taproot the bit cannot ride on
+        # SIGHASH_DEFAULT, so the input is left unsigned rather than upgraded to 0x21.
+        # Bare and segwit v0 read 0x20 as a hash type of its own. As in PSBT.sign_with.
+        if inp.is_taproot and inp_sighash & SIGHASH.UNIFIED and not inp_sighash & 0x1F:
+            return 0
+
+        # SIGHASH_SINGLE commits to the output at this input's index, and there is none.
+        # The unified digest cannot be built, so this input is skipped rather than
+        # raising, as in PSBT.sign_with. Confined to the opt-in for the same reason.
+        if (
+            inp_sighash & SIGHASH.UNIFIED
+            and (inp_sighash & 0x1F) == SIGHASH.SINGLE
+            and i >= self.num_outputs
+        ):
+            return 0
 
         # get all possible derivations with matching fingerprint
         bip32_derivations = OrderedDict()
