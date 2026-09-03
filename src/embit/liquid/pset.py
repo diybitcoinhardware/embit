@@ -657,6 +657,20 @@ class PSET(PSBT):
     def sighash_legacy(self, *args, **kwargs):
         return self.blinded_tx.sighash_legacy(*args, **kwargs)
 
+    def sighash(self, i, sighash=LSIGHASH.ALL, **kwargs):
+        # PSBT.sighash routes the unified opt-in straight at self.tx, bypassing
+        # the blinded serialization every other path here goes through. That
+        # would compute a Bitcoin-format digest over Liquid data, and a
+        # confidential value is a commitment rather than an int, so refuse the
+        # bit rather than produce a digest no Liquid implementation would make.
+        # It is a Bitcoin consensus rule and does not apply to Liquid.
+        if sighash & SIGHASH.UNIFIED:
+            raise PSBTError(
+                "The unified opt-in signature hash is a Bitcoin rule "
+                "and does not apply to Liquid"
+            )
+        return super().sighash(i, sighash=sighash, **kwargs)
+
     # def sign_with(self, root, sighash=(LSIGHASH.ALL | LSIGHASH.RANGEPROOF)) -> int:
     # TODO: change back to sighash rangeproof when deployed
     def sign_with(self, root, sighash=LSIGHASH.ALL) -> int:
