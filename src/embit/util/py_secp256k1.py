@@ -121,8 +121,8 @@ def ecdsa_signature_parse_der(der, context=None):
     # Verify that r and s are within the group order
     if r < 1 or s < 1 or r >= _key.SECP256K1_ORDER or s >= _key.SECP256K1_ORDER:
         raise ValueError("Failed parsing compact signature")
-    if s >= _key.SECP256K1_ORDER_HALF:
-        raise ValueError("Failed parsing compact signature")
+    # A high s is accepted here, as libsecp256k1's parser accepts it:
+    # normalization is ecdsa_signature_normalize, and verification rejects it.
 
     return r.to_bytes(32, "little") + s.to_bytes(32, "little")
 

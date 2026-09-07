@@ -2,6 +2,7 @@
 Copy-paste from key.py in bitcoin test_framework.
 This is a fallback option if the library can't do ctypes bindings to secp256k1 library.
 """
+
 import random
 import hmac
 import hashlib
@@ -586,12 +587,14 @@ def sign_schnorr(key, msg, aux=None, flip_p=False, flip_r=False):
     P = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, sec)]))
     if SECP256K1.has_even_y(P) == flip_p:
         sec = SECP256K1_ORDER - sec
-    if aux is not None:
-        t = (sec ^ int.from_bytes(TaggedHash("BIP0340/aux", aux), "big")).to_bytes(
-            32, "big"
-        )
-    else:
-        t = sec.to_bytes(32, "big")
+    if aux is None:
+        # libsecp256k1 masks the key with the tagged hash of 32 zero bytes
+        # when no auxiliary randomness is given; do the same, so that the
+        # two backends produce the same signature for the same inputs.
+        aux = bytes(32)
+    t = (sec ^ int.from_bytes(TaggedHash("BIP0340/aux", aux), "big")).to_bytes(
+        32, "big"
+    )
     kp = (
         int.from_bytes(
             TaggedHash("BIP0340/nonce", t + P[0].to_bytes(32, "big") + msg), "big"
