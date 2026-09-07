@@ -865,6 +865,9 @@ def schnorrsig_sign(
         raise ValueError("Message should be 32 bytes long")
     if len(keypair) == 32:
         keypair = keypair_create(keypair, context=context)
+    if nonce_function is None and extra_data is None:
+        # libsecp256k1 before v0.2.0 skips the BIP340 key masking for NULL aux
+        extra_data = bytes(32)
     with _lock:
         if len(keypair) != 96:
             raise ValueError("Keypair should be 96 bytes long")
