@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add PSBT version 2 (BIP 370) support to `PSBT` and `PSBTView`: parsing,
+  validation and serialization of the v2 global, input and output fields,
+  unsigned transaction reconstruction, and `PSBT_GLOBAL_TX_MODIFIABLE`
+  updates on signing.
+
+### Changed
+
+- `PSBTView.locktime` now has the same meaning as `PSBT.locktime` (the raw
+  fallback field for PSBTv2); the derived transaction locktime is
+  `PSBTView.determine_locktime()`.
+- `PSBTView.view()` walks every input and output map once and rejects a PSBT
+  with trailing data or fewer maps than the global counts declare.
+- `compact.read_from` rejects non-canonical and truncated compact-size
+  encodings, as Bitcoin Core does.
+- `PSBTView` hashes prevouts, sequences and outputs in a single pass and
+  caches the per-input utxo data used by taproot sighashes.
+
+### Fixed
+
+- Validate PSBTv2 count fields canonically and raise `PSBTError` instead of
+  `RuntimeError`/`ValueError` on malformed values in both parse paths.
+- `PSBTView` matched PSBTv2 prevout and output fields by key prefix, so a
+  keyed or duplicated field could feed a wrong value into the sighash.
+- Every malformed PSBT now raises `PSBTError` from both `PSBT` and
+  `PSBTView`, including truncated input, corrupted nested transactions,
+  keys and scripts, and out-of-range values on serialization.
+- `PSBT_IN_NON_WITNESS_UTXO` is held to its declared length.
+- `PSET` signed PSETv2 with the fallback locktime instead of the BIP-370
+  derived one, and rewrote a zero input sequence to `0xffffffff`.
+- `PSBT` and `PSBTView` now write the PSBTv2 global map in the same order and
+  both store `PSBT_IN_TAP_KEY_SIG` for taproot key-path signatures.
+- `InputScope`/`OutputScope` accept PSBTv2 fields through the `unknown`
+  constructor argument with `version=2`.
+- Signing an input without a utxo raises `PSBTError` instead of
+  `AttributeError`.
+- Taproot sighashes with `ANYONECANPAY` hashed the whole serialized input
+  instead of the outpoint, and `SIGHASH_SINGLE` hashed the output instead of
+  its SHA256, in both `Transaction` and `PSBTView` (#65).
+- `PSBT.parse` rejected a PSBTv0 whose unsigned transaction has no inputs,
+  taking the zero input count for a segwit marker (#117).
+- `PSET` v2 outputs without an asset or asset commitment are rejected at parse
+  time instead of failing with `TypeError` when hashed.
+- `PSBT_IN_TAP_BIP32_DERIVATION` and `PSBT_OUT_TAP_BIP32_DERIVATION` check
+  the declared leaf hash count against the value length before building the
+  list, so a crafted count cannot exhaust memory.
+
 ## [0.8.2] - 2026-08-08
 
 ### Changed

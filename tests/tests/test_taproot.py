@@ -265,3 +265,36 @@ class TaprootTest(TestCase):
             self.assertEqual(
                 inp1.final_scriptwitness, inp2.final_scriptwitness
             )  # test psbt and psbtview give the same results
+
+    def test_tap_bip32_derivation_leaf_count_bounded(self):
+        """A crafted leaf hash count must be rejected before any list is built,
+        so a huge compact int cannot exhaust memory."""
+        from embit.psbt import InputScope, OutputScope, PSBTError
+        from embit import compact
+
+        xonly = ROOT.derive("m/86h/1h/0h/0/0").xonly()
+        fingerprint = b"\x00" * 4
+        for cls, keytype in ((InputScope, b"\x16"), (OutputScope, b"\x07")):
+            for count in (2**64 - 1, 2**32, 2):
+                # count leaf hashes claimed, but only one 32-byte leaf plus path present
+                value = compact.to_bytes(count) + b"\xaa" * 32 + fingerprint
+                key = keytype + xonly
+                stream = BytesIO(
+                    compact.to_bytes(len(key)) + key
+                    + compact.to_bytes(len(value)) + value
+                    + b"\x00"
+                )
+                with self.assertRaises(PSBTError):
+                    cls.read_from(stream)
+            # exact count still parses
+            value = compact.to_bytes(1) + b"\xaa" * 32 + fingerprint
+            key = keytype + xonly
+            stream = BytesIO(
+                compact.to_bytes(len(key)) + key
+                + compact.to_bytes(len(value)) + value
+                + b"\x00"
+            )
+            scope = cls.read_from(stream)
+            leaf_hashes, der = list(scope.taproot_bip32_derivations.values())[0]
+            self.assertEqual(leaf_hashes, [b"\xaa" * 32])
+            self.assertEqual(der.fingerprint, fingerprint)

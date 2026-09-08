@@ -1,5 +1,6 @@
 from ..psbtview import *
 from .pset import *
+from ..psbt import _PARSE_ERRORS
 import hashlib
 
 
@@ -45,7 +46,7 @@ class GlobalLTransactionView(GlobalTransactionView):
     def num_vout(self):
         if self._num_vout is None:
             self.stream.seek(self.num_vout_offset)
-            self._num_vout = compact.read_from(self.stream)
+            self._num_vout = read_compact(self.stream)
         return self._num_vout
 
     @property
@@ -62,7 +63,19 @@ class GlobalLTransactionView(GlobalTransactionView):
         self.stream.seek(self.vin0_offset)
         for j in range(i):
             self._skip_input()
-        return LTransactionInput.read_from(self.stream)
+        return self._read_vin()
+
+    def _read_vin(self):
+        try:
+            return LTransactionInput.read_from(self.stream)
+        except _PARSE_ERRORS as e:
+            raise PSBTError("Invalid global transaction input: %s" % e)
+
+    def _read_vout(self):
+        try:
+            return LTransactionOutput.read_from(self.stream)
+        except _PARSE_ERRORS as e:
+            raise PSBTError("Invalid global transaction output: %s" % e)
 
     def _skip_input(self):
         off = 32 + 4 + 5
@@ -91,8 +104,8 @@ class GlobalLTransactionView(GlobalTransactionView):
         c = self.stream.read(1)
         if c != b"\x00":
             self.stream.seek(32, 1)  # ecdh_pubkey
-        l = compact.read_from(self.stream)
-        self.stream.seek(l, 1)  # scriptpubkey
+        l = read_compact(self.stream)
+        skip_exact(self.stream, l)  # scriptpubkey
 
     def vout(self, i):
         if i < 0 or i >= self.num_vout:
@@ -102,7 +115,7 @@ class GlobalLTransactionView(GlobalTransactionView):
         while n:
             self._skip_output()
             n -= 1
-        return LTransactionOutput.read_from(self.stream)
+        return self._read_vout()
 
 
 class PSETView(PSBTView):
@@ -115,6 +128,7 @@ class PSETView(PSBTView):
     PSBTIN_CLS = LInputScope
     PSBTOUT_CLS = LOutputScope
     TX_CLS = GlobalLTransactionView
+    PSBT_CLS = PSET
 
     def clear_cache(self):
         # cache for digests
@@ -124,6 +138,16 @@ class PSETView(PSBTView):
 
     def vin(self, i, compress=None):
         return self.input(i, True).vin
+
+    # Liquid inputs carry issuance data the plain v2 prevout scan lacks,
+    # so keep going through the full input scope.
+    def _iter_vins(self):
+        for i in range(self.num_inputs):
+            yield self.vin(i)
+
+    def _iter_vouts(self):
+        for i in range(self.num_outputs):
+            yield self.vout(i)
 
     def blinded_vin(self, i, compress=None):
         return self.input(i, compress).blinded_vin
@@ -168,7 +192,7 @@ class PSETView(PSBTView):
                 if not rangeproof_offset:
                     h.update(b"\x00")
                 else:
-                    l = compact.read_from(self.stream)
+                    l = read_compact(self.stream)
                     h.update(compact.to_bytes(l))
                     self._hash_to(h, l)
 
@@ -184,7 +208,7 @@ class PSETView(PSBTView):
                 if not surj_proof_offset:
                     h.update(b"\x00")
                 else:
-                    l = compact.read_from(self.stream)
+                    l = read_compact(self.stream)
                     h.update(compact.to_bytes(l))
                     self._hash_to(h, l)
             self._hash_rangeproofs = h.digest()
@@ -252,7 +276,7 @@ class PSETView(PSBTView):
                 )
         else:
             h.update(zero)
-        h.update(self.locktime.to_bytes(4, "little"))
+        h.update(self.determine_locktime().to_bytes(4, "little"))
         h.update(sighash.to_bytes(4, "little"))
         return hashlib.sha256(h.digest()).digest()
 
