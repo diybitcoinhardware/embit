@@ -9,6 +9,12 @@ from embit import compact
 from embit.base import EmbitError
 from embit.psbt import CompressMode, InputScope, PSBT, PSBTError
 from embit.psbtview import GlobalTransactionView, PSBTView
+from embit.liquid.psetview import GlobalLTransactionView
+from embit.liquid.transaction import (
+    LTransaction,
+    LTransactionInput,
+    LTransactionOutput,
+)
 from embit.script import Script, Witness
 from embit.transaction import (
     Transaction,
@@ -305,6 +311,180 @@ class ParsingTest(TestCase):
         self.assertEqual(scope._utxo.value, 511)
         self.assertEqual(scope._txhash, tx.hash())
         self.assertTrue(stream.max_read <= 32)
+
+    def test_global_tx_scriptsig_must_be_empty(self):
+        for signed in ([0], [1], [0, 1, 2]):
+            tx = self.transaction(locktime=7)
+            tx.vin = [TransactionInput(bytes(range(32)), i) for i in range(3)]
+            for i in signed:
+                tx.vin[i].script_sig = Script(b"\x51\x51")
+            raw = tx.serialize()
+            payload = self.global_psbt(raw)[:-1] + b"\x00" * 3
+            with self.assertRaises(PSBTError):
+                PSBT.parse(payload)
+            with self.assertRaises(PSBTError):
+                PSBTView.view(BytesIO(payload))
+            for length in (None, len(raw)):
+                view = GlobalTransactionView(BytesIO(raw), 0, length)
+                self.assertEqual(view.num_vin, 3)
+                # Validation must not depend on what is accessed first.
+                for access in (
+                    lambda v: v.num_vout,
+                    lambda v: v.vout(0),
+                    lambda v: v.locktime,
+                    lambda v: v.vin(0),
+                    lambda v: v.vin(1),
+                    lambda v: v.vin(2),
+                ):
+                    view = GlobalTransactionView(BytesIO(raw), 0, length)
+                    with self.assertRaises(PSBTError):
+                        access(view)
+        # A signed input used to shift the outpoint read for the next one.
+        tx = self.transaction()
+        tx.vin = [
+            TransactionInput(bytes(32), 0, Script(b"\x51"), sequence=0),
+            TransactionInput(bytes(32), 1, sequence=0),
+        ]
+        with self.assertRaises(PSBTError):
+            GlobalTransactionView(BytesIO(tx.serialize()), 0).vin(1)
+        # Unsigned transactions are unaffected.
+        tx = self.transaction(locktime=7)
+        tx.vin = [TransactionInput(bytes(range(32)), i) for i in range(3)]
+        payload = PSBT(tx).serialize()
+        self.assertEqual(PSBT.parse(payload).serialize(), payload)
+        view = PSBTView.view(BytesIO(payload))
+        self.assertEqual(view.locktime, 7)
+        self.assertEqual(view.vin(2).serialize(), tx.vin[2].serialize())
+
+    def test_scriptsig_length_bit_flips(self):
+        # A flipped scriptSig length byte used to shift what the view read
+        # while the fixed-stride offsets still pointed at plausible fields.
+        tx = self.transaction(locktime=7)
+        tx.vout = [
+            TransactionOutput(i, Script(b"\x76\xa9\x14" + bytes(20) + b"\x88\xac"))
+            for i in range(2)
+        ]
+        payload = PSBT(tx).serialize()
+        offset = payload.index(tx.serialize()) + 4 + 1 + 36
+        self.assertEqual(payload[offset], 0)
+        for bit in range(8):
+            mutant = bytearray(payload)
+            mutant[offset] ^= 1 << bit
+            # Large lengths fail in the script reader before the scriptSig check.
+            with self.assertRaises((EmbitError, ValueError)):
+                PSBT.parse(bytes(mutant))
+            with self.assertRaises(PSBTError):
+                PSBTView.view(BytesIO(bytes(mutant)))
+
+    def bit_flip_mutants(self, base):
+        """Every single-bit flip, then fixed pseudo-random 2 and 3 bit flips."""
+        for position in range(len(base) * 8):
+            yield [position]
+        state = 0x9E3779B9
+        for count in (2, 3):
+            for _ in range(500):
+                flips = []
+                for _ in range(count):
+                    # LCG instead of random: the corpus must not depend on
+                    # the interpreter (CPython / MicroPython) or its version
+                    state = (state * 1103515245 + 12345) & 0x7FFFFFFF
+                    flips.append(state % (len(base) * 8))
+                yield flips
+
+    def view_summary(self, payload):
+        """Walks a PSBTView the way a signer does and returns what it saw."""
+        view = PSBTView.view(BytesIO(payload))
+        for i in range(view.num_inputs):
+            view.input(i)
+        for i in range(view.num_outputs):
+            view.output(i)
+        return (
+            view.tx_version,
+            view.locktime,
+            [view.vin(i).serialize() for i in range(view.num_inputs)],
+            [view.vout(i).serialize() for i in range(view.num_outputs)],
+        )
+
+    def test_bit_flips_never_reinterpret(self):
+        # Corrupted transport data must be either rejected or parsed as exactly
+        # the bytes given: no repairs, and both parsers see the same transaction.
+        tx = Transaction(
+            vin=[TransactionInput(bytes(range(32)), 0, sequence=0xFFFFFFFE)],
+            vout=[
+                TransactionOutput(
+                    value,
+                    Script(b"\x76\xa9\x14" + bytes(range(n, n + 20)) + b"\x88\xac"),
+                )
+                for n, value in ((0, 99999699), (20, 402653184))
+            ],
+            locktime=0x0701,
+        )
+        base = PSBT(tx).serialize()
+        accepted = rejected = 0
+        for flips in self.bit_flip_mutants(base):
+            mutant = bytearray(base)
+            for position in flips:
+                mutant[position // 8] ^= 1 << (position % 8)
+            mutant = bytes(mutant)
+            if mutant == base:
+                continue
+            try:
+                psbt = PSBT.parse(mutant)
+            except (EmbitError, ValueError, RuntimeError):
+                psbt = None
+            try:
+                seen = self.view_summary(mutant)
+            except (EmbitError, ValueError, RuntimeError):
+                seen = None
+            if psbt is None:
+                self.assertEqual(seen, None, "only the view accepts %r" % flips)
+                rejected += 1
+                continue
+            accepted += 1
+            self.assertEqual(psbt.serialize(), mutant, "repaired %r" % flips)
+            expected = (
+                psbt.tx.version,
+                psbt.tx.locktime,
+                [vin.serialize() for vin in psbt.tx.vin],
+                [vout.serialize() for vout in psbt.tx.vout],
+            )
+            self.assertEqual(seen, expected, "parsers disagree on %r" % flips)
+        # Flips inside opaque fields (txid, amounts, hashes) are undetectable,
+        # flips in lengths, counts and framing must all be caught.
+        self.assertTrue(accepted > 0)
+        self.assertTrue(rejected > 0)
+
+    def test_truncated_global_tx_psbt_is_rejected(self):
+        # Declares a 117 byte global transaction that needs 119: the locktime
+        # is cut short. Used to parse as a valid PSBT with another locktime.
+        payload = a2b_base64(
+            "cHNidP8BAHUCAAAAASaBcTce3/KF6Tet7qSze3gADAVmy7OtZGQXE8pCFxv2AAAAAAD+"
+            "////AtPf9QUAAAAAGXapFNDFmQPFusKGh2DpD9UhpGZap2UvKwIAAAAYAAAAABl2qRQ5"
+            "RIJtUF/J8tJ37TUDq/eSSI9aJ8GAAQcAAAAA"
+        )
+        with self.assertRaises(EmbitError):
+            PSBT.parse(payload)
+        with self.assertRaises(PSBTError):
+            PSBTView.view(BytesIO(payload))
+
+    def test_liquid_global_tx_scriptsig_must_be_empty(self):
+        asset = bytes([1]) + bytes(range(32))
+        for script_sig, ok in ((b"", True), (b"\x51", False)):
+            tx = LTransaction(
+                vin=[LTransactionInput(bytes(range(32)), 1, Script(script_sig))],
+                vout=[LTransactionOutput(asset, 42, Script(b"\x51"))],
+            )
+            raw = tx.serialize()
+            view = GlobalLTransactionView(BytesIO(raw), 0, len(raw))
+            if ok:
+                self.assertEqual(view.num_vout, 1)
+                self.assertEqual(view.vout(0).value, 42)
+                self.assertEqual(view.vin(0).serialize(), tx.vin[0].serialize())
+            else:
+                for access in (lambda v: v.num_vout, lambda v: v.vin(0)):
+                    view = GlobalLTransactionView(BytesIO(raw), 0, len(raw))
+                    with self.assertRaises(PSBTError):
+                        access(view)
 
     def test_bounded_view_short_reads_and_output_length(self):
         raw = self.transaction().serialize()

@@ -870,6 +870,12 @@ class PSBT(EmbitBase):
             if key == b"\x00":
                 if tx is None:
                     tx = cls.TX_CLS.parse(value)
+                    # BIP-174: the global transaction must be unsigned
+                    for inp in tx.vin:
+                        if len(inp.script_sig.data) > 0:
+                            raise PSBTError(
+                                "Global transaction input has a non-empty scriptSig"
+                            )
                 else:
                     raise PSBTError(
                         "Failed to parse PSBT - duplicated transaction field"
@@ -1083,7 +1089,7 @@ class PSBT(EmbitBase):
             if fingerprint:
                 # if taproot derivations are present add them
                 for pub in inp.taproot_bip32_derivations:
-                    _leafs, derivation = inp.taproot_bip32_derivations[pub]
+                    (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
                     if derivation.fingerprint == fingerprint:
                         # Add only if not already present
                         if (pub, derivation) not in bip32_derivations:

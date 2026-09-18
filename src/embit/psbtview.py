@@ -13,7 +13,6 @@ where SD card MCU can trick you to sign a wrong transactions.
 
 Makes sense to run gc.collect() after processing of each scope to free memory.
 """
-
 # TODO: refactor, a lot of code is duplicated here from transaction.py
 from collections import OrderedDict
 import hashlib
@@ -147,6 +146,7 @@ class GlobalTransactionView:
         self._vin0_offset = None
         self._num_vout = None
         self._vout0_offset = None
+        self._inputs_checked = False
         self._locktime = None
         self._version = None
 
@@ -168,6 +168,7 @@ class GlobalTransactionView:
     @property
     def num_vout(self):
         if self._num_vout is None:
+            self._check_inputs()
             # version, n_vin, n_vin * len(vin)
             self.stream.seek(self.vin0_offset + self.LEN_VIN * self.num_vin)
             self._num_vout = compact.read_from(self.stream)
@@ -200,17 +201,29 @@ class GlobalTransactionView:
             self._locktime = locktime
         return self._locktime
 
+    def _check_inputs(self):
+        """LEN_VIN only holds for unsigned inputs, so every scriptSig must be
+        empty before anything is located by striding over the inputs."""
+        if self._inputs_checked:
+            return
+        for i in range(self.num_vin):
+            self.stream.seek(self.vin0_offset + self.LEN_VIN * i + 36)
+            if _read_exact(self.stream, 1) != b"\x00":
+                raise PSBTError("Global transaction input has a non-empty scriptSig")
+        self._inputs_checked = True
+
     def vin(self, i):
         if i < 0 or i >= self.num_vin:
             raise PSBTError("Invalid input index")
+        self._check_inputs()
         self.stream.seek(self.vin0_offset + self.LEN_VIN * i)
         return TransactionInput.read_from(self.stream)
 
     def _skip_output(self):
         """Seeks over one output"""
         self.stream.seek(8, 1)
-        length = compact.read_from(self.stream)
-        self.stream.seek(length, 1)
+        l = compact.read_from(self.stream)
+        self.stream.seek(l, 1)
 
     def vout(self, i):
         if i < 0 or i >= self.num_vout:
@@ -225,7 +238,7 @@ class GlobalTransactionView:
 
 class PSBTView:
     """
-    Constructor shouldn't be used directly. Use PSBTView.view(stream) instead.
+    Constructor shouldn't be used directly. PSBTView.view(stream) should be used instead.
     Either version should be 2 or tx_offset should be int, otherwise you get an error
     """
 
@@ -327,8 +340,6 @@ class PSBTView:
                 tx = cls.TX_CLS(stream, tx_offset, tx_len)
                 num_inputs = tx.num_vin
                 num_outputs = tx.num_vout
-                _ = tx.version
-                _ = tx.locktime
                 # seek to the end of transaction
                 stream.seek(tx_offset + tx_len)
                 cur += tx_len
@@ -433,7 +444,7 @@ class PSBTView:
         vout = int.from_bytes(v, "little")
 
         self.seek_to_scope(i)
-        v = self.get_value(b"\x10", from_current=True) or b"\xff\xff\xff\xff"
+        v = self.get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
         sequence = int.from_bytes(v, "little")
 
         return TransactionInput(txid, vout, sequence=sequence)
@@ -665,7 +676,7 @@ class PSBTView:
             h.update(compact.to_bytes(input_index + 1))
             empty = TransactionOutput(0xFFFFFFFF, Script(b"")).serialize()
             # this way we commit to input index
-            for _ in range(input_index):
+            for i in range(input_index):
                 h.update(empty)
             # last is ours
             h.update(self.vout(input_index).serialize())
@@ -754,7 +765,7 @@ class PSBTView:
         # negate if necessary
         pub = ec.PublicKey.from_xonly(key.xonly())
         # iterate over leafs and sign
-        for _ctrl, sc in inp.taproot_scripts.items():
+        for ctrl, sc in inp.taproot_scripts.items():
             if pub.xonly() not in sc:
                 continue
             leaf_version = sc[-1]
@@ -841,7 +852,7 @@ class PSBTView:
         if fingerprint:
             # if taproot derivations are present add them
             for pub in inp.taproot_bip32_derivations:
-                _leafs, derivation = inp.taproot_bip32_derivations[pub]
+                (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
                 if derivation.fingerprint == fingerprint:
                     # Add only if not already present
                     if (pub, derivation) not in bip32_derivations:
@@ -887,7 +898,7 @@ class PSBTView:
                 sighash=inp_sighash,
             )
             # sign with all derived keys
-            for prv, _pub in derived_keypairs:
+            for prv, pub in derived_keypairs:
                 counter += self.sign_input_with_tapkey(
                     prv,
                     i,
@@ -924,12 +935,10 @@ class PSBTView:
 
     def sign_with(self, root, sig_stream, sighash=SIGHASH.DEFAULT) -> int:
         """
-        Signs psbtview with root key (HDKey or similar) and writes per-input
-        signatures to the sig_stream.
+        Signs psbtview with root key (HDKey or similar) and writes per-input signatures to the sig_stream.
         It can be either a simple BytesIO object or a file stream open for writing.
         Returns number of signatures added to PSBT.
-        Sighash kwarg is set to SIGHASH.DEFAULT; for segwit and legacy it's
-        replaced with SIGHASH.ALL
+        Sighash kwarg is set to SIGHASH.DEFAULT, for segwit and legacy it's replaced to SIGHASH.ALL
         so if PSBT is asking to sign with a different sighash this function won't sign.
         If you want to sign with sighashes provided in the PSBT - set sighash=None.
         """
@@ -952,20 +961,18 @@ class PSBTView:
         self,
         writable_stream,
         compress=None,
-        extra_input_streams=(),
-        extra_output_streams=(),
+        extra_input_streams=[],
+        extra_output_streams=[],
     ):
         """
         Writes PSBTView to stream.
         extra_input_streams and extra_output_streams
-        are streams with extra per-input and per-output data that should be
-        written to stream as well.
+        are streams with extra per-input and per-output data that should be written to stream as well.
         For example they can contain signatures or extra derivations.
 
         If compressed flag is used then only minimal number of fields will be writen:
         For psbtv0 it will have global tx and partial sigs for all inputs
-        For psbtv2 it will have version, tx_version, locktime, per-vin data,
-        per-vout data and partial sigs
+        For psbtv2 it will have version, tx_version, locktime, per-vin data, per-vout data and partial sigs
         """
         if compress is None:
             compress = self.compress

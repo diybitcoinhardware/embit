@@ -1,5 +1,4 @@
-"""Compact Int parsing / serialization"""
-
+""" Compact Int parsing / serialization """
 import io
 
 

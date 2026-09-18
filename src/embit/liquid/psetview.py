@@ -56,9 +56,14 @@ class GlobalLTransactionView(GlobalTransactionView):
             )
         return self._vout0_offset
 
+    def _check_inputs(self):
+        # inputs are variable-sized here: _skip_input() checks each of them
+        _ = self.num_vout_offset
+
     def vin(self, i):
         if i < 0 or i >= self.num_vin:
             raise PSBTError("Invalid input index")
+        self._check_inputs()
         self.stream.seek(self.vin0_offset)
         for j in range(i):
             self._skip_input()
@@ -68,7 +73,10 @@ class GlobalLTransactionView(GlobalTransactionView):
         off = 32 + 4 + 5
         self.stream.seek(32, 1)  # txid
         vout = int.from_bytes(self.stream.read(4), "little")
-        self.stream.seek(5, 1)  # scriptsig, sequence
+        # the fixed input size only holds for an empty scriptsig
+        if self.stream.read(1) != b"\x00":
+            raise PSBTError("Global transaction input has a non-empty scriptSig")
+        self.stream.seek(4, 1)  # sequence
         is_pegin = False
         if vout != 0xFFFFFFFF:
             is_pegin = vout & (1 << 30) != 0
