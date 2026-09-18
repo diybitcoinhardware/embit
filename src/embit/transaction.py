@@ -10,6 +10,13 @@ class TransactionError(EmbitError):
     pass
 
 
+def _read_exact(stream, size):
+    data = stream.read(size)
+    if len(data) != size:
+        raise TransactionError("Failed to read %d bytes" % size)
+    return data
+
+
 # micropython doesn't support typing and Enum
 class SIGHASH:
     DEFAULT = const(0)
@@ -111,7 +118,7 @@ class Transaction(EmbitBase):
     def read_vout(cls, stream, idx):
         """Returns a tuple TransactionOutput, tx_hash without storing the whole tx in memory"""
         h = hashlib.sha256()
-        h.update(stream.read(4))
+        h.update(_read_exact(stream, 4))
         num_vin = compact.read_from(stream)
         # if num_vin is zero it is a segwit transaction
         is_segwit = num_vin == 0
@@ -139,12 +146,12 @@ class Transaction(EmbitBase):
         if is_segwit:
             for i in range(num_vin):
                 Witness.read_from(stream)
-        h.update(stream.read(4))
+        h.update(_read_exact(stream, 4))
         return res, hashlib.sha256(h.digest()).digest()
 
     @classmethod
     def read_from(cls, stream):
-        ver = int.from_bytes(stream.read(4), "little")
+        ver = int.from_bytes(_read_exact(stream, 4), "little")
         num_vin = compact.read_from(stream)
         # if num_vin is zero it is a segwit transaction
         is_segwit = num_vin == 0
@@ -163,7 +170,7 @@ class Transaction(EmbitBase):
         if is_segwit:
             for inp in vin:
                 inp.witness = Witness.read_from(stream)
-        locktime = int.from_bytes(stream.read(4), "little")
+        locktime = int.from_bytes(_read_exact(stream, 4), "little")
         return cls(version=ver, vin=vin, vout=vout, locktime=locktime)
 
     def hash_prevouts(self):
@@ -282,7 +289,7 @@ class Transaction(EmbitBase):
         h.update(script_pubkey.serialize())
         h.update(int(value).to_bytes(8, "little"))
         h.update(inp.sequence.to_bytes(4, "little"))
-        if not (sh in [SIGHASH.NONE, SIGHASH.SINGLE]):
+        if sh not in [SIGHASH.NONE, SIGHASH.SINGLE]:
             h.update(hashlib.sha256(self.hash_outputs()).digest())
         elif sh == SIGHASH.SINGLE and input_index < len(self.vout):
             h.update(
@@ -376,10 +383,10 @@ class TransactionInput(EmbitBase):
 
     @classmethod
     def read_from(cls, stream):
-        txid = bytes(reversed(stream.read(32)))
-        vout = int.from_bytes(stream.read(4), "little")
+        txid = bytes(reversed(_read_exact(stream, 32)))
+        vout = int.from_bytes(_read_exact(stream, 4), "little")
         script_sig = Script.read_from(stream)
-        sequence = int.from_bytes(stream.read(4), "little")
+        sequence = int.from_bytes(_read_exact(stream, 4), "little")
         return cls(txid, vout, script_sig, sequence)
 
 
@@ -395,6 +402,6 @@ class TransactionOutput(EmbitBase):
 
     @classmethod
     def read_from(cls, stream):
-        value = int.from_bytes(stream.read(8), "little")
+        value = int.from_bytes(_read_exact(stream, 8), "little")
         script_pubkey = Script.read_from(stream)
         return cls(value, script_pubkey)

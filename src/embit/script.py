@@ -108,9 +108,11 @@ class Witness(EmbitBase):
     def read_from(cls, stream):
         num = compact.read_from(stream)
         items = []
-        for i in range(num):
-            l = compact.read_from(stream)
-            data = stream.read(l)
+        for _ in range(num):
+            length = compact.read_from(stream)
+            data = stream.read(length)
+            if len(data) != length:
+                raise ValueError("Incomplete witness item")
             items.append(data)
         return cls(items)
 

@@ -16,6 +16,27 @@ class PSBTError(EmbitError):
     pass
 
 
+class _BoundedReader:
+    """Sequential PSBT value reader; never reads outside the declared value."""
+
+    def __init__(self, stream, length):
+        self.stream = stream
+        self.remaining = length
+
+    def read(self, size):
+        if size < 0 or size > self.remaining:
+            raise PSBTError("Read exceeds declared value length")
+        data = self.stream.read(size)
+        if len(data) != size:
+            raise PSBTError("Incomplete PSBT value")
+        self.remaining -= size
+        return data
+
+    def finish(self):
+        if self.remaining:
+            raise PSBTError("Trailing bytes in PSBT value")
+
+
 class CompressMode:
     KEEP_ALL = 0
     CLEAR_ALL = 1
@@ -310,14 +331,17 @@ class InputScope(PSBTScope):
             elif self.non_witness_utxo is not None:
                 raise PSBTError("Duplicated utxo value")
             else:
-                l = compact.read_from(stream)
+                length = compact.read_from(stream)
+                value_stream = _BoundedReader(stream, length)
                 # we verified and saved utxo
                 if self.compress and self.txid and self.vout is not None:
-                    txout, txhash = self.TX_CLS.read_vout(stream, self.vout)
+                    txout, txhash = self.TX_CLS.read_vout(value_stream, self.vout)
+                    value_stream.finish()
                     self._txhash = txhash
                     self._utxo = txout
                 else:
-                    tx = self.TX_CLS.read_from(stream)
+                    tx = self.TX_CLS.read_from(value_stream)
+                    value_stream.finish()
                     self.non_witness_utxo = tx
             return
 
@@ -1059,7 +1083,7 @@ class PSBT(EmbitBase):
             if fingerprint:
                 # if taproot derivations are present add them
                 for pub in inp.taproot_bip32_derivations:
-                    (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
+                    _leafs, derivation = inp.taproot_bip32_derivations[pub]
                     if derivation.fingerprint == fingerprint:
                         # Add only if not already present
                         if (pub, derivation) not in bip32_derivations:

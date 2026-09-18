@@ -1,4 +1,5 @@
-""" Compact Int parsing / serialization """
+"""Compact Int parsing / serialization"""
+
 import io
 
 
@@ -36,6 +37,9 @@ def read_from(stream) -> int:
     i = c[0]
     if i >= 0xFD:
         bytes_to_read = 2 ** (i - 0xFC)
-        return int.from_bytes(stream.read(bytes_to_read), "little")
+        data = stream.read(bytes_to_read)
+        if len(data) != bytes_to_read:
+            raise RuntimeError("Incomplete compact integer")
+        return int.from_bytes(data, "little")
     else:
         return i

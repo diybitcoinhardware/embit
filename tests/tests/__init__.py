@@ -9,6 +9,7 @@ from .test_bip39 import *
 from .test_slip39 import *
 from .test_descriptor import *
 from .test_psbtview import *
+from .test_parsing import ParsingTest as ParsingTest
 from .test_taproot import *
 from .test_script import *
 from .test_bip85 import *
