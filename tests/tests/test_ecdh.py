@@ -1,17 +1,18 @@
 from unittest import TestCase, skipUnless
-from embit.ec import PrivateKey, secp256k1
+from embit.ec import PrivateKey
+from embit.util import secp256k1
 import hashlib
 
+# ECDH is an optional module in upstream secp256k1 (enabled with
+# --enable-module-ecdh) and always present in zkp. If a future build of embit
+# targets upstream secp256k1 without the ECDH module enabled, this check lets
+# the test suite skip cleanly instead of erroring out.
 _ECDH_AVAILABLE = hasattr(secp256k1, "ecdh")
-if not _ECDH_AVAILABLE:
-    print(
-        "[tests] ECDH backend unavailable; "
-        "skipping ECDH tests and using pure-Python fallback."
-    )
 
 
 @skipUnless(
-    _ECDH_AVAILABLE, "ECDH backend unavailable; pure-Python fallback in use"
+    _ECDH_AVAILABLE,
+    "secp256k1 build is missing the ECDH module",
 )
 class ECDHTest(TestCase):
     def test_one(self):

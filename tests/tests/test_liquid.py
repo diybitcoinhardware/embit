@@ -12,6 +12,10 @@ from embit.bip32 import HDKey
 from embit.ec import PrivateKey
 from embit.hashes import tagged_hash
 
+# Liquid needs zkp-only extras (rangeproof, pedersen, generator, surjectionproof,
+# plus the tweak_mul operations upstream secp256k1 deprecated). If a future
+# build of embit targets upstream secp256k1, with Liquid moving to a separate
+# package, these checks let the test suite skip cleanly instead of erroring out.
 _LIQUID_REQUIRED_FUNCS = [
     "ec_pubkey_tweak_mul",
     "ec_privkey_tweak_mul",
@@ -21,16 +25,11 @@ _LIQUID_REQUIRED_FUNCS = [
     "surjectionproof_generate",
 ]
 _LIQUID_AVAILABLE = all(hasattr(secp256k1, func) for func in _LIQUID_REQUIRED_FUNCS)
-if not _LIQUID_AVAILABLE:
-    print(
-        "[tests] Liquid/ZKP backend unavailable; "
-        "skipping liquid tests and using pure-Python fallback."
-    )
 
 
 @skipUnless(
     _LIQUID_AVAILABLE,
-    "Liquid/ZKP backend unavailable; pure-Python fallback in use",
+    "secp256k1 build is missing zkp extras required for Liquid",
 )
 class LiquidTest(TestCase):
     def test_value_commitment(self):
