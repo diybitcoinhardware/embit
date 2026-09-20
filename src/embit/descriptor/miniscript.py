@@ -191,15 +191,15 @@ class PkH(OneArg):
         return self.len_args() + 3
 
 
-class Older(OneArg):
-    # <n> CHECKSEQUENCEVERIFY
-    NAME = "older"
+class After(OneArg):
+    # <n> CHECKLOCKTIMEVERIFY
+    NAME = "after"
     ARGCLS = Number
     TYPE = "B"
     PROPS = "z"
 
     def inner_compile(self):
-        return self.carg + b"\xb2"
+        return self.carg + b"\xb1"
 
     def verify(self):
         super().verify()
@@ -212,12 +212,28 @@ class Older(OneArg):
         return self.len_args() + 1
 
 
-class After(Older):
-    # <n> CHECKLOCKTIMEVERIFY
-    NAME = "after"
+class Older(After):
+    # <n> CHECKSEQUENCEVERIFY
+    NAME = "older"
 
     def inner_compile(self):
-        return self.carg + b"\xb1"
+        return self.carg + b"\xb2"
+
+    def verify(self):
+        super().verify()
+        # https://github.com/bitcoin/bitcoin/pull/33135 older(65536) is equivalent to older(1)
+        if self.arg.num & (1 << 22):
+            # time-based
+            if (self.arg.num < 0x400001) or (self.arg.num >= 0x410000):
+                raise MiniscriptError(
+                    "Time-based %s should have an argument in range [0x400001, 0x410000)" % self.NAME
+                )
+        else:
+            # block-based
+            if self.arg.num >= 0x10000:
+                raise MiniscriptError(
+                    "Block-based %s should have an argument in range [1, 0x10000)" % self.NAME
+                )
 
 
 class Sha256(OneArg):
