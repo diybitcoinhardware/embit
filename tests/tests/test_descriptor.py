@@ -382,6 +382,44 @@ class DescriptorTest(TestCase):
 
             assert n_branches == d.num_branches
 
+    def test_derive_preserves_key_order(self):
+        keys = [
+            "[73c5da0a/84h/1h/0h]xpub6Bm9M1SxZdzL3TxdNV8897FgtTLBgehR1wVNnMyJ5VLRK5n3tFqXxrCVnVQj4zooN4eFSkf6Sma84reWc5ZCXMxPbLXQs3BcaBdTd4YQa3B/<0;1>/*",
+            "[b8688df1/84h/1h/0h]xpub6CnR9ceMJcBFAg8y4vVgVzyXt9AMriyKTKXnJr11BfFBqfRqXkBnBxsNhA8jA8aArgXohYigjE7Nb38iAbqgvqvR1uuAjFRKbrdqgnmR3gK/<0;1>/*",
+            "[28645006/84h/1h/0h]xpub6CQsXJLdHPurvSJPjvbgsy1goTjuo5cQAQ6Yre5Sd2SxZ9wuSmhMttYQqqHQZAfA2j5HrSprnPWrgzgTkJyzzA4i7QhMfceNU8rASftZjjc/<0;1>/*",
+            "[f57f296d/84h/1h/0h]xpub6DQWqHZqv3PvzWhbDRUEcEhasLZxGsiF4r7GTcmCZcdTXFB3JTYKKt3U9qDnPdV7XNRP7mGtJf6FF8hxGykp2FKczcvfUxHhw4uLLh7PsB4/<0;1>/*",
+            "[dd1fad4d/84h/1h/0h]xpub6BnZob7d8SavYRAFaBXaNu5WftG6jKwSGiDWveKbbNkLisjhfcocV7H32MZKSk6YAsHii9743UzDKeuNfh8rqMTP9641LPKBSbotwfnEFgF/<0;1>/*",
+        ]
+        descriptors = [
+            ("wpkh", "wpkh(%s)" % keys[0]),
+            ("multi", "wsh(multi(2,%s,%s,%s,%s,%s))" % tuple(keys)),
+            ("sortedmulti", "wsh(sortedmulti(3,%s,%s,%s,%s,%s))" % tuple(keys)),
+            # A non-trivial miniscript policy embedding a multisig plus
+            # additional pk() leaves, exercising recursive derivation order.
+            (
+                "miniscript",
+                "wsh(andor(multi(2,%s,%s,%s),older(1008),pk(%s)))"
+                % tuple(keys[:4]),
+            ),
+            # Taproot with an internal key and a taptree leaf.
+            ("taproot", "tr(%s,pk(%s))" % (keys[0], keys[1])),
+        ]
+        for name, dstr in descriptors:
+            desc = Descriptor.from_string(dstr)
+            for branch_index in range(desc.num_branches):
+                derived = desc.derive(7, branch_index=branch_index)
+                self.assertEqual(
+                    len(derived.keys),
+                    len(desc.keys),
+                    "key count changed for %s branch %d" % (name, branch_index),
+                )
+                for i, (orig, drv) in enumerate(zip(desc.keys, derived.keys)):
+                    self.assertEqual(
+                        orig.derive(7, branch_index=branch_index).key.to_base58(),
+                        drv.key.to_base58(),
+                        "key %d mismatch for %s branch %d" % (i, name, branch_index),
+                    )
+
 
 # test that:
 # + str(d) == d

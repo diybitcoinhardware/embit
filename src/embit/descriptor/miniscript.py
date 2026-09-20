@@ -25,6 +25,7 @@ class Miniscript(DescriptorBase):
         )
 
     def derive(self, idx, branch_index=None):
+        """Derive the miniscript. Key expressions stay in descriptor order."""
         args = [
             arg.derive(idx, branch_index) if hasattr(arg, "derive") else arg
             for arg in self.args
