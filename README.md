@@ -81,6 +81,9 @@ Install in developer mode with dev dependencies:
 
 ```sh
 pip install -e .[dev]
+
+# Note: zsh and some other shells require quotes around brackets:
+pip install -e ".[dev]"
 ```
 
 Install pre-commit hook:
