@@ -262,6 +262,7 @@ class Slip39Test(TestCase):
                     "duckling enlarge academic academic agency result length solution fridge kidney coal piece deal husband erode duke ajar critical decision keyboard"
                 ],
                 "bb54aac4b89dc868ba37d9cc21b2cece",
+                "xprv9s21ZrQH143K4QViKpwKCpS2zVbz8GrZgpEchMDg6KME9HZtjfL7iThE9w5muQA4YPHKN1u5VM1w8D4pvnjxa2BmpGMfXr7hnRrRHZ93awZ",
             ],
             [
                 "4. Basic sharing 2-of-3 (128 bits)",
@@ -270,6 +271,7 @@ class Slip39Test(TestCase):
                     "shadow pistol academic acid actress prayer class unknown daughter sweater depict flip twice unkind craft early superior advocate guest smoking",
                 ],
                 "b43ceb7e57a0ea8766221624d01b0864",
+                "xprv9s21ZrQH143K2nNuAbfWPHBtfiSCS14XQgb3otW4pX655q58EEZeC8zmjEUwucBu9dPnxdpbZLCn57yx45RBkwJHnwHFjZK4XPJ8SyeYjYg",
             ],
             [
                 "17. Threshold number of groups and members in each group (128 bits, case 1)",
@@ -281,6 +283,7 @@ class Slip39Test(TestCase):
                     "eraser senior decision smug corner ruin rescue cubic angel tackle skin skunk program roster trash rumor slush angel flea amazing",
                 ],
                 "7c3397a292a5941682d7a4ae2d898d11",
+                "xprv9s21ZrQH143K3dzDLfeY3cMp23u5vDeFYftu5RPYZPucKc99mNEddU4w99GxdgUGcSfMpVDxhnR1XpJzZNXRN1m6xNgnzFS5MwMP6QyBRKV",
             ],
             [
                 "18. Threshold number of groups and members in each group (128 bits, case 2)",
@@ -290,6 +293,7 @@ class Slip39Test(TestCase):
                     "eraser senior decision scared cargo theory device idea deliver modify curly include pancake both news skin realize vitamins away join",
                 ],
                 "7c3397a292a5941682d7a4ae2d898d11",
+                "xprv9s21ZrQH143K3dzDLfeY3cMp23u5vDeFYftu5RPYZPucKc99mNEddU4w99GxdgUGcSfMpVDxhnR1XpJzZNXRN1m6xNgnzFS5MwMP6QyBRKV",
             ],
             [
                 "19. Threshold number of groups and members in each group (128 bits, case 3)",
@@ -298,6 +302,7 @@ class Slip39Test(TestCase):
                     "eraser senior acrobat romp bishop medical gesture pumps secret alive ultimate quarter priest subject class dictate spew material endless market",
                 ],
                 "7c3397a292a5941682d7a4ae2d898d11",
+                "xprv9s21ZrQH143K3dzDLfeY3cMp23u5vDeFYftu5RPYZPucKc99mNEddU4w99GxdgUGcSfMpVDxhnR1XpJzZNXRN1m6xNgnzFS5MwMP6QyBRKV",
             ],
             [
                 "20. Valid mnemonic without sharing (256 bits)",
@@ -305,6 +310,7 @@ class Slip39Test(TestCase):
                     "theory painting academic academic armed sweater year military elder discuss acne wildlife boring employer fused large satoshi bundle carbon diagnose anatomy hamster leaves tracks paces beyond phantom capital marvel lips brave detect luck"
                 ],
                 "989baf9dcaad5b10ca33dfd8cc75e42477025dce88ae83e75a230086a0e00e92",
+                "xprv9s21ZrQH143K41mrxxMT2FpiheQ9MFNmWVK4tvX2s28KLZAhuXWskJCKVRQprq9TnjzzzEYePpt764csiCxTt22xwGPiRmUjYUUdjaut8RM",
             ],
             [
                 "23. Basic sharing 2-of-3 (256 bits)",
@@ -313,6 +319,7 @@ class Slip39Test(TestCase):
                     "humidity disease academic agency actress jacket gross physics cylinder solution fake mortgage benefit public busy prepare sharp friar change work slow purchase ruler again tricycle involve viral wireless mixture anatomy desert cargo upgrade",
                 ],
                 "c938b319067687e990e05e0da0ecce1278f75ff58d9853f19dcaeed5de104aae",
+                "xprv9s21ZrQH143K3a4GRMgK8WnawupkwkP6gyHxRsXnMsYPTPH21fWwNcAytijtfyftqNfiaY8LgQVdBQvHZ9FBvtwdjC7LCYxjYruJFuLzyMQ",
             ],
             [
                 "36. Threshold number of groups and members in each group (256 bits, case 1)",
@@ -324,6 +331,7 @@ class Slip39Test(TestCase):
                     "wildlife deal decision shadow analysis adjust bulb skunk muscle mandate obesity total guitar coal gravity carve slim jacket ruin rebuild ancestor numerous hour mortgage require herd maiden public ceiling pecan pickup shadow club",
                 ],
                 "5385577c8cfc6c1a8aa0f7f10ecde0a3318493262591e78b8c14c6686167123b",
+                "xprv9s21ZrQH143K2UspC9FRPfQC9NcDB4HPkx1XG9UEtuceYtpcCZ6ypNZWdgfxQ9dAFVeD1F4Zg4roY7nZm2LB7THPD6kaCege3M7EuS8v85c",
             ],
             [
                 "37. Threshold number of groups and members in each group (256 bits, case 2)",
@@ -333,6 +341,7 @@ class Slip39Test(TestCase):
                     "wildlife deal decision smug ancestor genuine move huge cubic strategy smell game costume extend swimming false desire fake traffic vegan senior twice timber submit leader payroll fraction apart exact forward pulse tidy install",
                 ],
                 "5385577c8cfc6c1a8aa0f7f10ecde0a3318493262591e78b8c14c6686167123b",
+                "xprv9s21ZrQH143K2UspC9FRPfQC9NcDB4HPkx1XG9UEtuceYtpcCZ6ypNZWdgfxQ9dAFVeD1F4Zg4roY7nZm2LB7THPD6kaCege3M7EuS8v85c",
             ],
             [
                 "38. Threshold number of groups and members in each group (256 bits, case 3)",
@@ -341,12 +350,17 @@ class Slip39Test(TestCase):
                     "wildlife deal acrobat romp anxiety axis starting require metric flexible geology game drove editor edge screw helpful have huge holy making pitch unknown carve holiday numb glasses survive already tenant adapt goat fangs",
                 ],
                 "5385577c8cfc6c1a8aa0f7f10ecde0a3318493262591e78b8c14c6686167123b",
+                "xprv9s21ZrQH143K2UspC9FRPfQC9NcDB4HPkx1XG9UEtuceYtpcCZ6ypNZWdgfxQ9dAFVeD1F4Zg4roY7nZm2LB7THPD6kaCege3M7EuS8v85c",
             ],
         ]
-        for test_name, mnemonics, expected in test_cases:
+        for test_name, mnemonics, expected_secret, expected_xprv in test_cases:
             share_set = ShareSet([Share.parse(m) for m in mnemonics])
+            recovered_secret = share_set.recover(b"TREZOR")
             self.assertEqual(
-                share_set.recover(b"TREZOR"), unhexlify(expected), test_name
+                recovered_secret, unhexlify(expected_secret), test_name
+            )
+            self.assertEqual(
+                HDKey.from_seed(recovered_secret).to_base58(), expected_xprv, test_name
             )
 
     def test_split(self):
