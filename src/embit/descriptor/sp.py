@@ -8,29 +8,6 @@ from .arguments import KeyOrigin, Key
 SPSCAN_HRPS = {"spscan": "main", "tspscan": "test"}
 
 
-def _bech32m_decode_sp_key(encoded):
-    try:
-        encoding, hrp, data = bech32.bech32_decode(encoded)
-    except bech32.Bech32DecodeError as e:
-        raise DescriptorError("Invalid silent payment key: %s" % e)
-    if encoding != bech32.Encoding.BECH32M:
-        raise DescriptorError("Silent payment keys must use bech32m encoding")
-    if not data:
-        raise DescriptorError("Silent payment key is missing its version byte")
-    if data[0] != 0:
-        raise DescriptorError("Unsupported silent payment key version: %d" % data[0])
-    try:
-        payload = bech32.convertbits(data[1:], 5, 8, False)
-    except bech32.Bech32DecodeError as e:
-        raise DescriptorError("Invalid silent payment key payload: %s" % e)
-    return hrp, bytes(payload)
-
-
-def _bech32m_encode_sp_key(hrp, payload):
-    data = bech32.convertbits(payload, 8, 5)
-    return bech32.bech32_encode(bech32.Encoding.BECH32M, hrp, [0] + data)
-
-
 class SPScanKey:
     """spscan key expression: encodes scan_privkey + spend_pubkey."""
 
@@ -48,9 +25,20 @@ class SPScanKey:
     def is_watch_only(self):
         return True
 
+    # The spend key is public only, so an spscan key can never sign. PSBT
+    # signing (resolve_signing_root) skips keys that report is_private False.
+    is_private = False
+
     @classmethod
     def decode(cls, encoded, origin=None):
-        hrp, payload = _bech32m_decode_sp_key(encoded)
+        try:
+            hrp, version, payload = bech32.bech32m_decode_versioned(encoded)
+        except bech32.Bech32DecodeError as e:
+            raise DescriptorError("Invalid silent payment key: %s" % e)
+        if version != 0:
+            raise DescriptorError(
+                "Unsupported silent payment key version: %d" % version
+            )
         if hrp not in SPSCAN_HRPS:
             raise DescriptorError("Expected spscan HRP, got: %s" % hrp)
         if len(payload) != 65:
@@ -66,7 +54,7 @@ class SPScanKey:
     def encode(self):
         hrp = "tspscan" if self.network == "test" else "spscan"
         payload = self.scan_privkey.secret + self.spend_pubkey.sec()
-        return _bech32m_encode_sp_key(hrp, payload)
+        return bech32.bech32m_encode_versioned(hrp, 0, payload)
 
     def __str__(self):
         prefix = "[%s]" % self.origin if self.origin else ""
@@ -76,6 +64,9 @@ class SPScanKey:
 def _read_sp_key_expression(s):
     """Read an spscan expression or a standard Key from stream."""
     first = s.read(1)
+    if not first:
+        # nothing left; the seek(-1, 1) below would rewind onto the previous char
+        raise DescriptorError("Empty key expression in sp()")
     origin = None
     origin_len = 0
     if first == b"[":
@@ -98,14 +89,13 @@ def _read_sp_key_expression(s):
     lower = token_str.lower()
     for hrp in SPSCAN_HRPS:
         if lower.startswith(hrp + "1"):
-            return SPScanKey.decode(token_str, origin), char
+            return SPScanKey.decode(token_str, origin)
 
     # Not a silent-payment key: rewind past the origin prefix and token (no
     # tell(); MicroPython's BytesIO lacks it) and let Key.read_from(s) consume
     # the expression in-place, leaving the stream at the delimiter for the caller.
     s.seek(-(origin_len + len(token)), 1)
-    key = Key.read_from(s)
-    return key, None
+    return Key.read_from(s)
 
 
 class SilentPaymentDescriptor(DescriptorBase):
@@ -163,28 +153,27 @@ class SilentPaymentDescriptor(DescriptorBase):
 
     @classmethod
     def from_string(cls, desc):
-        if "#" in desc:
-            desc = desc.split("#")[0]
         s = BytesIO(desc.encode())
-        start = s.read(3)
-        if start != b"sp(":
-            raise DescriptorError("Expected sp( prefix, got: %s" % start.decode())
-        res = cls._read_args(s)
-        end = s.read(1)
-        if end != b")":
-            raise DescriptorError("Expected closing ) for sp()")
+        res = cls.read_from(s)
         left = s.read()
-        if len(left) > 0:
+        # a trailing #checksum is not verified, same as Descriptor.from_string
+        if len(left) > 0 and not left.startswith(b"#"):
             raise DescriptorError("Unexpected characters after sp(): %r" % left)
         return res
 
     @classmethod
     def read_from(cls, s):
-        return cls._read_args(s)
+        start = s.read(3)
+        if start != b"sp(":
+            raise DescriptorError("Expected sp( prefix, got: %r" % start)
+        res = cls._read_args(s)
+        if s.read(1) != b")":
+            raise DescriptorError("Expected closing ) for sp()")
+        return res
 
     @classmethod
     def _read_args(cls, s):
-        first_arg, sep = _read_sp_key_expression(s)
+        first_arg = _read_sp_key_expression(s)
 
         if isinstance(first_arg, SPScanKey):
             c = s.read(1)
@@ -196,7 +185,7 @@ class SilentPaymentDescriptor(DescriptorBase):
         c = s.read(1)
         if c != b",":
             raise DescriptorError(
-                "Single-arg sp() requires spscan or spspend key expression, "
+                "Single-arg sp() requires an spscan key expression, "
                 "got a standard key"
             )
 
@@ -206,7 +195,7 @@ class SilentPaymentDescriptor(DescriptorBase):
         if isinstance(scan_key.key, ec.PrivateKey) and not scan_key.key.compressed:
             raise DescriptorError("Uncompressed keys are not allowed in sp()")
 
-        spend_arg, _ = _read_sp_key_expression(s)
+        spend_arg = _read_sp_key_expression(s)
         if isinstance(spend_arg, SPScanKey):
             raise DescriptorError("Two-arg sp() cannot use spscan key expressions")
         if isinstance(spend_arg, Key) and isinstance(spend_arg.key, ec.PrivateKey):
@@ -235,8 +224,9 @@ class SilentPaymentDescriptor(DescriptorBase):
             return "sp(%s)" % self.sp_key
         return "sp(%s,%s)" % (self.scan_key, self.spend_key)
 
-    def __str__(self):
-        return self.to_string()
+    def write_to(self, stream, *args, **kwargs):
+        # serialize(), == and hash() all go through write_to
+        return stream.write(self.to_string().encode())
 
     def __repr__(self):
         return self.to_string()

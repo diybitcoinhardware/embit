@@ -198,3 +198,47 @@ class Bech32RoundTripTest(TestCase):
 
                 self.assertEqual(decoded_enc, encoding)
                 self.assertEqual(decoded_hrp, hrp.lower())
+
+
+class Bech32mVersionedTest(TestCase):
+    """bech32m_encode_versioned / bech32m_decode_versioned, shared by BIP-352 and BIP-392."""
+
+    def test_round_trip(self):
+        payload = bytes(range(66))
+        for version in (0, 1, 30, 31):
+            encoded = segwit_addr.bech32m_encode_versioned("sp", version, payload)
+            self.assertEqual(
+                segwit_addr.bech32m_decode_versioned(encoded), ("sp", version, payload)
+            )
+
+    def test_known_silent_payments_address(self):
+        hrp, version, payload = segwit_addr.bech32m_decode_versioned(
+            SILENT_PAYMENTS_ADDRESS
+        )
+        self.assertEqual((hrp, version, len(payload)), ("sp", 0, 66))
+        self.assertEqual(
+            segwit_addr.bech32m_encode_versioned(hrp, version, payload),
+            SILENT_PAYMENTS_ADDRESS,
+        )
+
+    def test_decode_rejects_bech32_encoding(self):
+        data = [0] + segwit_addr.convertbits(bytes(66), 8, 5)
+        bech = segwit_addr.bech32_encode(segwit_addr.Encoding.BECH32, "sp", data)
+        with self.assertRaises(segwit_addr.Bech32DecodeError):
+            segwit_addr.bech32m_decode_versioned(bech)
+
+    def test_decode_rejects_missing_version(self):
+        bech = segwit_addr.bech32_encode(segwit_addr.Encoding.BECH32M, "sp", [])
+        with self.assertRaises(segwit_addr.Bech32DecodeError):
+            segwit_addr.bech32m_decode_versioned(bech)
+
+    def test_decode_rejects_nonzero_padding(self):
+        # one 5-bit value cannot be a whole number of bytes
+        bech = segwit_addr.bech32_encode(segwit_addr.Encoding.BECH32M, "sp", [0, 1])
+        with self.assertRaises(segwit_addr.Bech32DecodeError):
+            segwit_addr.bech32m_decode_versioned(bech)
+
+    def test_encode_rejects_out_of_range_version(self):
+        for version in (-1, 32):
+            with self.assertRaises(segwit_addr.Bech32DecodeError):
+                segwit_addr.bech32m_encode_versioned("sp", version, bytes(66))

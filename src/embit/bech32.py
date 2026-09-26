@@ -179,3 +179,32 @@ def encode(hrp, witver, witprog):
     decode(hrp, ret)
 
     return ret
+
+
+def bech32m_encode_versioned(hrp, version, payload):
+    """Bech32m-encode ``payload`` bytes behind a leading version value.
+
+    Shared framing of BIP-352 silent payment addresses and BIP-392 spscan
+    keys. Only the range of ``version`` is checked here; the caller applies
+    its own version and length policy.
+    """
+    # bech32_encode indexes CHARSET with the version, so an out-of-range one
+    # would raise IndexError (32) or wrap to the wrong character (-1).
+    if not 0 <= version <= 31:
+        raise Bech32DecodeError("Version must be in [0, 31], got %d" % version)
+    return bech32_encode(Encoding.BECH32M, hrp, [version] + convertbits(payload, 8, 5))
+
+
+def bech32m_decode_versioned(bech):
+    """Inverse of bech32m_encode_versioned: return (hrp, version, payload bytes).
+
+    Checks the Bech32m checksum and encoding, that a version value is present
+    and that the payload converts to whole bytes with zero padding. The
+    caller checks the HRP, the version and the payload length.
+    """
+    encoding, hrp, data = bech32_decode(bech)
+    if encoding != Encoding.BECH32M:
+        raise Bech32DecodeError("Must use bech32m encoding")
+    if not data:
+        raise Bech32DecodeError("Missing version")
+    return hrp, data[0], bytes(convertbits(data[1:], 5, 8, False))

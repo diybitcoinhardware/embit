@@ -1,5 +1,5 @@
 """
-BIP-352: Silent Payments — core cryptography, address encoding, output
+BIP-352: Silent Payments - core cryptography, address encoding, output
 derivation, and PSBT input/output helpers.
 
 see: https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki
@@ -34,13 +34,6 @@ K_MAX = 2323
 _NUMS_XONLY = ec.NUMS_PUBKEY.xonly()
 
 
-def _tweak_mul(point_sec, scalar):
-    """Multiply a compressed point by a scalar, returning the compressed result."""
-    point = bytearray(ec_pubkey_parse(point_sec))
-    ec_pubkey_tweak_mul(point, scalar)
-    return ec_pubkey_serialize(point, EC_COMPRESSED)
-
-
 def _validate_label(m, allow_zero=True):
     """Validate a BIP-352 label index."""
     if not isinstance(m, int) or isinstance(m, bool):
@@ -70,9 +63,10 @@ def encode_silent_payment_address(scan_pubkey, spend_pubkey, network="main", ver
         raise SPValidationError(
             "Silent payment address version must be in [0, 30], got {}".format(version)
         )
-    data = bech32.convertbits(scan_pubkey.sec() + spend_pubkey.sec(), 8, 5)
     hrp = "sp" if network == "main" else "tsp"
-    return bech32.bech32_encode(bech32.Encoding.BECH32M, hrp, [version] + data)
+    return bech32.bech32m_encode_versioned(
+        hrp, version, scan_pubkey.sec() + spend_pubkey.sec()
+    )
 
 
 def generate_silent_payment_address(
@@ -91,18 +85,11 @@ def generate_silent_payment_address(
 def decode_silent_payment_address(address):
     """Decode a silent payment address and return the (scan, spend) public keys."""
     try:
-        encoding, hrpgot, data = bech32.bech32_decode(address)
+        hrp, version, decoded = bech32.bech32m_decode_versioned(address)
     except bech32.Bech32DecodeError as e:
         raise SPValidationError("Invalid silent payment address: {}".format(e))
-    if hrpgot not in ("sp", "tsp"):
+    if hrp not in ("sp", "tsp"):
         raise SPValidationError("Invalid silent payment address: unknown HRP")
-    if encoding != bech32.Encoding.BECH32M:
-        raise SPValidationError(
-            "Invalid silent payment address: must use bech32m encoding"
-        )
-    if not data:
-        raise SPValidationError("Invalid silent payment address: missing version")
-    version = data[0]
     # BIP-352 forward compatibility: version 31 is reserved and must be
     # rejected; versions 1-30 keep the first 66 bytes and ignore any trailing
     # data; version 0 must be exactly 66 bytes.
@@ -110,10 +97,6 @@ def decode_silent_payment_address(address):
         raise SPValidationError(
             "Invalid silent payment address: version 31 is reserved"
         )
-    try:
-        decoded = bytes(bech32.convertbits(data[1:], 5, 8, False))
-    except bech32.Bech32DecodeError:
-        raise SPValidationError("Invalid silent payment address: conversion failed")
 
     if version == 0 and len(decoded) != 66:
         raise SPValidationError(
@@ -187,10 +170,14 @@ def derive_sp_outputs(priv_keys, outpoints, scan_spend_groups):
 
     results = {}
     for sk_bytes, (scan_key, spend_keys) in scan_spend_groups.items():
-        ecdh_share = _tweak_mul(scan_key.sec(), a_sum_bytes)
-
+        # one buffer for both multiplications: a_sum*B_scan is the ECDH share,
+        # times input_hash it is the shared secret
+        point = bytearray(scan_key._point)
+        ec_pubkey_tweak_mul(point, a_sum_bytes)
+        ecdh_share = ec_pubkey_serialize(point, EC_COMPRESSED)
+        ec_pubkey_tweak_mul(point, input_hash)
         outputs = derive_recipient_outputs(
-            _tweak_mul(ecdh_share, input_hash), spend_keys
+            ec_pubkey_serialize(point, EC_COMPRESSED), spend_keys
         )
         results[sk_bytes] = (ecdh_share, outputs)
 
@@ -329,7 +316,7 @@ def group_sp_outputs_by_scan_key(outputs):
         sk_bytes = out.sp_data.scan_key.sec()
         if sk_bytes not in groups:
             groups[sk_bytes] = (out.sp_data.scan_key, [])
-        # the sort key is serialized once per output, rather than on every comaprison
+        # the sort key is serialized once per output, rather than on every comparison
         groups[sk_bytes][1].append((out.sp_data.spend_key.sec(), out_idx))
     scan_spend_groups = {}
     output_indices = {}

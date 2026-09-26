@@ -4,6 +4,8 @@ from embit.descriptor.sp import SPScanKey
 from embit.descriptor.arguments import KeyOrigin
 from embit.descriptor.errors import DescriptorError
 from embit import bip32, bip39, ec
+from embit.psbt import resolve_signing_root
+from embit.silent_payments import SilentPaymentsPSBT
 from binascii import unhexlify
 
 # TODO: add more test vectors
@@ -203,6 +205,11 @@ class TestInvalidDescriptor(TestCase):
     def test_empty_sp(self):
         self.assertRaises(DescriptorError, SilentPaymentDescriptor.from_string, "sp()")
 
+    def test_truncated_sp(self):
+        """Input that ends right after 'sp(' is a DescriptorError, not a base58 ValueError."""
+        for parse in (SilentPaymentDescriptor.from_string, Descriptor.from_string):
+            self.assertRaises(DescriptorError, parse, "sp(")
+
     def test_bare_xpub_single_arg(self):
         """Single-arg sp() with a plain xpub (not spscan/spspend) is rejected."""
         seed = bytes(range(16))
@@ -213,7 +220,7 @@ class TestInvalidDescriptor(TestCase):
         )
 
     def test_xpub_xpub_scan_key_rejected(self):
-        """Two-arg sp(xpub, xpub) is rejected — scan key must be private."""
+        """Two-arg sp(xpub, xpub) is rejected - scan key must be private."""
         seed = bip39.mnemonic_to_seed(VECTORS[0]["mnemonic"])
         master = bip32.HDKey.from_seed(seed)
         scan_xpub = master.derive("m/352h/1h/0h/1h/0").to_public().to_base58()
@@ -225,7 +232,7 @@ class TestInvalidDescriptor(TestCase):
         )
 
     def test_hex_pubkey_scan_key_rejected(self):
-        """Two-arg sp(pubkey_hex, pubkey_hex) is rejected — scan key must be private."""
+        """Two-arg sp(pubkey_hex, pubkey_hex) is rejected - scan key must be private."""
         scan_pub = self._scan_priv().get_public_key()
         spend_pub = self._spend_pub()
         desc_str = "sp(%s,%s)" % (scan_pub.sec().hex(), spend_pub.sec().hex())
@@ -234,7 +241,7 @@ class TestInvalidDescriptor(TestCase):
         )
 
     def test_spscan_in_second_position_rejected(self):
-        """Two-arg sp(wif, spscan1...) is rejected — second arg cannot be an spscan key."""
+        """Two-arg sp(wif, spscan1...) is rejected - second arg cannot be an spscan key."""
         scan_priv = self._scan_priv()
         spscan = SPScanKey(scan_priv, self._spend_pub())
         desc_str = "sp(%s,%s)" % (scan_priv.wif(), spscan.encode())
@@ -243,7 +250,7 @@ class TestInvalidDescriptor(TestCase):
         )
 
     def test_two_spscan_args_rejected(self):
-        """sp(spscan1..., spscan1...) is rejected — spscan must be the only argument."""
+        """sp(spscan1..., spscan1...) is rejected - spscan must be the only argument."""
         spscan = SPScanKey(self._scan_priv(), self._spend_pub())
         desc_str = "sp(%s,%s)" % (spscan.encode(), spscan.encode())
         self.assertRaises(
@@ -266,3 +273,36 @@ class TestInvalidDescriptor(TestCase):
         self.assertRaises(
             DescriptorError, SilentPaymentDescriptor.from_string, desc_str
         )
+
+
+class TestParseAndSigning(TestCase):
+    """SilentPaymentDescriptor follows the Descriptor stream contract and cannot sign."""
+
+    def _spscan(self):
+        v = VECTORS[0]
+        scan_priv, spend_priv = _derive_sp_keys(v["mnemonic"], v["coin_type"])
+        return SPScanKey(scan_priv, spend_priv.get_public_key(), network="test")
+
+    def test_parse_reads_whole_expression(self):
+        """parse() consumes 'sp(...)' itself, like Descriptor.parse()."""
+        desc_str = "sp(%s)" % self._spscan().encode()
+        for cls in (SilentPaymentDescriptor, Descriptor):
+            desc = cls.parse(desc_str.encode())
+            self.assertIsInstance(desc, SilentPaymentDescriptor)
+            self.assertEqual(str(desc), desc_str)
+
+    def test_serialize_eq_hash(self):
+        """serialize(), == and hash() work like on any other descriptor."""
+        desc_str = "sp(%s)" % self._spscan().encode()
+        a = SilentPaymentDescriptor.from_string(desc_str)
+        b = Descriptor.from_string(desc_str)
+        self.assertEqual(a.serialize(), desc_str.encode())
+        self.assertEqual(a, b)
+        self.assertEqual(hash(a), hash(b))
+
+    def test_spscan_key_cannot_sign(self):
+        """resolve_signing_root skips spscan keys, so sign_with() signs nothing."""
+        spscan = self._spscan()
+        self.assertEqual(resolve_signing_root(spscan), (None, False, spscan))
+        desc = SilentPaymentDescriptor(sp_key=spscan)
+        self.assertEqual(SilentPaymentsPSBT.create_v2().sign_with(desc), 0)
