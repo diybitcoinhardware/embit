@@ -2,7 +2,8 @@
 from unittest import TestCase, skipUnless
 from embit.util import secp256k1
 from binascii import unhexlify
-from embit.liquid.pset import PSET
+from embit.liquid.addresses import address
+from embit.liquid.pset import PSET, LInputScope, LOutputScope
 from embit.liquid.transaction import LTransaction
 from embit.liquid import slip77
 from embit.script import Script
@@ -246,3 +247,29 @@ class LiquidTest(TestCase):
         res = vout.unblind(bkey.secret, message_length=200)
         value, asset, vbf, abf, extramsg, min_value, max_value = res
         self.assertEqual(extramsg[: len(msg)], msg)
+
+    def test_pset_v2_locktime_and_sequence(self):
+        # blinded_tx is what gets signed, so it has to agree with tx
+        pset = PSET.create_v2(fallback_locktime=7)
+        inp = LInputScope()
+        inp.txid = bytes(32)
+        inp.vout = 0
+        inp.sequence = 0
+        inp.required_height_locktime = 800000
+        pset.add_input(inp)
+        out = LOutputScope()
+        out.value = 1000
+        out.script_pubkey = Script(b"\x00\x14" + bytes(20))
+        pset.add_output(out)
+
+        self.assertEqual(pset.tx.locktime, 800000)
+        self.assertEqual(pset.blinded_tx.locktime, 800000)
+        # an explicit sequence of 0 is not "unset"
+        self.assertEqual(inp.vin.sequence, 0)
+        self.assertEqual(inp.blinded_vin.sequence, 0)
+        self.assertEqual(pset.tx.vin[0].sequence, 0)
+        self.assertEqual(pset.blinded_tx.vin[0].sequence, 0)
+
+    def test_address_of_non_witness_script(self):
+        # OP_RETURN is not a witness program, so there is no address for it
+        self.assertIsNone(address(Script(b"\x6a\x04test")))
