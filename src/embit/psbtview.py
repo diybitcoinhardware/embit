@@ -30,8 +30,10 @@ from .psbt import (
     OutputScope,
     LOCKTIME_THRESHOLD,
     choose_locktime,
+    derive_hdkey,
     next_tx_modifiable,
     read_string,
+    resolve_signing_root,
     ser_string,
     skip_string,
     _GLOBAL_COUNT_FIELDS,
@@ -282,8 +284,9 @@ class PSBTView:
         self._locktime = self.tx.locktime if self.tx else None
         # For PSBTv2: dict of all global key→value pairs (excluding the \x00 global tx).
         # This is the single source of truth for every global field, including
-        # PSBT_GLOBAL_TX_MODIFIABLE (\x06). None for PSBTv0 where the global
-        # scope is streamed verbatim.
+        # PSBT_GLOBAL_TX_MODIFIABLE (\x06). A value is either bytes or, for keys
+        # this class doesn't interpret, an (offset, length) pair into the stream.
+        # None for PSBTv0 where the global scope is streamed verbatim.
         self._global_kvs = global_kvs
         self.clear_cache()
 
@@ -334,13 +337,12 @@ class PSBTView:
         num_outputs = None
         tx_offset = None
         tx_len = None
-        # Collect all non-global-tx key-value pairs for PSBTv2 global scope rewriting.
-        # The global scope is small, so materialising it avoids byte-level injection.
+        # Fixed-size global fields (version, counts, ...) are read into this dict.
+        # Anything else (xpubs, proprietary, ...) is only skipped here: PSBTv0
+        # streams its global scope verbatim, so per-key state would grow with
+        # untrusted input for nothing. PSBTv2 gets those keys back in a second
+        # pass below.
         global_kvs = {}
-        # key -> (value_offset, value_len) for globals whose value is only needed
-        # if this turns out to be a PSBTv2. PSBTView is RAM-constrained, so we
-        # skip them on the first pass and read them back below only when used.
-        deferred_kvs = {}
         while True:
             # read key and update cursor
             key = read_string(stream)
@@ -366,21 +368,16 @@ class PSBTView:
                 # seek to the end of transaction
                 stream.seek(tx_offset + tx_len)
                 cur += tx_len
-            else:
-                if key in global_kvs or key in deferred_kvs:
+            elif key in _GLOBAL_FIXED_VALUE_LENGTHS or key in _GLOBAL_COUNT_FIELDS:
+                if key in global_kvs:
                     raise PSBTError("Duplicate global key: %s" % hexlify(key).decode())
-                if key in _GLOBAL_FIXED_VALUE_LENGTHS or key in _GLOBAL_COUNT_FIELDS:
-                    value, value_size = _read_global_value(stream, key)
-                    cur += value_size
-                    global_kvs[key] = value
-                    if key == b"\xfb":
-                        version = int.from_bytes(value, "little")
-                else:
-                    value_len = compact.read_from(stream)
-                    header = len(compact.to_bytes(value_len))
-                    deferred_kvs[key] = (cur + header, value_len)
-                    stream.seek(value_len, 1)
-                    cur += header + value_len
+                value, value_size = _read_global_value(stream, key)
+                cur += value_size
+                global_kvs[key] = value
+                if key == b"\xfb":
+                    version = int.from_bytes(value, "little")
+            else:
+                cur += skip_string(stream)
         first_scope = cur
         if version not in (None, 0, 2):
             raise PSBTError("Unsupported PSBT_GLOBAL_VERSION value: %d" % version)
@@ -398,14 +395,28 @@ class PSBTView:
         if None in [version or tx_offset, num_inputs, num_outputs]:
             raise PSBTError("Missing something important in PSBT")
         if version == 2:
-            # PSBTv2 rebuilds its global scope from _global_kvs on write, so now
-            # (and only now) we need the values we skipped over above.
-            for k, (v_off, v_len) in deferred_kvs.items():
-                stream.seek(v_off)
-                v = stream.read(v_len)
-                if len(v) != v_len:
-                    raise PSBTError("Failed to read %d bytes" % v_len)
-                global_kvs[k] = v
+            # PSBTv2 rebuilds its global scope on write, so now (and only now)
+            # we need the keys skipped above. Their values stay in the stream,
+            # only (offset, length) is kept: a huge unknown global costs a tuple.
+            pos = offset + len(cls.MAGIC)
+            stream.seek(pos)
+            while True:
+                key = read_string(stream)
+                pos += len(key) + len(compact.to_bytes(len(key)))
+                if len(key) == 0:
+                    break
+                value_len = compact.read_from(stream)
+                pos += len(compact.to_bytes(value_len))
+                if key not in _GLOBAL_FIXED_VALUE_LENGTHS and (
+                    key not in _GLOBAL_COUNT_FIELDS
+                ):
+                    if key in global_kvs:
+                        raise PSBTError(
+                            "Duplicate global key: %s" % hexlify(key).decode()
+                        )
+                    global_kvs[key] = (pos, value_len)
+                stream.seek(value_len, 1)
+                pos += value_len
         return cls(
             stream,
             num_inputs,
@@ -970,19 +981,9 @@ class PSBTView:
         if i < 0 or i >= self.num_inputs:
             raise PSBTError("Invalid input number")
 
-        # if WIF - fingerprint is None
-        fingerprint = None
-        # if descriptor key
-        if hasattr(root, "origin"):
-            if not root.is_private:  # pubkey can't sign
-                return 0
-            if root.is_extended:  # use fingerprint only for HDKey
-                fingerprint = root.fingerprint
-            else:
-                root = root.key  # WIF key
-        # if HDKey
-        if not fingerprint and hasattr(root, "my_fingerprint"):
-            fingerprint = root.my_fingerprint
+        fingerprint, can_sign, root = resolve_signing_root(root)
+        if not can_sign:
+            return 0
 
         rootpub = root.get_public_key()
         sec = rootpub.sec()
@@ -1035,17 +1036,10 @@ class PSBTView:
         # get derived keys for signing
         derived_keypairs = OrderedDict()  # (prv, pub)
         for pub, derivation in bip32_derivations:
-            der = derivation.derivation
-            # descriptor key has origin derivation that we take into account
-            if hasattr(root, "origin"):
-                if root.origin:
-                    if root.origin.derivation != der[: len(root.origin.derivation)]:
-                        # derivation doesn't match - go to next input
-                        continue
-                    der = der[len(root.origin.derivation) :]
-                hdkey = root.key.derive(der)
-            else:
-                hdkey = root.derive(der)
+            hdkey = derive_hdkey(root, derivation)
+            if hdkey is None:
+                # derivation doesn't match - go to next candidate
+                continue
 
             if hdkey.xonly() != pub.xonly():
                 raise PSBTError("Derivation path doesn't look right")
@@ -1156,7 +1150,17 @@ class PSBTView:
             res = len(self.MAGIC)
             for k in sorted(self._global_kvs.keys()):
                 res += ser_string(writable_stream, k)
-                res += ser_string(writable_stream, self._global_kvs[k])
+                v = self._global_kvs[k]
+                if isinstance(v, tuple):
+                    # value not in RAM: copy it over from the source stream
+                    v_off, v_len = v
+                    self.stream.seek(v_off)
+                    res += writable_stream.write(compact.to_bytes(v_len))
+                    if read_write(self.stream, writable_stream, v_len) != v_len:
+                        raise PSBTError("Failed to read %d bytes" % v_len)
+                    res += v_len
+                else:
+                    res += ser_string(writable_stream, v)
             writable_stream.write(b"\x00")  # global scope separator
             res += 1
         else:

@@ -241,21 +241,53 @@ class PSBTScope(EmbitBase):
     def read_from(cls, stream, *args, **kwargs):
         version = kwargs.pop("version", None)
         res = cls({}, *args, **kwargs)
+        res._read_map(stream, version)
+        return res
+
+    def _read_map(self, stream, version):
         while True:
             key = read_string(stream)
             # separator
             if len(key) == 0:
                 break
-            if version != 2 and key in res.V2_FIELDS:
-                raise PSBTError("PSBTv2 field is not allowed in PSBTv0")
-            res.read_value(stream, key)
-        return res
+            self.read_value(stream, key, version=version)
+
+
+def _scan_vout(stream):
+    """Peek at PSBT_IN_OUTPUT_INDEX in the input map at the cursor, then rewind.
+
+    PSBT maps are unordered, so a v2 input map may put the output index after
+    PSBT_IN_NON_WITNESS_UTXO, which needs it to be parsed without keeping the
+    whole previous tx. Returns None when the stream can't seek or the field is
+    missing or malformed (the real parse raises the precise error).
+    """
+    try:
+        # seek() returns the new position. BytesIO has no tell() on older
+        # MicroPython, so this is the one way to read it there.
+        start = stream.seek(0, 1)
+    except (AttributeError, OSError):
+        return None
+    vout = None
+    while True:
+        k = read_string(stream)
+        if len(k) == 0:
+            break
+        if k == b"\x0f":
+            v = read_string(stream)
+            if len(v) == 4:
+                vout = int.from_bytes(v, "little")
+            break
+        skip_string(stream)
+    stream.seek(start)
+    return vout
 
 
 class InputScope(PSBTScope):
     TX_CLS = Transaction
     TXOUT_CLS = TransactionOutput
     V2_FIELDS = (b"\x0e", b"\x0f", b"\x10", b"\x11", b"\x12")
+    # set on the instance only while _read_map runs (class default costs no RAM)
+    _prescan_vout = None
 
     def __init__(self, unknown: dict = None, vin=None, compress=CompressMode.KEEP_ALL):
         self.compress = compress
@@ -418,9 +450,7 @@ class InputScope(PSBTScope):
                 # use the pre-scanned vout (set by read_from) when the field hasn't
                 # been parsed yet so the OOM protection is key-order independent.
                 effective_vout = (
-                    self.vout
-                    if self.vout is not None
-                    else getattr(self, "_prescan_vout", None)
+                    self.vout if self.vout is not None else self._prescan_vout
                 )
                 # we verified and saved utxo
                 if self.compress and effective_vout is not None:
@@ -721,43 +751,14 @@ class InputScope(PSBTScope):
             r += stream.write(b"\x00")
         return r
 
-    @classmethod
-    def read_from(cls, stream, compress=CompressMode.KEEP_ALL, vin=None, version=None):
-        res = cls({}, vin=vin, compress=compress)
-        # PSBT maps are unordered, so PSBTv2 input maps may provide the output
-        # index after the non-witness UTXO. Peek only at compact-sized keys and
-        # skip values to keep compressed parsing independent of key order.
-        res._prescan_vout = None
-        if version == 2 and compress:
-            try:
-                # Probe seekability BEFORE consuming anything: if we cannot rewind,
-                # a half-finished prescan would leave the cursor mid-map and corrupt
-                # the real parse below.
-                start_pos = stream.tell()
-                stream.seek(start_pos)
-            except (AttributeError, OSError):
-                start_pos = None  # not seekable; OOM protection unavailable
-            if start_pos is not None:
-                while True:
-                    k = read_string(stream)
-                    if len(k) == 0:
-                        break
-                    if k == b"\x0f":
-                        v = read_string(stream)
-                        if len(v) == 4:
-                            res._prescan_vout = int.from_bytes(v, "little")
-                        # otherwise let the real parse raise the precise error
-                        break
-                    skip_string(stream)
-                stream.seek(start_pos)
-        while True:
-            key = read_string(stream)
-            # separator
-            if len(key) == 0:
-                break
-            res.read_value(stream, key, version=version)
-        del res._prescan_vout
-        return res
+    def _read_map(self, stream, version):
+        # keeps compressed parsing independent of key order (see _scan_vout)
+        scan = version == 2 and self.compress
+        if scan:
+            self._prescan_vout = _scan_vout(stream)
+        super()._read_map(stream, version)
+        if scan:
+            del self._prescan_vout  # back to the class default
 
 
 class OutputScope(PSBTScope):
@@ -921,17 +922,6 @@ class OutputScope(PSBTScope):
             r += stream.write(b"\x00")
         return r
 
-    @classmethod
-    def read_from(cls, stream, compress=CompressMode.KEEP_ALL, vout=None, version=None):
-        res = cls({}, vout=vout, compress=compress)
-        while True:
-            key = read_string(stream)
-            # separator
-            if len(key) == 0:
-                break
-            res.read_value(stream, key, version=version)
-        return res
-
 
 class TxModifiable:
     INPUTS = 0b00000001
@@ -979,13 +969,19 @@ class PSBT(EmbitBase):
         return out.value is not None
 
     @classmethod
+    def _v2_output_has_script(cls, out):
+        """Subclasses (e.g. SilentPaymentsPSBT) may override to accept a
+        stand-in for PSBT_OUT_SCRIPT."""
+        return out.script_pubkey is not None
+
+    @classmethod
     def _validate_v2_output(cls, out, i):
         """Check that a PSBTv2 output has all required fields."""
         if not cls._v2_output_has_amount(out):
             raise PSBTError(
                 "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
             )
-        if out.script_pubkey is None:
+        if not cls._v2_output_has_script(out):
             raise PSBTError(
                 "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
             )
@@ -997,8 +993,6 @@ class PSBT(EmbitBase):
         self.tx_version = None
         self.locktime = None
         self.tx_modifiable_flags = None
-        self._raw_input_count_from_global = None
-        self._raw_output_count_from_global = None
 
         if tx is not None:
             self.parse_tx(tx)
@@ -1047,23 +1041,14 @@ class PSBT(EmbitBase):
             *self._classify_locktimes(self.inputs), fallback=self.locktime or 0
         )
 
-    def _validate_locktime_compatibility(self, inputs):
-        """Verify that the given input list has mutually compatible locktime requirements."""
-        choose_locktime(*self._classify_locktimes(inputs), fallback=0)
-
     @property
     def tx(self):
-        if self.version == 2:
-            locktime = self.determine_locktime()
-        else:
-            locktime = self.locktime or 0
-
         if self.version == 2 and self.tx_version is None:
             raise PSBTError("PSBTv2 is missing required PSBT_GLOBAL_TX_VERSION")
         tx_version = self.tx_version if self.tx_version is not None else 2
         return self.TX_CLS(
             version=tx_version,
-            locktime=locktime,
+            locktime=self.determine_locktime(),
             vin=[inp.vin for inp in self.inputs],
             vout=[out.vout for out in self.outputs],
         )
@@ -1214,20 +1199,25 @@ class PSBT(EmbitBase):
         _validate_global_fields(version, b"\x00" in global_kvs, global_kvs)
 
         if version == 2:  # PSBTv2
+            # _validate_global_fields guarantees the counts are present and canonical.
+            # They are only ever loop bounds: scopes are appended as they are read, so
+            # an attacker-chosen count can't pre-allocate anything.
+            num_inputs = compact.from_bytes(global_kvs[b"\x04"])
+            num_outputs = compact.from_bytes(global_kvs[b"\x05"])
             # Pass all global KVs to unknown; __init__ calls parse_unknowns.
             psbt = cls(tx=None, unknown=global_kvs, version=version)
-
-            # Validate that input/output counts were processed by parse_unknowns
-            if psbt._raw_input_count_from_global is None:
-                raise PSBTError(
-                    "PSBTv2 missing or invalid PSBT_GLOBAL_INPUT_COUNT (0x04)"
+            for i in range(num_inputs):
+                inp = cls.PSBTIN_CLS.read_from(
+                    stream, compress=compress, version=version
                 )
-            if psbt._raw_output_count_from_global is None:
-                raise PSBTError(
-                    "PSBTv2 missing or invalid PSBT_GLOBAL_OUTPUT_COUNT (0x05)"
+                cls._validate_v2_input(inp, i)
+                psbt.inputs.append(inp)
+            for i in range(num_outputs):
+                out = cls.PSBTOUT_CLS.read_from(
+                    stream, compress=compress, version=version
                 )
-            if psbt.tx_version is None:
-                raise PSBTError("PSBTv2 missing required PSBT_GLOBAL_TX_VERSION (0x02)")
+                cls._validate_v2_output(out, i)
+                psbt.outputs.append(out)
         else:  # PSBTv0 (version is None or 0)
             tx_bytes = global_kvs.pop(b"\x00")  # Remove so it's not in unknown
             tx_for_v0 = cls.TX_CLS.parse(tx_bytes)
@@ -1238,64 +1228,18 @@ class PSBT(EmbitBase):
                         "Global transaction input has a non-empty scriptSig"
                     )
             psbt = cls(tx=tx_for_v0, unknown=global_kvs, version=version)
-
-        if version == 2:
-            num_inputs = psbt._raw_input_count_from_global
-            num_outputs = psbt._raw_output_count_from_global
-
-            parsed_inputs = []
-            for _ in range(num_inputs):
-                parsed_inputs.append(
-                    cls.PSBTIN_CLS.read_from(
-                        stream,
-                        compress=compress,
-                        vin=None,
-                        version=version,
-                    )
-                )
-            psbt.inputs = parsed_inputs
-
-            for i, inp in enumerate(psbt.inputs):
-                cls._validate_v2_input(inp, i)
-
-            parsed_outputs = []
-            for _ in range(num_outputs):
-                parsed_outputs.append(
-                    cls.PSBTOUT_CLS.read_from(
-                        stream,
-                        compress=compress,
-                        vout=None,
-                        version=version,
-                    )
-                )
-            psbt.outputs = parsed_outputs
-
-            for i, out in enumerate(psbt.outputs):
-                cls._validate_v2_output(out, i)
-        else:
-            temp_inputs = []
+            # replace the placeholder scopes one by one so they don't all stay alive
             for i in range(len(psbt.inputs)):
-                temp_inputs.append(
-                    cls.PSBTIN_CLS.read_from(
-                        stream,
-                        compress=compress,
-                        vin=psbt.inputs[i].vin,
-                        version=version,
-                    )
+                psbt.inputs[i] = cls.PSBTIN_CLS.read_from(
+                    stream, compress=compress, vin=psbt.inputs[i].vin, version=version
                 )
-            psbt.inputs = temp_inputs
-
-            temp_outputs = []
             for i in range(len(psbt.outputs)):
-                temp_outputs.append(
-                    cls.PSBTOUT_CLS.read_from(
-                        stream,
-                        compress=compress,
-                        vout=psbt.outputs[i].vout,
-                        version=version,
-                    )
+                psbt.outputs[i] = cls.PSBTOUT_CLS.read_from(
+                    stream,
+                    compress=compress,
+                    vout=psbt.outputs[i].vout,
+                    version=version,
                 )
-            psbt.outputs = temp_outputs
 
         return psbt
 
@@ -1327,26 +1271,11 @@ class PSBT(EmbitBase):
                     if len(v) != 4:
                         raise PSBTError("PSBT_GLOBAL_FALLBACK_LOCKTIME must be 4 bytes")
                     self.locktime = int.from_bytes(v, "little")
-            elif k == b"\x04":
+            elif k == b"\x04" or k == b"\x05":
+                # input/output counts: read_from uses them as loop bounds and
+                # write_to derives them from len(inputs)/len(outputs)
                 if self.version == 2:
-                    if self._raw_input_count_from_global is not None:
-                        self.unknown.pop(k, None)
-                        continue
-                    self._raw_input_count_from_global = compact.from_bytes(
-                        self.unknown.pop(k)
-                    )
-                    # Store count only; do not pre-allocate objects to avoid
-                    # attacker-controlled memory exhaustion.
-            elif k == b"\x05":
-                if self.version == 2:
-                    if self._raw_output_count_from_global is not None:
-                        self.unknown.pop(k, None)
-                        continue
-                    self._raw_output_count_from_global = compact.from_bytes(
-                        self.unknown.pop(k)
-                    )
-                    # Store count only; do not pre-allocate objects to avoid
-                    # attacker-controlled memory exhaustion.
+                    del self.unknown[k]
 
     def sighash(self, i, sighash=SIGHASH.ALL, **kwargs):
         inp = self.inputs[i]
@@ -1629,10 +1558,9 @@ class PSBT(EmbitBase):
                 input_scope.required_height_locktime is not None
                 or input_scope.required_time_locktime is not None
             ):
-                self._validate_locktime_compatibility(self.inputs + [input_scope])
+                # raises when the new input's locktime requirement conflicts
+                choose_locktime(*self._classify_locktimes(self.inputs + [input_scope]))
         self.inputs.append(input_scope)
-        if self.version == 2:
-            self._raw_input_count_from_global = len(self.inputs)
 
     def add_output(self, output_scope):
         if not self.is_outputs_modifiable():
@@ -1640,5 +1568,3 @@ class PSBT(EmbitBase):
         if self.version == 2:
             self._validate_v2_output(output_scope, len(self.outputs))
         self.outputs.append(output_scope)
-        if self.version == 2:
-            self._raw_output_count_from_global = len(self.outputs)

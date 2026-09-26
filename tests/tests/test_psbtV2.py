@@ -267,7 +267,7 @@ class TestPSBTVectors:
         assert psbt.has_sighash_single()
 
     def test_undefined_flag_bit3(self):
-        """Undefined flag (bit 3) — parser must not reject it"""
+        """Undefined flag (bit 3) - parser must not reject it"""
         hex_data = "70736274ff0102040200000001040101010501020106010801fb0402000000000100520200000001c1aa256e214b96a1822f93de42bff3b5f3ff8d0519306e3515d7515a5e805b120000000000ffffffff0118c69a3b00000000160014b0a3af144208412693ca7d166852b52db0aef06e0000000001011f18c69a3b00000000160014b0a3af144208412693ca7d166852b52db0aef06e010e200b0ad921419c1c8719735d72dc739f9ea9e0638d1fe4c1eef0f9944084815fc8010f040000000000220202d601f84846a6755f776be00e3d9de8fb10acc935fb83c45fb0162d4cad5ab79218f69d873e540000800100008000000080000000002a0000000103080008af2f000000000104160014c430f64c4756da310dbd1a085572ef299926272c00220202e36fbff53dd534070cf8fd396614680f357a9b85db7340bf1cfa745d2ad7b34018f69d873e54000080010000800000008001000000640000000103088bbdeb0b0000000001041600144dd193ac964a56ac1b9e1cca8454fe2f474f851300"
 
         psbt = PSBT.parse(unhexlify(hex_data))
@@ -333,7 +333,7 @@ class TestPSBTVectors:
         assert psbt.has_sighash_single()
 
     def test_all_possible_flags(self):
-        """All 8 bits set (0xFF) — defined + undefined flags"""
+        """All 8 bits set (0xFF) - defined + undefined flags"""
         hex_data = "70736274ff010204020000000104010101050102010601ff01fb0402000000000100520200000001c1aa256e214b96a1822f93de42bff3b5f3ff8d0519306e3515d7515a5e805b120000000000ffffffff0118c69a3b00000000160014b0a3af144208412693ca7d166852b52db0aef06e0000000001011f18c69a3b00000000160014b0a3af144208412693ca7d166852b52db0aef06e010e200b0ad921419c1c8719735d72dc739f9ea9e0638d1fe4c1eef0f9944084815fc8010f040000000000220202d601f84846a6755f776be00e3d9de8fb10acc935fb83c45fb0162d4cad5ab79218f69d873e540000800100008000000080000000002a0000000103080008af2f000000000104160014c430f64c4756da310dbd1a085572ef299926272c00220202e36fbff53dd534070cf8fd396614680f357a9b85db7340bf1cfa745d2ad7b34018f69d873e54000080010000800000008001000000640000000103088bbdeb0b0000000001041600144dd193ac964a56ac1b9e1cca8454fe2f474f851300"
 
         psbt = PSBT.parse(unhexlify(hex_data))
@@ -473,7 +473,6 @@ class TestPSBTv2Constructor:
         inp.vout = 0
         psbt.add_input(inp)
         assert len(psbt.inputs) == 1
-        assert psbt._raw_input_count_from_global == 1
 
     def test_add_input_requires_inputs_modifiable(self):
         """add_input() raises when INPUTS bit is clear"""
@@ -508,7 +507,6 @@ class TestPSBTv2Constructor:
         out.script_pubkey = Script(b"\x00\x14" + bytes(20))
         psbt.add_output(out)
         assert len(psbt.outputs) == 1
-        assert psbt._raw_output_count_from_global == 1
 
     def test_add_output_requires_outputs_modifiable(self):
         """add_output() raises when OUTPUTS bit is clear"""
@@ -654,3 +652,72 @@ class TestPSBTv2Compression:
         assert parsed.inputs[0].non_witness_utxo is None
         assert parsed.inputs[0]._utxo.value == 1234
         assert parsed.verify()
+
+    def test_psbtv2_compress_does_not_need_stream_tell(self):
+        """MicroPython's BytesIO has seek() but no tell(); the vout prescan must
+        still run there or the whole previous tx is loaded into RAM"""
+
+        class NoTell(BytesIO):
+            def tell(self):
+                raise AttributeError("tell")
+
+        prev = Transaction(
+            vin=[TransactionInput(bytes([1]) * 32, 0)],
+            vout=[TransactionOutput(1234, Script(b"\x51"))],
+        )
+        psbt = PSBT.create_v2()
+        inp = InputScope()
+        inp.txid = prev.txid()
+        inp.vout = 0
+        inp.non_witness_utxo = prev
+        psbt.add_input(inp)
+        out = OutputScope()
+        out.value = 1000
+        out.script_pubkey = Script(b"\x51")
+        psbt.add_output(out)
+
+        parsed = PSBT.read_from(NoTell(psbt.serialize()), compress=CompressMode.PARTIAL)
+        assert parsed.inputs[0].non_witness_utxo is None
+        assert parsed.inputs[0]._utxo.value == 1234
+
+
+class TestPSBTViewGlobals:
+    """PSBTView keeps unknown globals out of RAM: skipped in v0, offsets in v2."""
+
+    def _psbt(self, version):
+        if version == 2:
+            psbt = PSBT.create_v2()
+            inp = InputScope()
+            inp.txid = bytes(range(32))
+            inp.vout = 1
+            psbt.add_input(inp)
+            out = OutputScope()
+            out.value = 5000
+            out.script_pubkey = Script(b"\x00\x14" + bytes(20))
+            psbt.add_output(out)
+        else:
+            tx = Transaction(
+                2,
+                [TransactionInput(bytes(32), 0)],
+                [TransactionOutput(1000, Script(b"\x00\x14" + bytes(20)))],
+                0,
+            )
+            psbt = PSBT(tx)
+        psbt.unknown[b"\xfc\x04test\x01"] = b"hello" * 3
+        psbt.unknown[b"\xaa"] = b"z" * 300
+        return psbt
+
+    def test_write_to_keeps_unknown_globals(self):
+        for version in (None, 2):
+            psbt = self._psbt(version)
+            view = PSBTView.view(BytesIO(psbt.serialize()))
+            out = BytesIO()
+            view.write_to(out)
+            assert PSBT.parse(out.getvalue()).unknown == psbt.unknown
+
+    def test_view_rejects_duplicate_unknown_global(self):
+        raw = self._psbt(2).serialize()
+        # repeat the b"\xaa" global right after the magic
+        dup = raw[:5] + b"\x01\xaa\x01x" + raw[5:]
+        with pytest.raises(PSBTError):
+            PSBTView.view(BytesIO(dup))
