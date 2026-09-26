@@ -26,10 +26,11 @@ def compute_dleq_proof(a_sum_key, scan_key, aux_rand=None):
     ``a_sum_key`` is a 32-byte scalar: the sum of the input keys for a global
     share, or a single input's key for a per-input share.
     """
+    scan_sec = scan_key.sec()
     if aux_rand is None:
-        aux_rand = _default_aux_rand(a_sum_key, scan_key.sec())
+        aux_rand = _default_aux_rand(a_sum_key, scan_sec)
     try:
-        return dleq.generate_dleq_proof(a_sum_key, scan_key.sec(), r=aux_rand)
+        return dleq.generate_dleq_proof(a_sum_key, scan_sec, r=aux_rand)
     except dleq.DLEQError as e:
         raise SPFieldError("Failed to generate DLEQ proof: {}".format(e))
 
@@ -119,9 +120,11 @@ def _resolve_bip32_privkey(inp, root, fingerprint, derive_hdkey):
             if derivation.fingerprint != fingerprint:
                 continue
             hdkey = derive_hdkey(root, derivation)
-            if hdkey is None or hdkey.sec() != pub.sec():
+            if hdkey is None:
                 continue
-            if hash160(hdkey.sec()) != pkh:
+            # sec() derives the pubkey from the private key every call
+            sec = hdkey.sec()
+            if sec != pub.sec() or hash160(sec) != pkh:
                 continue
             return hdkey.key.secret
 

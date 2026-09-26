@@ -2,10 +2,11 @@
 SP-aware PSBT scopes and subclass.
 
 Sections:
-  1. SPInputScope / SPOutputScope — per-input/output BIP-375 field handlers
-  2. SilentPaymentsPSBT — PSBT subclass with global SP fields and sign_with() SP hook
+  1. SPInputScope / SPOutputScope - per-input/output BIP-375 field handlers
+  2. SilentPaymentsPSBT - PSBT subclass with global SP fields and sign_with() SP hook
 """
 
+from binascii import hexlify
 from collections import OrderedDict
 
 from .. import ec
@@ -39,6 +40,25 @@ from .signing import (
     match_sp_spend_base,
     resolve_input_privkey,
 )
+
+
+def _signers(root):
+    """(fingerprint, key) for every key of ``root`` that can sign.
+
+    A Descriptor has to be split into its keys to sign: the SP spend path
+    resolves a fingerprint from a key, and a Descriptor has no key material of
+    its own to resolve. A public-only key signs nothing, and the SP send probes
+    a key for key material in a way that raises on one, so it is dropped here -
+    the contract PSBT.sign_with() honours.
+    """
+    return [
+        (fingerprint, key)
+        for fingerprint, can_sign, key in (
+            resolve_signing_root(k)
+            for k in (root.keys if hasattr(root, "keys") else [root])
+        )
+        if can_sign
+    ]
 
 
 class SilentPaymentData:
@@ -261,13 +281,9 @@ class SilentPaymentsPSBT(PSBT):
     def __eq__(self, other):
         # Same reason SPInputScope.__eq__ pins the type: the base compares
         # serializations only, so a plain PSBT can compare equal and then blow
-        # up on the SP attributes it does not have.
-        if type(self) is not type(other) or not super().__eq__(other):
-            return False
-        return (
-            self.sp_ecdh_shares == other.sp_ecdh_shares
-            and self.sp_dleq_proofs == other.sp_dleq_proofs
-        )
+        # up on the SP attributes it does not have. The shares and proofs are
+        # part of the serialization, so they need no check of their own.
+        return type(self) is type(other) and super().__eq__(other)
 
     __hash__ = PSBT.__hash__
 
@@ -278,19 +294,16 @@ class SilentPaymentsPSBT(PSBT):
         return any(out.sp_data is not None for out in self.outputs)
 
     @classmethod
+    def _v2_output_has_script(cls, out):
+        """An SP output may omit PSBT_OUT_SCRIPT: the taproot script is derived
+        from the ECDH shares, not known up front."""
+        return out.script_pubkey is not None or out.sp_data is not None
+
+    @classmethod
     def _validate_v2_output(cls, out, i):
-        """Same as PSBT._validate_v2_output, but SP outputs may omit
-        PSBT_OUT_SCRIPT (the taproot script is derived from ECDH shares, not
-        known up front). Used by both the parser and add_output() (see
-        base PSBT.add_output)."""
-        if not cls._v2_output_has_amount(out):
-            raise PSBTError(
-                "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
-            )
-        if out.script_pubkey is None and out.sp_data is None:
-            raise PSBTError(
-                "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
-            )
+        """PSBT._validate_v2_output plus the SP label rule. Used by both the
+        parser and add_output() (see base PSBT.add_output)."""
+        super()._validate_v2_output(out, i)
         if out.sp_label is not None and out.sp_data is None:
             raise PSBTError(
                 "PSBTv2 output %d has PSBT_OUT_SP_V0_LABEL without "
@@ -384,7 +397,7 @@ class SilentPaymentsPSBT(PSBT):
             wv = witness_version(script)
             if wv is not None and wv > 1:
                 raise SPValidationError(
-                    "Input %d spends a Segwit version > 1 output with SP " "outputs" % i
+                    "Input %d spends a Segwit version > 1 output with SP outputs" % i
                 )
 
         if (self.is_inputs_modifiable() or self.is_outputs_modifiable()) and any(
@@ -404,24 +417,15 @@ class SilentPaymentsPSBT(PSBT):
             if (scan_key in self.sp_ecdh_shares) != (scan_key in self.sp_dleq_proofs):
                 raise SPValidationError(
                     "PSBT_GLOBAL_SP_ECDH_SHARE and PSBT_GLOBAL_SP_DLEQ must both be "
-                    "present for scan key %s" % scan_key.hex()
+                    "present for scan key %s" % hexlify(scan_key).decode()
                 )
 
     def sign_with(self, root, sighash=SIGHASH.DEFAULT, aux_rand=None):
         if self.version != 2 and self.has_sp_outputs:
             raise SPValidationError("Silent Payment signing requires PSBTv2")
 
-        # A Descriptor has to be split into its keys to sign: the SP spend path
-        # resolves a fingerprint from the root, and a Descriptor has no key
-        # material of its own to resolve. A public-only key signs nothing, and
-        # the SP send probes `root` for key material in a way that raises on
-        # one, so drop it here - the contract PSBT.sign_with() honours.
-        keys = [
-            k
-            for k in (root.keys if hasattr(root, "keys") else [root])
-            if resolve_signing_root(k)[1]
-        ]
-        if not keys:
+        signers = _signers(root)
+        if not signers:
             return 0
 
         # The send is derived once for the whole root, not once per key: every
@@ -429,12 +433,14 @@ class SilentPaymentsPSBT(PSBT):
         # the second key, which controls none of the inputs the first consumed.
         if self.has_sp_outputs:
             self._assert_sp_sighash_all(sighash)
-            self.derive_sp_outputs(root, aux_rand=aux_rand)
+            self.derive_sp_outputs_from_keys(
+                self._resolve_sp_privkeys(signers), aux_rand=aux_rand
+            )
 
         counter = 0
-        for k in keys:
-            counter += super().sign_with(k, sighash=sighash)
-            counter += self._sign_sp_spends(k, sighash=sighash)
+        for _, key in signers:
+            counter += super().sign_with(key, sighash=sighash)
+            counter += self._sign_sp_spends(key, sighash=sighash)
         return counter
 
     def sign_input_with_sp_tweak(
@@ -528,26 +534,19 @@ class SilentPaymentsPSBT(PSBT):
         ``root`` at all.
         """
         self.derive_sp_outputs_from_keys(
-            self._resolve_sp_privkeys(root), aux_rand=aux_rand
+            self._resolve_sp_privkeys(_signers(root)), aux_rand=aux_rand
         )
 
-    def _resolve_sp_privkeys(self, root) -> list:
-        """Private scalars of every eligible input, resolved from ``root``.
+    def _resolve_sp_privkeys(self, signers) -> list:
+        """Private scalars of every eligible input, resolved from ``signers``
+        (see _signers).
 
-        A Descriptor is tried key by key per input: its keys belong to one
+        A Descriptor's keys are tried one by one per input: they belong to one
         signer, so a send whose eligible inputs are spread across them is
         still single-party.
         """
         eligible = get_eligible_inputs(self.inputs)
 
-        signers = [
-            (fingerprint, r)
-            for fingerprint, can_sign, r in (
-                resolve_signing_root(k)
-                for k in (root.keys if hasattr(root, "keys") else [root])
-            )
-            if can_sign
-        ]
         priv_keys = []
         foreign_inputs = []
         for i in eligible:
@@ -659,7 +658,7 @@ class SilentPaymentsPSBT(PSBT):
             if declared_share is not None and declared_share != ecdh_share:
                 raise SPValidationError(
                     "PSBT_GLOBAL_SP_ECDH_SHARE for scan key %s does not match the "
-                    "derived share" % sk_bytes.hex()
+                    "derived share" % hexlify(sk_bytes).decode()
                 )
             declared_proof = self.sp_dleq_proofs.get(sk_bytes)
             if declared_proof is not None and not dleq.verify_dleq_proof(
@@ -667,7 +666,7 @@ class SilentPaymentsPSBT(PSBT):
             ):
                 raise SPValidationError(
                     "PSBT_GLOBAL_SP_DLEQ for scan key %s does not verify"
-                    % sk_bytes.hex()
+                    % hexlify(sk_bytes).decode()
                 )
             for pos, out_idx in enumerate(output_indices[sk_bytes]):
                 script = Script(b"\x51\x20" + outputs[pos])
