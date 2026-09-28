@@ -54,6 +54,24 @@ class TestMnemonicVectors(TestCase):
                 SPScanKey(scan_priv, spend_pub, network=net).encode(), v["spscan"]
             )
 
+    def test_spscan_hrp_per_network(self):
+        """spscan on mainnet, tspscan on every test network including regtest
+        (BIP-392 has no regtest HRP), unknown networks are rejected."""
+        _, scan_priv, _, spend_pub = self._keys(VECTORS[0])
+        for net, hrp in [
+            ("main", "spscan"),
+            ("test", "tspscan"),
+            ("signet", "tspscan"),
+            ("regtest", "tspscan"),
+        ]:
+            with self.subTest(network=net):
+                encoded = SPScanKey(scan_priv, spend_pub, network=net).encode()
+                self.assertTrue(encoded.startswith(hrp + "1"))
+        for bad in ("mainnet", {"name": "Mainnet"}, None):
+            with self.subTest(network=bad):
+                with self.assertRaises(DescriptorError):
+                    SPScanKey(scan_priv, spend_pub, network=bad)
+
     def test_descriptor_roundtrip_spscan(self):
         for v in VECTORS:
             net, scan_priv, _, spend_pub = self._keys(v)

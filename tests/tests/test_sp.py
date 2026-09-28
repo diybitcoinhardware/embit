@@ -348,6 +348,32 @@ class SilentPaymentsTest(TestCase):
         actual = sp.encode_silent_payment_address(scan_priv.get_public_key(), spend_pub)
         self.assertEqual(actual, expected)
 
+    def test_address_hrp_per_network(self):
+        """sp for mainnet, tsp for every test network including regtest
+        (BIP-352 has no regtest HRP), and every one of them decodes back to
+        the same keys."""
+        scan_pub = PrivateKey(b"\x11" * 32).get_public_key()
+        spend_pub = PrivateKey(b"\x22" * 32).get_public_key()
+
+        for network, hrp in [
+            ("main", "sp"),
+            ("test", "tsp"),
+            ("signet", "tsp"),
+            ("regtest", "tsp"),
+        ]:
+            with self.subTest(network=network):
+                addr = sp.encode_silent_payment_address(scan_pub, spend_pub, network)
+                self.assertTrue(addr.startswith(hrp + "1"))
+                self.assertEqual(len(addr), 114 + len(hrp))
+                self.assertEqual(
+                    sp.decode_silent_payment_address(addr), (scan_pub, spend_pub)
+                )
+
+        for bad in ("mainnet", NETWORKS["main"], None):
+            with self.subTest(network=bad):
+                with self.assertRaises(sp.SPValidationError):
+                    sp.encode_silent_payment_address(scan_pub, spend_pub, bad)
+
     def test_apply_label_matches_generate_labeled(self):
         """apply_label + encode_silent_payment_address reproduces what
         generate_silent_payment_address does internally for a label."""

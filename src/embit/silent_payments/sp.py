@@ -31,6 +31,9 @@ class SPValidationError(EmbitError):
 
 # BIP-352 Sending: max number of outputs per scan key.
 K_MAX = 2323
+# BIP-352 only has a mainnet and a testnet HRP, regtest shares "tsp".
+# Keyed like embit.networks.NETWORKS.
+SP_HRPS = {"main": "sp", "test": "tsp", "signet": "tsp", "regtest": "tsp"}
 _NUMS_XONLY = ec.NUMS_PUBKEY.xonly()
 
 
@@ -63,7 +66,12 @@ def encode_silent_payment_address(scan_pubkey, spend_pubkey, network="main", ver
         raise SPValidationError(
             "Silent payment address version must be in [0, 30], got {}".format(version)
         )
-    hrp = "sp" if network == "main" else "tsp"
+    # a NETWORKS dict is unhashable, so check the type before the lookup
+    if not isinstance(network, str) or network not in SP_HRPS:
+        raise SPValidationError(
+            "Unknown network {!r}, expected one of {}".format(network, list(SP_HRPS))
+        )
+    hrp = SP_HRPS[network]
     return bech32.bech32m_encode_versioned(
         hrp, version, scan_pubkey.sec() + spend_pubkey.sec()
     )
@@ -88,7 +96,7 @@ def decode_silent_payment_address(address):
         hrp, version, decoded = bech32.bech32m_decode_versioned(address)
     except bech32.Bech32DecodeError as e:
         raise SPValidationError("Invalid silent payment address: {}".format(e))
-    if hrp not in ("sp", "tsp"):
+    if hrp not in SP_HRPS.values():
         raise SPValidationError("Invalid silent payment address: unknown HRP")
     # BIP-352 forward compatibility: version 31 is reserved and must be
     # rejected; versions 1-30 keep the first 66 bytes and ignore any trailing

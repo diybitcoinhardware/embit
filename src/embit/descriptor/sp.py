@@ -5,6 +5,14 @@ from .base import DescriptorBase
 from .errors import DescriptorError
 from .arguments import KeyOrigin, Key
 
+# BIP-392 only has a mainnet and a testnet HRP, regtest shares "tspscan"
+# (same as Sparrow). Keyed like embit.networks.NETWORKS.
+SPSCAN_NETWORK_HRPS = {
+    "main": "spscan",
+    "test": "tspscan",
+    "signet": "tspscan",
+    "regtest": "tspscan",
+}
 SPSCAN_HRPS = {"spscan": "main", "tspscan": "test"}
 
 
@@ -16,6 +24,12 @@ class SPScanKey:
             raise DescriptorError("SPScanKey scan key must be a PrivateKey")
         if not isinstance(spend_pubkey, ec.PublicKey):
             raise DescriptorError("SPScanKey spend key must be a PublicKey")
+        # a NETWORKS dict is unhashable, so check the type before the lookup
+        if not isinstance(network, str) or network not in SPSCAN_NETWORK_HRPS:
+            raise DescriptorError(
+                "Unknown network %r, expected one of %s"
+                % (network, list(SPSCAN_NETWORK_HRPS))
+            )
         self.scan_privkey = scan_privkey
         self.spend_pubkey = spend_pubkey
         self.origin = origin
@@ -52,7 +66,7 @@ class SPScanKey:
         return cls(scan_privkey, spend_pubkey, origin, network)
 
     def encode(self):
-        hrp = "tspscan" if self.network == "test" else "spscan"
+        hrp = SPSCAN_NETWORK_HRPS[self.network]
         payload = self.scan_privkey.secret + self.spend_pubkey.sec()
         return bech32.bech32m_encode_versioned(hrp, 0, payload)
 
