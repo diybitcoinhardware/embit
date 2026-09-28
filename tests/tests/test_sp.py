@@ -265,11 +265,18 @@ class SilentPaymentsTest(TestCase):
                         priv = PrivateKey(priv).even_y().secret
                     input_privkeys.append(priv)
 
-                outputs_map = _create_test_outputs(
-                    input_privkeys=input_privkeys,
-                    outpoints=outpoints,
-                    recipients=given["recipients"],
-                )
+                recipients = []
+                for r in given["recipients"]:
+                    recipients += [r["address"]] * r.get("count", 1)
+                try:
+                    outputs_map = _create_test_outputs(
+                        input_privkeys=input_privkeys,
+                        outpoints=outpoints,
+                        recipients=recipients,
+                    )
+                except sp.SPValidationError:
+                    # K_max exceeded: sending fails, vector expects no outputs
+                    outputs_map = {}
 
                 expected_outputs = expected["outputs"]
 
