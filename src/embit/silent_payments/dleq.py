@@ -125,8 +125,11 @@ def generate_dleq_proof(a_bytes, B_sec, r=None, m=None, G=None):
         + R2_compressed
         + m_prime
     )
-    e = int.from_bytes(
-        hashes.tagged_hash(DLEQ_TAG_CHALLENGE, challenge_preimage), "big"
+    e = (
+        int.from_bytes(
+            hashes.tagged_hash(DLEQ_TAG_CHALLENGE, challenge_preimage), "big"
+        )
+        % SECP256K1_ORDER
     )
     s = (k + e * a_int) % SECP256K1_ORDER
     proof = e.to_bytes(32, "big") + s.to_bytes(32, "big")
@@ -148,7 +151,7 @@ def verify_dleq_proof(A_sec, B_sec, C_sec, proof, m=None, G=None):
     try:
         e = int.from_bytes(proof[:32], "big")
         s = int.from_bytes(proof[32:], "big")
-        if s >= SECP256K1_ORDER:
+        if e >= SECP256K1_ORDER or s >= SECP256K1_ORDER:
             return False
 
         neg_e = (-e) % SECP256K1_ORDER
@@ -174,6 +177,6 @@ def verify_dleq_proof(A_sec, B_sec, C_sec, proof, m=None, G=None):
             ),
             "big",
         )
-        return e == e_check
+        return e == e_check % SECP256K1_ORDER
     except (ValueError, OverflowError):
         return False
