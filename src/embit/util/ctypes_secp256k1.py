@@ -42,7 +42,19 @@ def _copy(a: bytes) -> bytes:
     """Ugly copy that works everywhere incl micropython"""
     if len(a) == 0:
         return b""
-    return a[:1] + a[1:]
+    return bytes(a[:1] + a[1:])
+
+
+def _readable_buffer(a):
+    if isinstance(a, bytearray):
+        return bytes(a)
+    return a
+
+
+def _writable_buffer(a):
+    if isinstance(a, bytearray):
+        return (c_char * len(a)).from_buffer(a)
+    return a
 
 
 def _platform_binary_ext():
@@ -562,7 +574,7 @@ _secp = _init()
 def context_randomize(seed, context=_secp.ctx):
     if len(seed) != 32:
         raise ValueError("Seed should be 32 bytes long")
-    if _secp.secp256k1_context_randomize(context, seed) == 0:
+    if _secp.secp256k1_context_randomize(context, _readable_buffer(seed)) == 0:
         raise RuntimeError("Failed to randomize context")
 
 
@@ -571,7 +583,7 @@ def ec_pubkey_create(secret, context=_secp.ctx):
     if len(secret) != 32:
         raise ValueError("Private key should be 32 bytes long")
     pub = bytes(64)
-    r = _secp.secp256k1_ec_pubkey_create(context, pub, secret)
+    r = _secp.secp256k1_ec_pubkey_create(context, pub, _readable_buffer(secret))
     if r == 0:
         raise ValueError("Invalid private key")
     return pub
@@ -588,7 +600,9 @@ def ec_pubkey_parse(sec, context=_secp.ctx):
         if sec[0] != 0x04:
             raise ValueError("Uncompressed pubkey should start with 0x04")
     pub = bytes(64)
-    r = _secp.secp256k1_ec_pubkey_parse(context, pub, sec, len(sec))
+    r = _secp.secp256k1_ec_pubkey_parse(
+        context, pub, _readable_buffer(sec), len(sec)
+    )
     if r == 0:
         raise ValueError("Failed parsing public key")
     return pub
@@ -602,7 +616,9 @@ def ec_pubkey_serialize(pubkey, flag=EC_COMPRESSED, context=_secp.ctx):
         raise ValueError("Invalid flag")
     sec = bytes(33) if (flag == EC_COMPRESSED) else bytes(65)
     sz = c_size_t(len(sec))
-    r = _secp.secp256k1_ec_pubkey_serialize(context, sec, byref(sz), pubkey, flag)
+    r = _secp.secp256k1_ec_pubkey_serialize(
+        context, sec, byref(sz), _readable_buffer(pubkey), flag
+    )
     if r == 0:
         raise ValueError("Failed to serialize pubkey")
     return sec
@@ -693,7 +709,7 @@ def ecdsa_sign(msg, secret, nonce_function=None, extra_data=None, context=_secp.
 def ec_seckey_verify(secret, context=_secp.ctx):
     if len(secret) != 32:
         raise ValueError("Secret should be 32 bytes long")
-    return bool(_secp.secp256k1_ec_seckey_verify(context, secret))
+    return bool(_secp.secp256k1_ec_seckey_verify(context, _readable_buffer(secret)))
 
 
 @locked
@@ -720,7 +736,12 @@ def ec_pubkey_negate(pubkey, context=_secp.ctx):
 def ec_privkey_tweak_add(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
-    if _secp.secp256k1_ec_privkey_tweak_add(context, secret, tweak) == 0:
+    if (
+        _secp.secp256k1_ec_privkey_tweak_add(
+            context, _writable_buffer(secret), _readable_buffer(tweak)
+        )
+        == 0
+    ):
         raise ValueError("Failed to tweak the secret")
     return None
 
@@ -731,7 +752,12 @@ def ec_pubkey_tweak_add(pub, tweak, context=_secp.ctx):
         raise ValueError("Public key should be 64 bytes long")
     if len(tweak) != 32:
         raise ValueError("Tweak should be 32 bytes long")
-    if _secp.secp256k1_ec_pubkey_tweak_add(context, pub, tweak) == 0:
+    if (
+        _secp.secp256k1_ec_pubkey_tweak_add(
+            context, _writable_buffer(pub), _readable_buffer(tweak)
+        )
+        == 0
+    ):
         raise ValueError("Failed to tweak the public key")
     return None
 
@@ -755,7 +781,7 @@ def ec_pubkey_add(pub, tweak, context=_secp.ctx):
     if len(tweak) != 32:
         raise ValueError("Tweak should be 32 bytes long")
     p = _copy(pub)
-    if _secp.secp256k1_ec_pubkey_tweak_add(context, p, tweak) == 0:
+    if _secp.secp256k1_ec_pubkey_tweak_add(context, p, _readable_buffer(tweak)) == 0:
         raise ValueError("Failed to tweak the public key")
     return p
 
@@ -764,7 +790,12 @@ def ec_pubkey_add(pub, tweak, context=_secp.ctx):
 def ec_privkey_tweak_mul(secret, tweak, context=_secp.ctx):
     if len(secret) != 32 or len(tweak) != 32:
         raise ValueError("Secret and tweak should both be 32 bytes long")
-    if _secp.secp256k1_ec_privkey_tweak_mul(context, secret, tweak) == 0:
+    if (
+        _secp.secp256k1_ec_privkey_tweak_mul(
+            context, _writable_buffer(secret), _readable_buffer(tweak)
+        )
+        == 0
+    ):
         raise ValueError("Failed to tweak the secret")
 
 
@@ -774,15 +805,21 @@ def ec_pubkey_tweak_mul(pub, tweak, context=_secp.ctx):
         raise ValueError("Public key should be 64 bytes long")
     if len(tweak) != 32:
         raise ValueError("Tweak should be 32 bytes long")
-    if _secp.secp256k1_ec_pubkey_tweak_mul(context, pub, tweak) == 0:
+    if (
+        _secp.secp256k1_ec_pubkey_tweak_mul(
+            context, _writable_buffer(pub), _readable_buffer(tweak)
+        )
+        == 0
+    ):
         raise ValueError("Failed to tweak the public key")
 
 
 @locked
 def ec_pubkey_combine(*args, context=_secp.ctx):
     pub = bytes(64)
-    pubkeys = (c_char_p * len(args))(*args)
-    r = _secp.secp256k1_ec_pubkey_combine(context, pub, pubkeys, len(args))
+    readable_args = [_readable_buffer(arg) for arg in args]
+    pubkeys = (c_char_p * len(readable_args))(*readable_args)
+    r = _secp.secp256k1_ec_pubkey_combine(context, pub, pubkeys, len(readable_args))
     if r == 0:
         raise ValueError("Failed to combine pubkeys")
     return pub

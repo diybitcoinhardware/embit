@@ -370,7 +370,7 @@ class LOutputScope(OutputScope):
         blinding_pubkey = blinding_pubkey or self.blinding_pubkey
         if not blinding_pubkey:
             raise PSBTError("Blinding pubkey required")
-        pub = secp256k1.ec_pubkey_parse(blinding_pubkey)
+        pub = bytearray(secp256k1.ec_pubkey_parse(blinding_pubkey))
         self.ecdh_pubkey = ec.PrivateKey(nonce).sec()
         secp256k1.ec_pubkey_tweak_mul(pub, nonce)
         sec = secp256k1.ec_pubkey_serialize(pub)
