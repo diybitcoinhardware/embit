@@ -117,6 +117,30 @@ ADDRESSES = [
 
 
 class TapTreeTest(TestCase):
+    def test_branch_requires_two_children(self):
+        key = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        leaf = "pk(%s)" % key
+        invalid_trees = [
+            "{%s}" % leaf,
+            "{{%s}}" % leaf,
+            "{{%s},%s}" % (leaf, leaf),
+            "{%s,{%s}}" % (leaf, leaf),
+            "{{%s,%s}}" % (leaf, leaf),
+        ]
+        for tree in invalid_trees:
+            with self.assertRaises(MiniscriptError):
+                Descriptor.from_string("tr(%s,%s)" % (key, tree))
+
+        valid_trees = [
+            leaf,
+            "{%s,%s}" % (leaf, leaf),
+            "{{%s,%s},%s}" % (leaf, leaf, leaf),
+            "{%s,{%s,%s}}" % (leaf, leaf, leaf),
+        ]
+        for tree in valid_trees:
+            source = "tr(%s,%s)" % (key, tree)
+            self.assertEqual(str(Descriptor.from_string(source)), source)
+
     def test_addresses(self):
         for d, addr in zip(DESCS, ADDRESSES):
             desc = Descriptor.from_string(d)

@@ -104,8 +104,6 @@ class TapTree(DescriptorBase):
         if c == b"{":  # more than one miniscript
             left = cls.read_from(s)
             c = s.read(1)
-            if c == b"}":
-                return left
             if c != b",":
                 raise MiniscriptError("Invalid taptree syntax: expected ','")
             right = cls.read_from(s)
