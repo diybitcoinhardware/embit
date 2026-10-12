@@ -960,9 +960,10 @@ class V(Wrapper):
 
     def inner_compile(self):
         """Checks last check code and makes it verify"""
-        if self.carg[-1] in [0xAC, 0xAE, 0x9C, 0x87]:
-            return self.carg[:-1] + bytes([self.carg[-1] + 1])
-        return self.carg + b"\x69"
+        compiled = self.carg
+        if compiled[-1] in [0xAC, 0xAE, 0x9C, 0x87]:
+            return compiled[:-1] + bytes([compiled[-1] + 1])
+        return compiled + b"\x69"
 
     def verify(self):
         super().verify()
