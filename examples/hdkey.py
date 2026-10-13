@@ -1,8 +1,7 @@
-from embit import script
-from embit import bip32
-from embit import bip39
-from embit.networks import NETWORKS
 import random
+
+from embit import bip32, bip39, script
+from embit.networks import NETWORKS
 
 # example of key and address derivations from mnemonic
 # you can check that everything works right
