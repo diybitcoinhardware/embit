@@ -6,6 +6,7 @@ from .test_bip32 import *
 from .test_psbt import *
 from .test_psbt_versions import *
 from .test_bip39 import *
+from .test_bip47 import *
 from .test_slip39 import *
 from .test_descriptor import *
 from .test_psbtview import *
