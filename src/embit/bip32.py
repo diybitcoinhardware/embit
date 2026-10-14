@@ -49,7 +49,9 @@ class HDKey(EmbitKey):
 
     @classmethod
     def from_seed(cls, seed: bytes, version=NETWORKS["main"]["xprv"]):
-        """Creates a root private key from 64-byte seed"""
+        """Creates a root private key from a 16- to 64-byte BIP32 seed."""
+        if not 16 <= len(seed) <= 64:
+            raise HDError("Seed must be between 16 and 64 bytes")
         raw = hmac.new(b"Bitcoin seed", seed, digestmod="sha512").digest()
         private_key = ec.PrivateKey(raw[:32])
         chain_code = raw[32:]
