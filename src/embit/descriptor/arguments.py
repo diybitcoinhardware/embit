@@ -13,6 +13,8 @@ class KeyOrigin:
 
     @classmethod
     def from_string(cls, s: str):
+        if "H" in s:
+            raise ArgumentError("Invalid hardened indicator H in %s" % s)
         arr = s.split("/")
         mfp = unhexlify(arr[0])
         if len(mfp) != 4:
@@ -145,7 +147,9 @@ class AllowedDerivation(DescriptorBase):
                 for dd in d[1:-1].split(";")
             ]
         idx = 0
-        if d[-1] in ["h", "H", "'"]:
+        if d[-1] == "H":
+            raise ArgumentError("Invalid hardened indicator H in %s" % d)
+        if d[-1] in ["h", "'"]:
             if not allow_hardened:
                 raise ArgumentError("Hardened derivation is not allowed in %s" % d)
             idx = HARDENED_INDEX
