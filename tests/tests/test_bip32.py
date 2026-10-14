@@ -197,6 +197,18 @@ FROM_BASE58_ERROR_VECTORS = (
 
 
 class Bip32Test(TestCase):
+    def test_from_seed_length(self):
+        for length in (0, 1, 15, 65, 128):
+            self.assertRaises(HDError, HDKey.from_seed, bytes(length))
+
+    def test_from_seed_valid_lengths(self):
+        for length in (16, 17, 32, 63, 64):
+            key = HDKey.from_seed(bytes(range(length)))
+            self.assertTrue(key.is_private)
+            self.assertEqual(key.depth, 0)
+            self.assertEqual(key.child_number, 0)
+            self.assertEqual(HDKey.from_base58(key.to_base58()), key)
+
     def test_bip32_derive(self):
         for seed, path, exp_xprv, exp_xpub in DERIVE_VECTORS:
             root_xprv = HDKey.from_seed(unhexlify(seed))
