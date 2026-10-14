@@ -2,6 +2,7 @@ from io import BytesIO
 from .. import script
 from ..networks import NETWORKS
 from .errors import DescriptorError
+from .checksum import checksum
 from .base import DescriptorBase
 from .miniscript import Miniscript, Multi, Sortedmulti
 from .arguments import Key
@@ -285,11 +286,14 @@ class Descriptor(DescriptorBase):
 
     @classmethod
     def from_string(cls, desc):
+        """Parse a descriptor and validate its checksum when one is supplied."""
         s = BytesIO(desc.encode())
         res = cls.read_from(s)
         left = s.read()
         if len(left) > 0 and not left.startswith(b"#"):
             raise DescriptorError("Unexpected characters after descriptor: %r" % left)
+        if left and left != b"#" + checksum(desc.split("#", 1)[0]).encode():
+            raise DescriptorError("Invalid descriptor checksum")
         return res
 
     @classmethod
