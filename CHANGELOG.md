@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PSBTView.sign_input()` and `sign_with()` write only the signatures they
   make to the signature stream. Signatures the input already has are kept by
   `write_to()` as before, but are no longer repeated in the stream.
+- Validate the BIP32 seed length in `HDKey.from_seed()`, accepting 16 to 64 bytes
+  and raising `HDError` for other lengths.
 
 ### Fixed
 
