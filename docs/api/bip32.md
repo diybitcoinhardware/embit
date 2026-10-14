@@ -64,7 +64,8 @@ Class method, converts a seed to an instance of `HDKey` (private key).
 
 **Arguments**
 
-- `seed` - bytes sequence to use. Normally `32`-byte or `64`-byte seeds are used.
+- `seed` - bytes sequence between `16` and `64` bytes (128 to 512 bits), as specified
+  by BIP32. Normally `32`-byte or `64`-byte seeds are used. Other lengths raise `HDError`.
 - `version` - version to use, by default it's `NETOWRKS['main']['xprv']`
 
 **Returns**
