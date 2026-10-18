@@ -7,10 +7,31 @@ from .wordlists.bip39 import WORDLIST
 PBKDF2_ROUNDS = const(2048)
 
 
+def _nfkd(text: str, strict: bool = True) -> str:
+    """Normalizes text to NFKD as BIP39 requires.
+    Where unicodedata is not available (MicroPython),
+    non-ASCII text raises if strict, or is returned as is otherwise.
+    """
+    # ASCII is already NFKD
+    if len(text.encode("utf-8")) == len(text):
+        return text
+    try:
+        from unicodedata import normalize
+    except ImportError:
+        if strict:
+            raise ValueError(
+                "No unicodedata to NFKD-normalize a non-ASCII mnemonic or password, "
+                "pass NFKD text with assume_nfkd=True"
+            ) from None
+        return text
+    return normalize("NFKD", text)
+
+
 def mnemonic_to_bytes(mnemonic: str, ignore_checksum: bool = False, wordlist=WORDLIST):
     # this function is copied from Jimmy Song's HDPrivateKey.from_mnemonic() method
 
-    words = mnemonic.split(" ")
+    # not strict: a phrase in another form can only fail the wordlist check
+    words = _nfkd(mnemonic, strict=False).split(" ")
     if len(words) % 3 != 0 or not 12 <= len(words) <= 24:
         raise ValueError("Invalid recovery phrase")
 
@@ -72,7 +93,11 @@ def mnemonic_is_valid(mnemonic: str, wordlist=WORDLIST):
         return False
 
 
-def mnemonic_to_seed(mnemonic: str, password: str = "", wordlist=WORDLIST):
+def mnemonic_to_seed(
+    mnemonic: str, password: str = "", wordlist=WORDLIST, assume_nfkd: bool = False
+):
+    mnemonic = _nfkd(mnemonic, strict=not assume_nfkd)
+    password = _nfkd(password, strict=not assume_nfkd)
     # first we try to convert mnemonic to bytes
     # and raise a correct error if it is invalid
     # If wordlist is None - don't check mnemonic.

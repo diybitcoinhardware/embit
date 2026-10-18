@@ -1,6 +1,7 @@
 # BIP32 test vectors adapted from the reference implementation:
 # https://github.com/trezor/python-mnemonic/blob/master/test_mnemonic.py
 
+import sys
 from binascii import hexlify, unhexlify
 from embit.bip32 import HDKey
 from embit.bip39 import (
@@ -10,7 +11,12 @@ from embit.bip39 import (
     mnemonic_to_bytes,
     mnemonic_to_seed,
 )
-from unittest import TestCase
+from unittest import TestCase, skipIf
+
+try:
+    import unicodedata
+except ImportError:  # MicroPython
+    unicodedata = None
 
 VECTORS = [
     [
@@ -160,6 +166,31 @@ VECTORS = [
 ]
 
 
+ES_MNEMONICS = [
+    # Spanish mnemonics validated via https://iancoleman.io/bip39/#spanish
+    (
+        "título paso humano cañón enfado ropero hueco cromo blusa turno fideo glaciar verano baba gordo fila trance íntimo rotar gustar sombra revés laguna jardín",
+        "bb0c5656117fd52d995dafca2d692974e74cb7c713c35871a0915d7bda6122694b2b67664113b198d2c1dd828195587c7dec8d6179f93d2157d6a11d8d0a949d",
+    ),
+    (
+        "natural tóxico choque regreso norte tarta uña prisión bulto ángulo fervor nariz",
+        "30affe746f3a81816739c2dacc3de426084482b729c7b592cee0ff2bdf73315943a5da8d8da4afd767f905d5ded4b0ab3a948d7eff9834fca5e8691a186fee20",
+    ),
+]
+
+
+class NoUnicodedata:
+    """Makes `import unicodedata` fail, as it does on MicroPython"""
+
+    def __enter__(self):
+        if unicodedata is not None:
+            sys.modules["unicodedata"] = None
+
+    def __exit__(self, *args):
+        if unicodedata is not None:
+            sys.modules["unicodedata"] = unicodedata
+
+
 class Bip39Test(TestCase):
     def test_bip39(self):
         for [seed, exp_mnemonic, hex_seed, xprv] in VECTORS:
@@ -248,20 +279,9 @@ class Bip39Test(TestCase):
         self.assertEqual(valid_mnemonic, "ghost " * 11 + "gentle")
 
     def test_alternate_wordlist(self):
-        # Spanish mnemonics validated via https://iancoleman.io/bip39/#spanish
-        mnemonics = [
-            (
-                "título paso humano cañón enfado ropero hueco cromo blusa turno fideo glaciar verano baba gordo fila trance íntimo rotar gustar sombra revés laguna jardín",
-                "bb0c5656117fd52d995dafca2d692974e74cb7c713c35871a0915d7bda6122694b2b67664113b198d2c1dd828195587c7dec8d6179f93d2157d6a11d8d0a949d",
-            ),
-            (
-                "natural tóxico choque regreso norte tarta uña prisión bulto ángulo fervor nariz",
-                "30affe746f3a81816739c2dacc3de426084482b729c7b592cee0ff2bdf73315943a5da8d8da4afd767f905d5ded4b0ab3a948d7eff9834fca5e8691a186fee20",
-            ),
-        ]
         from .data.bip39_es import WORDLIST as ES_WORDLIST
 
-        for mnemonic, expected_seed in mnemonics:
+        for mnemonic, expected_seed in ES_MNEMONICS:
             self.assertTrue(mnemonic_is_valid(mnemonic, wordlist=ES_WORDLIST))
 
             self.assertEqual(
@@ -276,3 +296,47 @@ class Bip39Test(TestCase):
                 ),
                 mnemonic,
             )
+
+    @skipIf(unicodedata is None, "unicodedata is not available")
+    def test_japanese_vectors(self):
+        # The phrases separate words with U+3000 and the passphrases are not NFKD
+        from .data.bip39_jp import WORDLIST as JP_WORDLIST, VECTORS as JP_VECTORS
+
+        for entropy, mnemonic, password, seed, xprv in JP_VECTORS:
+            self.assertTrue(mnemonic_is_valid(mnemonic, wordlist=JP_WORDLIST))
+            self.assertEqual(
+                hexlify(mnemonic_to_bytes(mnemonic, wordlist=JP_WORDLIST)).decode(),
+                entropy,
+            )
+            act_seed = mnemonic_to_seed(mnemonic, password, wordlist=JP_WORDLIST)
+            self.assertEqual(hexlify(act_seed).decode(), seed)
+            self.assertEqual(HDKey.from_seed(act_seed).to_base58(), xprv)
+
+    def test_ascii_without_unicodedata(self):
+        with NoUnicodedata():
+            for [_, mnemonic, _, xprv] in VECTORS:
+                seed = mnemonic_to_seed(mnemonic, password="TREZOR")
+                self.assertEqual(HDKey.from_seed(seed).to_base58(), xprv)
+
+    def test_non_ascii_without_unicodedata(self):
+        from .data.bip39_es import WORDLIST as ES_WORDLIST
+        from .data.bip39_jp import VECTORS as JP_VECTORS
+
+        _, jp_mnemonic, jp_password, _, _ = JP_VECTORS[0]
+        with NoUnicodedata():
+            self.assertRaises(
+                ValueError, mnemonic_to_seed, jp_mnemonic, jp_password, wordlist=None
+            )
+            self.assertRaises(
+                ValueError, mnemonic_to_seed, "abandon " * 11 + "about", "\u00f1"
+            )
+            # the Spanish phrases are already NFKD
+            for mnemonic, expected_seed in ES_MNEMONICS:
+                self.assertTrue(mnemonic_is_valid(mnemonic, wordlist=ES_WORDLIST))
+                self.assertRaises(
+                    ValueError, mnemonic_to_seed, mnemonic, wordlist=ES_WORDLIST
+                )
+                seed = mnemonic_to_seed(
+                    mnemonic, wordlist=ES_WORDLIST, assume_nfkd=True
+                )
+                self.assertEqual(hexlify(seed).decode(), expected_seed)
