@@ -7,6 +7,11 @@ from ..script import Script
 
 class TapLeaf(DescriptorBase):
     def __init__(self, miniscript=None, version=0xC0):
+        if miniscript is not None:
+            # will raise if can't verify
+            miniscript.verify()
+            if miniscript.type != "B":
+                raise MiniscriptError("Top level miniscript should be 'B'")
         self.miniscript = miniscript
         self.version = version
 
