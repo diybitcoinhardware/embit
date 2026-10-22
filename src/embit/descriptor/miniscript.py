@@ -53,7 +53,9 @@ class Miniscript(DescriptorBase):
         return self.TYPE
 
     @classmethod
-    def read_from(cls, s, taproot=False):
+    def read_from(cls, s, taproot=False, top_level=False):
+        """top_level is set for the script of wsh(), sh() and a tapleaf"""
+
         def wrapped(m_script):
             for w in reversed(wrappers):
                 if w not in WRAPPER_NAMES:
@@ -79,6 +81,11 @@ class Miniscript(DescriptorBase):
             raise MiniscriptError("Unknown operator '%s'" % op)
         # number of arguments, classes of args, compile fn, type, validity checker
         MiniscriptCls = OPERATORS[OPERATOR_NAMES.index(op)]
+        # sortedmulti[_a] is a descriptor function, not a miniscript fragment
+        if issubclass(MiniscriptCls, (Sortedmulti, SortedmultiA)) and (
+            wrappers or not top_level
+        ):
+            raise MiniscriptError("%s can only be used at the top level" % op)
         args = MiniscriptCls.read_arguments(s, taproot=taproot)
         miniscript = MiniscriptCls(*args, taproot=taproot)
         return wrapped(miniscript)

@@ -343,7 +343,7 @@ class Descriptor(DescriptorBase):
             else:
                 taptree = TapTree.read_from(s)
         elif is_miniscript:
-            miniscript = Miniscript.read_from(s)
+            miniscript = Miniscript.read_from(s, top_level=True)
             key = None
             nbrackets = int(sh) + int(wsh)
         # single key for sure

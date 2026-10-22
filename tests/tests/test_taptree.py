@@ -144,3 +144,37 @@ class TapTreeTest(TestCase):
         Descriptor.from_string("wsh(sortedmulti(1,%s,%s,%s))" % keys)
         Descriptor.from_string("tr(%s,multi_a(1,%s,%s))" % keys)
         Descriptor.from_string("tr(%s,sortedmulti_a(1,%s,%s))" % keys)
+
+    def test_sortedmulti_top_level_only(self):
+        """
+        sortedmulti and sortedmulti_a are descriptor functions, not
+        miniscript fragments: Bitcoin Core accepts them only as a whole
+        script, never nested or wrapped
+        """
+        nested = [
+            "wsh(or_d(sortedmulti(1,%s,%s),pk(%s)))",
+            "sh(wsh(or_d(sortedmulti(1,%s,%s),pk(%s))))",
+            "sh(or_d(sortedmulti(1,%s,%s),pk(%s)))",
+            "wsh(n:sortedmulti(1,%s,%s))",
+            "tr(%s,or_d(sortedmulti_a(1,%s,%s),pk(%s)))",
+            "tr(%s,{pk(%s),or_d(sortedmulti_a(1,%s,%s),pk(%s))})",
+            "tr(%s,n:sortedmulti_a(1,%s,%s))",
+        ]
+        for template in nested:
+            desc = template % tuple(PUBKEYS[: template.count("%s")])
+            with self.assertRaises(MiniscriptError, msg=desc):
+                Descriptor.from_string(desc)
+
+        top_level = [
+            "wsh(sortedmulti(1,%s,%s))",
+            "sh(wsh(sortedmulti(1,%s,%s)))",
+            "sh(sortedmulti(1,%s,%s))",
+            "tr(%s,sortedmulti_a(1,%s,%s))",
+            "tr(%s,{sortedmulti_a(1,%s,%s),pk(%s)})",
+            # multi and multi_a are miniscript fragments
+            "wsh(or_d(multi(1,%s,%s),pk(%s)))",
+            "tr(%s,or_d(multi_a(1,%s,%s),pk(%s)))",
+        ]
+        for template in top_level:
+            desc = template % tuple(PUBKEYS[: template.count("%s")])
+            self.assertEqual(str(Descriptor.from_string(desc)), desc)
