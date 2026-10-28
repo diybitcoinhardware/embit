@@ -23,7 +23,10 @@ def address(script, blinding_key=None, network=NETWORKS["liquidv1"]):
         if ver > 0:
             ver = ver % 0x50
         if blinding_key is None:
-            return bech32.encode(network["bech32"], ver, data[2:])
+            try:
+                return bech32.encode(network["bech32"], ver, data[2:])
+            except bech32.Bech32DecodeError:
+                return None  # not a witness program, i.e. OP_RETURN
         else:
             return blech32.encode(
                 network["blech32"], ver, blinding_key.sec() + data[2:]

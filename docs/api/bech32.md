@@ -16,6 +16,8 @@ Encodes a segwit address
 
 bech32(m) encoded string. For `ver=0` uses `bech32` encoding, for larger versions uses `bech32m`.
 
+Raises `bech32.Bech32DecodeError` (a subclass of `EmbitError`) if `ver` is not in `0..16` or the length of `witprog` is not valid for it.
+
 **Example**
 
 ```python
@@ -48,7 +50,7 @@ Decodes segwit address from bech32(m) encoding
 
 a tuple `(ver, witprog)` where `ver` is segwit version (0-16) and `witprog` is a witness program (list of ints).
 
-If decoding fails returns `(None, None)`.
+If decoding fails raises `bech32.Bech32DecodeError` (a subclass of `EmbitError`).
 
 **Example**
 
@@ -64,5 +66,5 @@ ver, prog = bech32.decode(hrp, addr)
 # >>> (1, [123, 150, 219, 206, 65, 72, 102, 220, 67, 68, 173, 10, 176, 38, 17, 28, 45, 2, 96, 208, 164, 112, 195, 238, 29, 84, 72, 65, 210, 159, 233, 20])
 
 ver, prog = bech32.decode("bc", "bc1qsvsxz8lsxg3rc86t")
-# >>> (None, None)
+# >>> raises Bech32DecodeError: Checksum verification failed
 ```

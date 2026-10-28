@@ -6,6 +6,7 @@ from .base import DescriptorBase
 from .miniscript import Miniscript, Multi, Sortedmulti
 from .arguments import Key
 from .taptree import TapTree
+from .sp import SilentPaymentDescriptor
 
 
 class Descriptor(DescriptorBase):
@@ -302,6 +303,10 @@ class Descriptor(DescriptorBase):
         is_miniscript = True
         taproot = False
         taptree = TapTree()
+        if start.startswith(b"sp("):
+            # rewind with a relative seek, MicroPython's BytesIO has no tell()
+            s.seek(-len(start), 1)
+            return SilentPaymentDescriptor.read_from(s)
         if start.startswith(b"tr("):
             taproot = True
             s.seek(-5, 1)
