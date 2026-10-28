@@ -300,10 +300,9 @@ class SilentPaymentsPSBT(PSBT):
         return out.script_pubkey is not None or out.sp_data is not None
 
     @classmethod
-    def _validate_v2_output(cls, out, i):
+    def _validate_v2_output_extra(cls, out, i):
         """PSBT._validate_v2_output plus the SP label rule. Used by both the
         parser and add_output() (see base PSBT.add_output)."""
-        super()._validate_v2_output(out, i)
         if out.sp_label is not None and out.sp_data is None:
             raise PSBTError(
                 "PSBTv2 output %d has PSBT_OUT_SP_V0_LABEL without "

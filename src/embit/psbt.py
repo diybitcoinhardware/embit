@@ -975,6 +975,10 @@ class PSBT(EmbitBase):
         return out.script_pubkey is not None
 
     @classmethod
+    def _validate_v2_output_extra(cls, out, i):
+        pass
+
+    @classmethod
     def _validate_v2_output(cls, out, i):
         """Check that a PSBTv2 output has all required fields."""
         if not cls._v2_output_has_amount(out):
@@ -985,6 +989,7 @@ class PSBT(EmbitBase):
             raise PSBTError(
                 "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
             )
+        cls._validate_v2_output_extra(out, i)
 
     def __init__(self, tx=None, unknown=None, version=None):
         self.version = version  # None for v0, 2 for v2

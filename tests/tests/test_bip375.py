@@ -22,11 +22,14 @@ from pathlib import Path
 
 from embit import ec
 from embit.base import EmbitError
+from embit.psbt import PSBT, PSBTError, OutputScope
+from embit.script import Script
 from embit.silent_payments import (
     SilentPaymentsPSBT,
     SPValidationError,
     get_eligible_inputs,
 )
+from embit.silent_payments.psbt import SPOutputScope
 
 _VECTOR_FILE = Path(__file__).parent / "data" / "bip375_test_vectors.json"
 
@@ -108,3 +111,31 @@ class TestBIP375Vectors(unittest.TestCase):
             with self.subTest(description=description):
                 with self.assertRaises((SPValidationError, EmbitError)):
                     _drive(vector)
+
+
+class TestV2OutputValidationHook(unittest.TestCase):
+    """SilentPaymentsPSBT adds its label rule through _validate_v2_output_extra
+    rather than overriding _validate_v2_output. A super() call inside a
+    classmethod binds cls to the wrong class on MaixPy's MicroPython, which
+    broke every PSBTv2 output load on the device.
+    """
+
+    def test_sp_does_not_override_base_validator(self):
+        self.assertIs(
+            SilentPaymentsPSBT._validate_v2_output.__func__,
+            PSBT._validate_v2_output.__func__,
+        )
+
+    def test_sp_label_rule_still_runs(self):
+        out = SPOutputScope()
+        out.value = 1000
+        out.script_pubkey = Script(b"\x00")
+        out.sp_label = 7
+        with self.assertRaises(PSBTError):
+            SilentPaymentsPSBT._validate_v2_output(out, 0)
+
+    def test_base_validator_unchanged_for_plain_psbt(self):
+        out = OutputScope()
+        out.value = 1000
+        out.script_pubkey = Script(b"\x00")
+        PSBT._validate_v2_output(out, 0)
