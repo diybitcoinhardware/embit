@@ -565,6 +565,9 @@ class PSBTView:
         if len(values) != self.num_inputs:
             raise PSBTError("All spent amounts are required")
         sh, anyonecanpay = SIGHASH.check(sighash)
+        # BIP-341 does not define 0x80, though legacy and segwit v0 allow it
+        if sighash == SIGHASH.ANYONECANPAY:
+            raise TransactionError("Invalid SIGHASH type for taproot")
         h = hashes.tagged_hash_init("TapSighash", b"\x00")
         h.update(bytes([sighash]))
         h.update(self.tx_version.to_bytes(4, "little"))
