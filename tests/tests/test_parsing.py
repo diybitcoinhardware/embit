@@ -9,11 +9,14 @@ from embit import compact
 from embit.base import EmbitError
 from embit.psbt import CompressMode, InputScope, PSBT, PSBTError
 from embit.psbtview import GlobalTransactionView, PSBTView
+from embit.liquid.pset import PSET
 from embit.liquid.psetview import GlobalLTransactionView
 from embit.liquid.transaction import (
     LTransaction,
     LTransactionInput,
     LTransactionOutput,
+    Proof,
+    TxInWitness,
 )
 from embit.script import Script, Witness
 from embit.transaction import (
@@ -485,6 +488,61 @@ class ParsingTest(TestCase):
                     view = GlobalLTransactionView(BytesIO(raw), 0, len(raw))
                     with self.assertRaises(PSBTError):
                         access(view)
+
+    def liquid_transaction(self):
+        return LTransaction(
+            vin=[LTransactionInput(bytes(range(32)), 1)],
+            vout=[
+                LTransactionOutput(bytes([1]) + bytes(range(32)), 42, Script(b"\x51")),
+                LTransactionOutput(
+                    b"\x0a" + bytes(32),
+                    b"\x08" + bytes(32),
+                    Script(b"\x51"),
+                    b"\x02" + bytes(32),
+                ),
+            ],
+        )
+
+    def test_liquid_fixed_fields(self):
+        raw = self.liquid_transaction().serialize()
+        # Version, witness flag, input txid, output index, sequence, explicit
+        # asset, value and empty nonce, confidential asset, value and nonce,
+        # locktime.
+        fields = [(0, 4), (4, 1), (6, 32), (38, 4), (43, 4), (48, 33), (81, 9)]
+        fields += [(90, 1), (93, 33), (126, 33), (159, 33), (194, 4)]
+        for offset, width in fields:
+            for reader in (
+                LTransaction.read_from,
+                lambda s: LTransaction.read_from(s, segwit=False),
+                lambda s: LTransaction.read_vout(s, 0),
+            ):
+                with self.assertRaises(TransactionError):
+                    reader(SequentialStream(raw, offset))
+                for count in range(width):
+                    with self.assertRaises(TransactionError):
+                        reader(BytesIO(raw[: offset + count]))
+        # A cut locktime used to parse as a PSET with a different locktime.
+        payload = b"pset" + self.global_psbt(raw[:-1])[4:]
+        with self.assertRaises(PSBTError):
+            PSET.parse(payload)
+
+    def test_liquid_witness_flag(self):
+        tx = self.liquid_transaction()
+        raw = tx.serialize()
+        self.assertEqual(LTransaction.parse(raw, segwit=False).serialize(), raw)
+        for flag in (b"\x02", b"\xff"):
+            for reader in (
+                LTransaction.read_from,
+                lambda s: LTransaction.read_vout(s, 0),
+            ):
+                with self.assertRaises(TransactionError):
+                    reader(BytesIO(raw[:4] + flag + raw[5:]))
+        tx.vin[0].witness = TxInWitness(Proof(b"\x01"))
+        raw = tx.serialize()
+        self.assertEqual(LTransaction.parse(raw).serialize(), raw)
+        # BIP-174's unsigned transaction is serialized without witness data
+        with self.assertRaises(TransactionError):
+            LTransaction.parse(raw, segwit=False)
 
     def test_bounded_view_short_reads_and_output_length(self):
         raw = self.transaction().serialize()

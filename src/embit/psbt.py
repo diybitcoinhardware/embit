@@ -17,6 +17,7 @@ from binascii import b2a_base64, a2b_base64, hexlify, unhexlify
 from io import BytesIO
 
 LOCKTIME_THRESHOLD = 500000000
+_PARSE_ERRORS = (EmbitError, ValueError, IndexError, OverflowError, RuntimeError)
 
 
 class PSBTError(EmbitError):
@@ -1225,7 +1226,12 @@ class PSBT(EmbitBase):
                 psbt.outputs.append(out)
         else:  # PSBTv0 (version is None or 0)
             tx_bytes = global_kvs.pop(b"\x00")  # Remove so it's not in unknown
-            tx_for_v0 = cls.TX_CLS.parse(tx_bytes)
+            try:
+                # BIP-174: the unsigned tx is serialized without witness data,
+                # so a leading zero is an empty input list, not a segwit marker
+                tx_for_v0 = cls.TX_CLS.parse(tx_bytes, segwit=False)
+            except _PARSE_ERRORS as e:
+                raise PSBTError("Invalid global transaction: %s" % e)
             # BIP-174: the global transaction must be unsigned
             for inp in tx_for_v0.vin:
                 if len(inp.script_sig.data) > 0:
