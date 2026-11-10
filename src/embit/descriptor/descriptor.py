@@ -350,6 +350,9 @@ class Descriptor(DescriptorBase):
         else:
             miniscript = None
             key = Key.read_from(s, taproot=taproot)
+            # BIP 382: wpkh() only accepts compressed public keys
+            if wpkh and not getattr(key.key, "compressed", True):
+                raise DescriptorError("Uncompressed keys are not allowed in wpkh()")
             nbrackets = 1 + int(sh)
         end = s.read(nbrackets)
         if end != b")" * nbrackets:
