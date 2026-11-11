@@ -334,11 +334,17 @@ class LOutputScope(OutputScope):
         self.blinder_index = None
 
     @property
+    def _tx_script_pubkey(self):
+        # an omitted script stays None in the scope, so the map serializes
+        # back as it was parsed; in the transaction it is the empty script
+        return Script(b"") if self.script_pubkey is None else self.script_pubkey
+
+    @property
     def vout(self):
         return LTransactionOutput(
             self.asset or self.asset_commitment,
             self.value if self.value is not None else self.value_commitment,
-            self.script_pubkey,
+            self._tx_script_pubkey,
             None if self.asset else self.ecdh_pubkey,
         )
 
@@ -347,7 +353,7 @@ class LOutputScope(OutputScope):
         return LTransactionOutput(
             self.asset_commitment or self.asset,
             self.value_commitment or self.value,
-            self.script_pubkey,
+            self._tx_script_pubkey,
             self.ecdh_pubkey,
             (
                 None
@@ -515,7 +521,15 @@ class PSET(PSBT):
             raise PSBTError(
                 "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
             )
-        if out.script_pubkey is None:
+        # PSET: PSBT_OUT_SCRIPT is not mandatory for L-BTC fee outputs, which
+        # are explicit: no commitments and not marked for blinding
+        if out.script_pubkey is None and (
+            out.value is None
+            or out.asset is None
+            or out.value_commitment is not None
+            or out.asset_commitment is not None
+            or out.blinding_pubkey is not None
+        ):
             raise PSBTError(
                 "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
             )
@@ -540,7 +554,7 @@ class PSET(PSBT):
                 bytes(reversed(inp.txid)) + inp.vout.to_bytes(4, "little")
                 for inp in self.inputs
             ]
-        ) + b"".join([out.script_pubkey.serialize() for out in self.outputs])
+        ) + b"".join([out._tx_script_pubkey.serialize() for out in self.outputs])
         return hashes.tagged_hash("liquid/txseed", seed + data)
 
     def blind(self, seed: bytes):

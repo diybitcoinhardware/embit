@@ -136,6 +136,45 @@ class LiquidTest(TestCase):
         signed = LInputScope.read_from(sigs, version=2)
         self.assertEqual(signed.partial_sigs, pset.inputs[0].partial_sigs)
 
+    def test_v2_fee_output_without_script(self):
+        """PSET lets an L-BTC fee output omit PSBT_OUT_SCRIPT"""
+        root = HDKey.from_string(SIGN_TPRV)
+        explicit = PSET.from_string(SIGN_PSET_V2_B64)
+        pset = PSET.from_string(SIGN_PSET_V2_B64)
+        self.assertEqual(pset.outputs[2].script_pubkey.data, b"")
+        pset.outputs[2].script_pubkey = None
+        raw = pset.serialize()
+        # key and empty value are gone
+        self.assertEqual(len(raw), len(explicit.serialize()) - 3)
+        # parses and serializes back without the field
+        pset = PSET.parse(raw)
+        self.assertEqual(pset.outputs[2].script_pubkey, None)
+        self.assertEqual(pset.serialize(), raw)
+        view = PSETView.view(BytesIO(raw))
+        self.assertEqual(view.output(2).serialize(), pset.outputs[2].serialize())
+        # the transaction is the one an explicitly empty script gives
+        self.assertEqual(pset.tx.serialize(), explicit.tx.serialize())
+        self.assertEqual(pset.blinded_tx.serialize(), explicit.blinded_tx.serialize())
+        self.assertEqual(pset.fee(), explicit.fee())
+        self.assertEqual(pset.txseed(bytes(32)), explicit.txseed(bytes(32)))
+        # so PSET and PSETView sign it the same way
+        self.assertEqual(explicit.sign_with(root), 1)
+        self.assertEqual(pset.sign_with(root), 1)
+        self.assertEqual(pset.inputs[0].partial_sigs, explicit.inputs[0].partial_sigs)
+        sigs = BytesIO()
+        self.assertEqual(view.sign_with(root, sigs), 1)
+        sigs.seek(0)
+        signed = LInputScope.read_from(sigs, version=2)
+        self.assertEqual(signed.partial_sigs, explicit.inputs[0].partial_sigs)
+        # a blinded output is not a fee output and still needs its script
+        pset = PSET.from_string(SIGN_PSET_V2_B64)
+        pset.outputs[1].script_pubkey = None
+        raw = pset.serialize()
+        with self.assertRaises(PSBTError):
+            PSET.parse(raw)
+        with self.assertRaises(PSBTError):
+            PSETView.view(BytesIO(raw)).output(1)
+
     def test_v2_output_requires_asset(self):
         pset = PSET.from_string(SIGN_PSET_V2_B64)
         pset.outputs[0].asset = None
