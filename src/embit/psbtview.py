@@ -1120,6 +1120,14 @@ class PSBTView:
         pkh = hashes.hash160(sec)
 
         inp = self.input(i)
+        # The sig_stream gets what this call adds to the input. Signatures the
+        # input already has reach the output through the merge in write_to();
+        # sign_with() calls this once per descriptor key, and writing them
+        # again each time would repeat their keys in the stream.
+        inp.partial_sigs = OrderedDict()
+        inp.taproot_sigs = OrderedDict()
+        inp.taproot_key_sig = None
+        inp.final_scriptwitness = None
         if extra_scope_data is not None:
             inp.update(extra_scope_data)
 
@@ -1237,6 +1245,9 @@ class PSBTView:
         Sighash kwarg is set to SIGHASH.DEFAULT, for segwit and legacy it's replaced to SIGHASH.ALL
         so if PSBT is asking to sign with a different sighash this function won't sign.
         If you want to sign with sighashes provided in the PSBT - set sighash=None.
+
+        The sig_stream holds the signatures made here, not the ones the inputs
+        already have: write_to() keeps those when it merges the stream.
 
         The sig_stream only carries per-input fields. For PSBTv2 the signer
         also has to update PSBT_GLOBAL_TX_MODIFIABLE (BIP-370); that update is

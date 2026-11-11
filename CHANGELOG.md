@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   encodings, as Bitcoin Core does.
 - `PSBTView` hashes prevouts, sequences and outputs in a single pass and
   caches the per-input utxo data used by taproot sighashes.
+- `PSBTView.sign_input()` and `sign_with()` write only the signatures they
+  make to the signature stream. Signatures the input already has are kept by
+  `write_to()` as before, but are no longer repeated in the stream.
 
 ### Fixed
 
@@ -82,6 +85,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values must hold a full 4-byte fingerprint.
 - `PSETView` matched rangeproof and surjection proof keys by prefix, so a
   longer unknown key was hashed as a proof under `SIGHASH_RANGEPROOF`.
+- `PSBTView.sign_with()` with a descriptor holding several private keys
+  repeated an input's existing signatures in the signature stream, so
+  `write_to()` failed with a duplicated key.
 
 ## [0.8.2] - 2026-08-08
 

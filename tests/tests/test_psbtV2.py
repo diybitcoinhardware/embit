@@ -1352,6 +1352,135 @@ class TestNonWitnessUtxoLength:
                 PSBTView.view(BytesIO(raw), compress=compress)
 
 
+class TestViewSigningWithExistingSignatures:
+    """A descriptor with several private keys signs an input once per key,
+    and the sig_stream must not repeat what the input already has"""
+
+    COMPRESS = [CompressMode.KEEP_ALL, CompressMode.CLEAR_ALL, CompressMode.PARTIAL]
+
+    @pytest.mark.parametrize("version", [None, 2])
+    @pytest.mark.parametrize("compress", COMPRESS)
+    @pytest.mark.parametrize(
+        "existing", ["key_sig", "final_witness", "key_path", "leaf_sig"]
+    )
+    def test_taproot(self, version, compress, existing):
+        from .test_taproot import TAPTREE_PSBT, TAPTREE_KEYS
+
+        class LeafKeys:
+            keys = TAPTREE_KEYS[2:]
+
+        psbt = PSBT.from_string(TAPTREE_PSBT)
+        if version == 2:
+            psbt = to_v2(psbt)
+        inp = psbt.inputs[0]
+        if existing == "leaf_sig":
+            assert psbt.sign_with(TAPTREE_KEYS[1]) == 1
+        else:
+            # key-path signing fills both fields
+            assert psbt.sign_with(TAPTREE_KEYS[0]) == 1
+            if existing == "key_sig":
+                inp.final_scriptwitness = None
+            elif existing == "final_witness":
+                inp.taproot_key_sig = None
+        key_sig = inp.taproot_key_sig
+        witness = inp.final_scriptwitness
+        leaf_sigs = dict(inp.taproot_sigs)
+        raw = psbt.serialize()
+        assert psbt.sign_with(LeafKeys) == 2
+
+        view = PSBTView.view(BytesIO(raw), compress=compress)
+        sigs = BytesIO()
+        assert view.sign_with(LeafKeys, sigs) == 2
+        # only what this signer made is in the stream
+        sigs.seek(0)
+        signed = InputScope.read_from(sigs, version=version)
+        assert signed.taproot_key_sig is None
+        assert signed.final_scriptwitness is None
+        assert len(signed.taproot_sigs) == 2
+        for key in signed.taproot_sigs:
+            assert key not in leaf_sigs
+            assert signed.taproot_sigs[key] == inp.taproot_sigs[key]
+        # and what was there comes through the merge
+        sigs.seek(0)
+        out = BytesIO()
+        view.write_to(out, extra_input_streams=[sigs])
+        merged = PSBT.parse(out.getvalue()).inputs[0]
+        assert merged.taproot_key_sig == key_sig
+        assert merged.taproot_sigs == inp.taproot_sigs
+        if compress == CompressMode.KEEP_ALL:
+            # a compressed view does not read final scripts
+            assert merged.final_scriptwitness == witness
+
+    @pytest.mark.parametrize("version", [None, 2])
+    def test_new_key_path_signature_is_emitted_once(self, version):
+        from .test_taproot import TAPTREE_PSBT, TAPTREE_KEYS
+
+        class AllKeys:
+            keys = TAPTREE_KEYS
+
+        psbt = PSBT.from_string(TAPTREE_PSBT)
+        if version == 2:
+            psbt = to_v2(psbt)
+        raw = psbt.serialize()
+        assert psbt.sign_with(AllKeys) == 4
+        view = PSBTView.view(BytesIO(raw))
+        sigs = BytesIO()
+        assert view.sign_with(AllKeys, sigs) == 4
+        sigs.seek(0)
+        out = BytesIO()
+        view.write_to(out, extra_input_streams=[sigs])
+        merged = PSBT.parse(out.getvalue()).inputs[0]
+        assert merged.taproot_key_sig == psbt.inputs[0].taproot_key_sig
+        assert merged.final_scriptwitness == psbt.inputs[0].final_scriptwitness
+        assert merged.taproot_sigs == psbt.inputs[0].taproot_sigs
+
+    @pytest.mark.parametrize("version", [None, 2])
+    @pytest.mark.parametrize("compress", COMPRESS)
+    def test_partial_sigs(self, version, compress):
+        signer, *others = [ec.PrivateKey(bytes([n]) * 32) for n in (1, 2, 3)]
+
+        class Cosigners:
+            keys = others
+
+        witness_script = script.multisig(
+            2, [k.get_public_key() for k in [signer] + others]
+        )
+        utxo = TransactionOutput(10000, script.p2wsh(witness_script))
+        psbt = PSBT(
+            Transaction(
+                vin=[TransactionInput(bytes(range(32)), 0)],
+                vout=[TransactionOutput(9000, Script(b"\x51"))],
+            )
+        )
+        psbt.inputs[0].witness_utxo = utxo
+        psbt.inputs[0].witness_script = witness_script
+        if version == 2:
+            psbt = to_v2(psbt)
+        inp = psbt.inputs[0]
+        assert psbt.sign_with(signer) == 1
+        first = signer.get_public_key()
+        raw = psbt.serialize()
+        assert psbt.sign_with(Cosigners) == 2
+
+        view = PSBTView.view(BytesIO(raw), compress=compress)
+        sigs = BytesIO()
+        assert view.sign_with(Cosigners, sigs) == 2
+        sigs.seek(0)
+        signed = InputScope.read_from(sigs, version=version)
+        assert len(signed.partial_sigs) == 2
+        assert first not in signed.partial_sigs
+        sigs.seek(0)
+        out = BytesIO()
+        view.write_to(out, extra_input_streams=[sigs])
+        merged = PSBT.parse(out.getvalue()).inputs[0]
+        expected = dict(inp.partial_sigs)
+        if compress != CompressMode.KEEP_ALL:
+            # a compressed view does not read partial signatures, so its
+            # output only ever carries the ones it made
+            del expected[first]
+        assert merged.partial_sigs == expected
+
+
 class TestTxModifiableAfterSigning:
     """PSBT_GLOBAL_TX_MODIFIABLE after a real sign_with, in PSBT and PSBTView"""
 
