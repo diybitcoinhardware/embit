@@ -95,6 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `wsh()` script is.
 - Reject incorrect or malformed descriptor checksum suffixes in
   `Descriptor.from_string()` while continuing to accept descriptors without a checksum.
+- Require both dissatisfiable and unit properties for the left child of
+  miniscript `andor` and `and_n` fragments.
 
 ## [0.8.2] - 2026-08-08
 
