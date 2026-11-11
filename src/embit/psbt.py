@@ -44,6 +44,17 @@ class _BoundedReader:
             raise PSBTError("Trailing bytes in PSBT value")
 
 
+def _parse_bounded(cls, data, **kwargs):
+    """cls.parse(data) that refuses any nested read longer than what is left
+    of data. MicroPython allocates the requested size before it reads, so a
+    script or witness item length taken from corrupted bytes would otherwise
+    raise MemoryError instead of a parsing error."""
+    stream = _BoundedReader(BytesIO(data), len(data))
+    res = cls.read_from(stream, **kwargs)
+    stream.finish()
+    return res
+
+
 class CompressMode:
     KEEP_ALL = 0
     CLEAR_ALL = 1
@@ -557,7 +568,7 @@ class InputScope(PSBTScope):
             elif self.witness_utxo is not None:
                 raise PSBTError("Duplicated utxo value")
             else:
-                self.witness_utxo = self.TXOUT_CLS.parse(v)
+                self.witness_utxo = _parse_bounded(self.TXOUT_CLS, v)
         # partial signature
         elif k[0] == 0x02:
             # we don't need this key for signing
@@ -622,7 +633,7 @@ class InputScope(PSBTScope):
             if len(k) != 1:
                 raise PSBTError("Invalid final scriptwitness key")
             elif self.final_scriptwitness is None:
-                self.final_scriptwitness = Witness.parse(v)
+                self.final_scriptwitness = _parse_bounded(Witness, v)
             else:
                 raise PSBTError("Duplicated final scriptwitness")
 
@@ -1388,7 +1399,7 @@ class PSBT(EmbitBase):
             try:
                 # BIP-174: the unsigned tx is serialized without witness data,
                 # so a leading zero is an empty input list, not a segwit marker
-                tx_for_v0 = cls.TX_CLS.parse(tx_bytes, segwit=False)
+                tx_for_v0 = _parse_bounded(cls.TX_CLS, tx_bytes, segwit=False)
             except _PARSE_ERRORS as e:
                 raise PSBTError("Invalid global transaction: %s" % e)
             # BIP-174: the global transaction must be unsigned

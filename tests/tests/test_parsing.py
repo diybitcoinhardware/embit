@@ -5,7 +5,7 @@ from hashlib import sha256
 from io import BytesIO
 from unittest import TestCase
 
-from embit import compact
+from embit import compact, psbt as psbt_module
 from embit.base import EmbitError
 from embit.psbt import CompressMode, InputScope, PSBT, PSBTError
 from embit.psbtview import GlobalTransactionView, PSBTView
@@ -391,6 +391,41 @@ class ParsingTest(TestCase):
                 PSBT.parse(bytes(mutant))
             with self.assertRaises(PSBTError):
                 PSBTView.view(BytesIO(bytes(mutant)))
+
+    def test_nested_lengths_are_bounded_by_the_value(self):
+        # MicroPython allocates the requested size before reading, so a script
+        # or witness item length from corrupted bytes must be refused, never
+        # passed on to the stream holding the value.
+        huge = b"\xfe\xff\xff\xff\xff"
+        raw = self.transaction().serialize()
+        no_inputs = bytes(4) + b"\x00\x01" + bytes(8) + huge + bytes(4)
+        payloads = [self.global_psbt(no_inputs)]
+        for key, value in ((b"\x01", bytes(8) + huge), (b"\x08", b"\x01" + huge)):
+            payloads.append(
+                self.global_psbt(raw)[:-2]
+                + b"\x01"
+                + key
+                + compact.to_bytes(len(value))
+                + value
+                + b"\x00\x00"
+            )
+        streams = []
+
+        def tracked(data=b""):
+            streams.append(TrackingStream(data))
+            return streams[-1]
+
+        psbt_module.BytesIO = tracked
+        try:
+            for payload in payloads:
+                with self.assertRaises(PSBTError):
+                    PSBT.read_from(BytesIO(payload))
+        finally:
+            psbt_module.BytesIO = BytesIO
+        # the global transaction of every payload and the two input values
+        self.assertEqual(len(streams), len(payloads) + 2)
+        for stream in streams:
+            self.assertTrue(stream.max_read <= len(raw))
 
     def bit_flip_mutants(self, base):
         """Every single-bit flip, then fixed pseudo-random 2 and 3 bit flips."""
