@@ -399,6 +399,13 @@ class InputScope(PSBTScope):
             self._utxo = other._utxo
             self._txhash = other._txhash
             self._utxo_vout = other._utxo_vout
+            # verify() and utxo go by the cache from here on, so a retained
+            # full transaction it was not streamed from must not be written
+            if (
+                self.non_witness_utxo is not None
+                and self.non_witness_utxo.hash() != self._txhash
+            ):
+                self.non_witness_utxo = None
         elif prevout_changed or other.non_witness_utxo is not None:
             # A full replacement transaction can be checked afresh. Without
             # one, the old cached output cannot authenticate the new prevout.

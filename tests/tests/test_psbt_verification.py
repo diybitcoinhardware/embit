@@ -249,3 +249,47 @@ def test_update_full_transaction_is_not_shadowed_by_cache(compress):
     with pytest.raises(PSBTError, match="txid doesn't match"):
         psbt.verify()
     assert not psbt.is_verified
+
+
+@pytest.mark.parametrize("compress", [CompressMode.CLEAR_ALL, CompressMode.PARTIAL])
+@pytest.mark.parametrize("witness_utxo", [False, True])
+def test_update_from_compressed_scope_drops_other_full_transaction(
+    compress, witness_utxo
+):
+    psbt, _ = funded_psbt(None)
+    psbt.inputs[0].witness_utxo = None
+    stale = psbt.inputs[0].non_witness_utxo
+    spk = stale.vout[0].script_pubkey
+    # the input moved to an output of a different previous transaction
+    previous = Transaction(
+        vin=[TransactionInput(b"\x07" * 32, 0)],
+        vout=[TransactionOutput(20000, spk)],
+    )
+    replacement = PSBT(
+        Transaction(vin=[TransactionInput(previous.txid(), 0)], vout=psbt.tx.vout)
+    )
+    replacement.inputs[0].non_witness_utxo = previous
+    if witness_utxo:
+        replacement.inputs[0].witness_utxo = previous.vout[0]
+    incoming = PSBT.parse(replacement.serialize(), compress=compress).inputs[0]
+    assert incoming.non_witness_utxo is None
+    psbt.inputs[0].update(incoming)
+    assert psbt.verify()
+    assert psbt.fee() == 11000
+    # the transaction the cache was not streamed from is not written back
+    assert psbt.inputs[0].non_witness_utxo is None
+    reparsed = PSBT.parse(psbt.serialize())
+    assert reparsed.inputs[0].txid == previous.txid()
+    assert reparsed.inputs[0].non_witness_utxo is None
+    assert not reparsed.verify(ignore_missing=True)
+
+
+@pytest.mark.parametrize("compress", [CompressMode.CLEAR_ALL, CompressMode.PARTIAL])
+def test_update_from_compressed_scope_keeps_its_full_transaction(compress):
+    psbt, _ = funded_psbt(None)
+    previous = psbt.inputs[0].non_witness_utxo
+    incoming = PSBT.parse(psbt.serialize(), compress=compress).inputs[0]
+    psbt.inputs[0].update(incoming)
+    assert psbt.inputs[0].non_witness_utxo is previous
+    assert psbt.verify()
+    assert PSBT.parse(psbt.serialize()).verify()
