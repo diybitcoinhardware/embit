@@ -1,5 +1,10 @@
 from collections import OrderedDict
-from .transaction import Transaction, TransactionOutput, TransactionInput, SIGHASH
+from .transaction import (
+    Transaction,
+    TransactionOutput,
+    TransactionInput,
+    SIGHASH,
+)
 from . import compact
 from . import bip32
 from . import ec
@@ -10,6 +15,8 @@ from .base import EmbitBase, EmbitError
 
 from binascii import b2a_base64, a2b_base64, hexlify, unhexlify
 from io import BytesIO
+
+LOCKTIME_THRESHOLD = 500000000
 
 
 class PSBTError(EmbitError):
@@ -37,6 +44,17 @@ class _BoundedReader:
             raise PSBTError("Trailing bytes in PSBT value")
 
 
+def _parse_bounded(cls, data, **kwargs):
+    """cls.parse(data) that refuses any nested read longer than what is left
+    of data. MicroPython allocates the requested size before it reads, so a
+    script or witness item length taken from corrupted bytes would otherwise
+    raise MemoryError instead of a parsing error."""
+    stream = _BoundedReader(BytesIO(data), len(data))
+    res = cls.read_from(stream, **kwargs)
+    stream.finish()
+    return res
+
+
 class CompressMode:
     KEEP_ALL = 0
     CLEAR_ALL = 1
@@ -57,6 +75,9 @@ _GLOBAL_COUNT_FIELDS = (b"\x04", b"\x05")
 def _validate_global_key(key):
     if len(key) != 1 and key[:1] in _GLOBAL_SINGLETON_FIELDS:
         raise PSBTError("Invalid global field key")
+    # PSBT_GLOBAL_XPUB: keydata is a 78-byte serialized extended public key
+    if key[:1] == b"\x01" and len(key) != 79:
+        raise PSBTError("Invalid PSBT_GLOBAL_XPUB key length")
 
 
 def _validate_global_fields(version, has_tx, fields):
@@ -85,22 +106,120 @@ def _validate_global_fields(version, has_tx, fields):
                 raise PSBTError("Invalid global count")
 
 
+# exceptions nested parsers (Transaction, Script, keys, compact) raise on
+# malformed input; PSBT parse paths convert them to PSBTError
+_PARSE_ERRORS = (EmbitError, ValueError, IndexError, OverflowError, RuntimeError)
+
+
 def ser_string(stream, s: bytes) -> int:
     return stream.write(compact.to_bytes(len(s))) + stream.write(s)
 
 
-def read_string(stream) -> bytes:
-    l = compact.read_from(stream)
-    s = stream.read(l)
+def _ser_uint(stream, key: bytes, value, length: int, name: str) -> int:
+    """Serializes a keyless field holding a fixed-width little-endian unsigned int."""
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 0
+        or value >> (8 * length)
+    ):
+        raise PSBTError("%s must be an unsigned %d-byte integer" % (name, length))
+    return ser_string(stream, key) + ser_string(
+        stream, value.to_bytes(length, "little")
+    )
+
+
+def read_compact(stream) -> int:
+    """compact.read_from() that raises PSBTError on truncated or non-canonical input"""
+    try:
+        return compact.read_from(stream)
+    except (RuntimeError, ValueError) as e:
+        raise PSBTError("Failed to read compact int: %s" % e)
+
+
+def read_exact(stream, l: int) -> bytes:
+    """Reads exactly l bytes or raises PSBTError (also on absurd lengths)."""
+    try:
+        s = stream.read(l)
+    except (OverflowError, MemoryError):
+        raise PSBTError("Failed to read %d bytes" % l)
     if len(s) != l:
         raise PSBTError("Failed to read %d bytes" % l)
     return s
 
 
+def skip_exact(stream, l: int) -> None:
+    """Moves the cursor l bytes forward or raises PSBTError on absurd lengths."""
+    try:
+        stream.seek(l, 1)
+    except (OverflowError, MemoryError, OSError, ValueError):
+        raise PSBTError("Failed to skip %d bytes" % l)
+
+
+def read_string(stream) -> bytes:
+    return read_exact(stream, read_compact(stream))
+
+
 def skip_string(stream) -> int:
-    l = compact.read_from(stream)
-    stream.seek(l, 1)
+    l = read_compact(stream)
+    skip_exact(stream, l)
     return len(compact.to_bytes(l)) + l
+
+
+def resolve_signing_root(root):
+    """Resolve the signing fingerprint for ``root``, honoring descriptor-key
+    wrapping.
+
+    Returns ``(fingerprint, can_sign, root)``. ``fingerprint`` is None for
+    raw/WIF keys (matched by key material instead). ``can_sign`` is False
+    when ``root`` is a public-only descriptor key that cannot sign. ``root``
+    is unwrapped to its underlying WIF key (``root.key``) when it was a
+    non-extended descriptor key; otherwise it is returned unchanged.
+    """
+    fingerprint = None
+    if hasattr(root, "origin"):
+        if not root.is_private:  # pubkey can't sign
+            return None, False, root
+        if root.is_extended:  # use fingerprint only for HDKey
+            fingerprint = root.fingerprint
+        else:
+            root = root.key  # WIF key
+    if not fingerprint and hasattr(root, "my_fingerprint"):
+        fingerprint = root.my_fingerprint
+    return fingerprint, True, root
+
+
+def derive_hdkey(root, derivation):
+    """Derive the HDKey for ``derivation``, honoring a descriptor key's origin prefix."""
+    der = derivation.derivation
+    if hasattr(root, "origin"):
+        if root.origin:
+            prefix = root.origin.derivation
+            if der[: len(prefix)] != prefix:
+                return None
+            der = der[len(prefix) :]
+        return root.key.derive(der)
+    return root.derive(der)
+
+
+def choose_locktime(
+    height_locktimes, time_locktimes, num_with_requirements, fallback=0
+):
+    """BIP-370 locktime determination.
+
+    ``height_locktimes``/``time_locktimes`` are the required locktimes collected
+    from the inputs and ``num_with_requirements`` is how many inputs expressed at
+    least one requirement. Height is preferred when every such input supports it.
+    """
+    if num_with_requirements == 0:
+        return fallback
+    if len(height_locktimes) == num_with_requirements:
+        return max(height_locktimes)
+    if len(time_locktimes) == num_with_requirements:
+        return max(time_locktimes)
+    raise PSBTError(
+        "Cannot determine locktime: inputs have conflicting height and time locktime requirements"
+    )
 
 
 class DerivationPath(EmbitBase):
@@ -108,7 +227,7 @@ class DerivationPath(EmbitBase):
         self.fingerprint = fingerprint
         self.derivation = derivation
 
-    def write_to(self, stream) -> int:
+    def write_to(self, stream, **kwargs) -> int:
         r = stream.write(self.fingerprint)
         for idx in self.derivation:
             r += stream.write(idx.to_bytes(4, "little"))
@@ -117,6 +236,8 @@ class DerivationPath(EmbitBase):
     @classmethod
     def read_from(cls, stream):
         fingerprint = stream.read(4)
+        if len(fingerprint) != 4:
+            raise PSBTError("Invalid length")
         derivation = []
         while True:
             r = stream.read(4)
@@ -131,9 +252,9 @@ class DerivationPath(EmbitBase):
 class PSBTScope(EmbitBase):
     V2_FIELDS = ()
 
-    def __init__(self, unknown: dict = {}):
-        self.unknown = unknown
-        self.parse_unknowns()
+    def __init__(self, unknown: dict = None, version=None):
+        self.unknown = {} if unknown is None else unknown
+        self.parse_unknowns(version)
 
     def write_to(self, stream, skip_separator=False, **kwargs) -> int:
         # unknown
@@ -146,19 +267,30 @@ class PSBTScope(EmbitBase):
             r += stream.write(b"\x00")
         return r
 
-    def parse_unknowns(self):
-        # go through all the unknowns and parse them
+    def parse_unknowns(self, version=None):
+        # go through all the unknowns and parse them: known keys land in their
+        # fields, the rest is put back into self.unknown by read_value()
         for k in list(self.unknown):
             s = BytesIO()
-            ser_string(s, self.unknown[k])
+            ser_string(s, self.unknown.pop(k))
             s.seek(0)
-            self.read_value(s, k)
+            self._read_value_checked(s, k, version=version)
 
-    def _validate_key(self, key):
-        if len(key) != 1 and key[:1] in self.V2_FIELDS:
+    def _read_value_checked(self, stream, key, version=None):
+        """read_value() that reports malformed nested data as PSBTError."""
+        try:
+            self.read_value(stream, key, version=version)
+        except PSBTError:
+            raise
+        except _PARSE_ERRORS as e:
+            raise PSBTError("Invalid value for key %s: %s" % (hexlify(key).decode(), e))
+
+    @classmethod
+    def _validate_key(cls, key):
+        if len(key) != 1 and key[:1] in cls.V2_FIELDS:
             raise PSBTError("Invalid PSBTv2 field key")
 
-    def read_value(self, stream, key, *args, **kwargs):
+    def read_value(self, stream, key, version=None):
         # separator
         if len(key) == 0:
             return
@@ -182,7 +314,7 @@ class PSBTScope(EmbitBase):
                 break
             if version != 2 and key in res.V2_FIELDS:
                 raise PSBTError("PSBTv2 field is not allowed in PSBTv0")
-            res.read_value(stream, key)
+            res._read_value_checked(stream, key, version=version)
         return res
 
 
@@ -191,7 +323,13 @@ class InputScope(PSBTScope):
     TXOUT_CLS = TransactionOutput
     V2_FIELDS = (b"\x0e", b"\x0f", b"\x10", b"\x11", b"\x12")
 
-    def __init__(self, unknown: dict = {}, vin=None, compress=CompressMode.KEEP_ALL):
+    def __init__(
+        self,
+        unknown: dict = None,
+        vin=None,
+        compress=CompressMode.KEEP_ALL,
+        version=None,
+    ):
         self.compress = compress
         self.txid = None
         self.vout = None
@@ -200,11 +338,11 @@ class InputScope(PSBTScope):
             self.txid = vin.txid
             self.vout = vin.vout
             self.sequence = vin.sequence
-        self.unknown = unknown
         self.non_witness_utxo = None
         self.witness_utxo = None
         self._utxo = None
         self._txhash = None
+        self._utxo_vout = None
         self._verified = False
         self.partial_sigs = OrderedDict()
         self.sighash_type = None
@@ -222,7 +360,9 @@ class InputScope(PSBTScope):
 
         self.final_scriptsig = None
         self.final_scriptwitness = None
-        self.parse_unknowns()
+        self.required_time_locktime = None
+        self.required_height_locktime = None
+        super().__init__(unknown, version=version)
 
     def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
@@ -245,13 +385,42 @@ class InputScope(PSBTScope):
         self.taproot_scripts = OrderedDict()
 
     def update(self, other):
+        prevout_changed = (
+            other.txid is not None and other.txid != self.txid
+        ) or (other.vout is not None and other.vout != self.vout)
         self.txid = other.txid or self.txid
         self.vout = other.vout if other.vout is not None else self.vout
         self.sequence = other.sequence if other.sequence is not None else self.sequence
         self.unknown.update(other.unknown)
         self.non_witness_utxo = other.non_witness_utxo or self.non_witness_utxo
         self.witness_utxo = other.witness_utxo or self.witness_utxo
-        self._utxo = other._utxo or self._utxo
+        # Keep the cached output with the hash and index it was streamed with.
+        if other._utxo is not None:
+            self._utxo = other._utxo
+            self._txhash = other._txhash
+            self._utxo_vout = other._utxo_vout
+            # verify() and utxo go by the cache from here on, so a retained
+            # full transaction it was not streamed from must not be written
+            if (
+                self.non_witness_utxo is not None
+                and self.non_witness_utxo.hash() != self._txhash
+            ):
+                self.non_witness_utxo = None
+        elif prevout_changed or other.non_witness_utxo is not None:
+            # A full replacement transaction can be checked afresh. Without
+            # one, the old cached output cannot authenticate the new prevout.
+            self._utxo = None
+            self._txhash = None
+            self._utxo_vout = None
+        # merged prevout or utxo data has not been through verify()
+        if (
+            other.txid
+            or other.vout is not None
+            or other.non_witness_utxo
+            or other.witness_utxo
+            or other._utxo
+        ):
+            self._verified = False
         self.partial_sigs.update(other.partial_sigs)
         self.sighash_type = (
             other.sighash_type if other.sighash_type is not None else self.sighash_type
@@ -260,18 +429,32 @@ class InputScope(PSBTScope):
         self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
         self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
-        self.taproot_internal_key = other.taproot_internal_key
+        self.taproot_internal_key = (
+            other.taproot_internal_key or self.taproot_internal_key
+        )
         self.taproot_merkle_root = other.taproot_merkle_root or self.taproot_merkle_root
         self.taproot_key_sig = other.taproot_key_sig or self.taproot_key_sig
         self.taproot_sigs.update(other.taproot_sigs)
         self.taproot_scripts.update(other.taproot_scripts)
         self.final_scriptsig = other.final_scriptsig or self.final_scriptsig
         self.final_scriptwitness = other.final_scriptwitness or self.final_scriptwitness
+        self.required_time_locktime = (
+            other.required_time_locktime
+            if other.required_time_locktime is not None
+            else self.required_time_locktime
+        )
+        self.required_height_locktime = (
+            other.required_height_locktime
+            if other.required_height_locktime is not None
+            else self.required_height_locktime
+        )
 
     @property
     def vin(self):
         return TransactionInput(
-            self.txid, self.vout, sequence=(self.sequence or 0xFFFFFFFF)
+            self.txid,
+            self.vout,
+            sequence=(self.sequence if self.sequence is not None else 0xFFFFFFFF),
         )
 
     @property
@@ -295,7 +478,8 @@ class InputScope(PSBTScope):
 
     @property
     def is_taproot(self):
-        return self.utxo.script_pubkey.script_type() == "p2tr"
+        utxo = self.utxo
+        return utxo is not None and utxo.script_pubkey.script_type() == "p2tr"
 
     def verify(self, ignore_missing=False):
         """Verifies the hash of previous transaction provided in non_witness_utxo.
@@ -304,6 +488,7 @@ class InputScope(PSBTScope):
         https://blog.trezor.io/details-of-firmware-updates-for-trezor-one-version-1-9-1-and-trezor-model-t-version-2-3-1-1eba8f60f2dd
         For legacy txs we need to verify it to calculate fee.
         """
+        self._verified = False
         if self.non_witness_utxo or self._txhash:
             txid = (
                 bytes(reversed(self._txhash))
@@ -311,6 +496,24 @@ class InputScope(PSBTScope):
                 else self.non_witness_utxo.txid()
             )
             if self.txid == txid:
+                if self._txhash:
+                    if self.vout != self._utxo_vout:
+                        raise PSBTError("Cached utxo doesn't match output index")
+                    utxo = self._utxo
+                else:
+                    if (
+                        self.vout is None
+                        or self.vout < 0
+                        or self.vout >= len(self.non_witness_utxo.vout)
+                    ):
+                        raise PSBTError("Invalid non_witness_utxo output index")
+                    utxo = self.non_witness_utxo.vout[self.vout]
+                if utxo is None:
+                    raise PSBTError("Missing non_witness_utxo output")
+                # Fee calculation and signing may use witness_utxo instead of
+                # the authenticated output, so both representations must agree.
+                if self.witness_utxo is not None and self.witness_utxo != utxo:
+                    raise PSBTError("Witness utxo doesn't match non_witness_utxo")
                 self._verified = True
                 return True
             else:
@@ -319,7 +522,7 @@ class InputScope(PSBTScope):
             raise PSBTError("Missing non_witness_utxo")
         return False
 
-    def read_value(self, stream, k):
+    def read_value(self, stream, k, version=None):
         # separator
         if len(k) == 0:
             return
@@ -331,14 +534,32 @@ class InputScope(PSBTScope):
             elif self.non_witness_utxo is not None:
                 raise PSBTError("Duplicated utxo value")
             else:
-                length = compact.read_from(stream)
+                # parse the transaction straight from the stream, but hold it to
+                # the declared value length so a wrong length cannot shift the
+                # key/value framing of the rest of the map
+                length = read_compact(stream)
                 value_stream = _BoundedReader(stream, length)
+                # For PSBTv2, PSBT_IN_OUTPUT_INDEX may follow PSBT_IN_NON_WITNESS_UTXO;
+                # use the pre-scanned vout (set by read_from) when the field hasn't
+                # been parsed yet so the OOM protection is key-order independent.
+                effective_vout = (
+                    self.vout
+                    if self.vout is not None
+                    else getattr(self, "_prescan_vout", None)
+                )
+                if self.compress and effective_vout is None:
+                    # don't silently buffer the whole tx when compress was asked for
+                    raise PSBTError(
+                        "PSBT_IN_OUTPUT_INDEX unknown before PSBT_IN_NON_WITNESS_UTXO, "
+                        "compressed parsing of PSBTv2 needs a seekable stream"
+                    )
                 # we verified and saved utxo
-                if self.compress and self.txid and self.vout is not None:
-                    txout, txhash = self.TX_CLS.read_vout(value_stream, self.vout)
+                if self.compress:
+                    txout, txhash = self.TX_CLS.read_vout(value_stream, effective_vout)
                     value_stream.finish()
                     self._txhash = txhash
                     self._utxo = txout
+                    self._utxo_vout = effective_vout
                 else:
                     tx = self.TX_CLS.read_from(value_stream)
                     value_stream.finish()
@@ -354,7 +575,7 @@ class InputScope(PSBTScope):
             elif self.witness_utxo is not None:
                 raise PSBTError("Duplicated utxo value")
             else:
-                self.witness_utxo = self.TXOUT_CLS.parse(v)
+                self.witness_utxo = _parse_bounded(self.TXOUT_CLS, v)
         # partial signature
         elif k[0] == 0x02:
             # we don't need this key for signing
@@ -419,16 +640,67 @@ class InputScope(PSBTScope):
             if len(k) != 1:
                 raise PSBTError("Invalid final scriptwitness key")
             elif self.final_scriptwitness is None:
-                self.final_scriptwitness = Witness.parse(v)
+                self.final_scriptwitness = _parse_bounded(Witness, v)
             else:
                 raise PSBTError("Duplicated final scriptwitness")
 
+        # PSBTv2 fields
         elif k == b"\x0e":
+            if version != 2:
+                raise PSBTError("PSBT_IN_PREVIOUS_TXID not allowed in PSBTv0")
+            if len(v) != 32:
+                raise PSBTError("PSBT_IN_PREVIOUS_TXID must be 32 bytes")
+            if self.txid is not None:
+                raise PSBTError("Duplicated PSBT_IN_PREVIOUS_TXID")
             self.txid = bytes(reversed(v))
         elif k == b"\x0f":
+            if version != 2:
+                raise PSBTError("PSBT_IN_OUTPUT_INDEX not allowed in PSBTv0")
+            if len(v) != 4:
+                raise PSBTError("PSBT_IN_OUTPUT_INDEX must be 4 bytes")
+            if self.vout is not None:
+                raise PSBTError("Duplicated PSBT_IN_OUTPUT_INDEX")
             self.vout = int.from_bytes(v, "little")
         elif k == b"\x10":
+            if version != 2:
+                raise PSBTError("PSBT_IN_SEQUENCE not allowed in PSBTv0")
+            if len(v) != 4:
+                raise PSBTError("PSBT_IN_SEQUENCE must be 4 bytes")
+            if self.sequence is not None:
+                raise PSBTError("Duplicated PSBT_IN_SEQUENCE")
             self.sequence = int.from_bytes(v, "little")
+
+        # PSBT_IN_REQUIRED_TIME_LOCKTIME
+        elif k == b"\x11":
+            if version != 2:
+                raise PSBTError("PSBT_IN_REQUIRED_TIME_LOCKTIME not allowed in PSBTv0")
+            if self.required_time_locktime is not None:
+                raise PSBTError("Duplicated required time locktime")
+            if len(v) != 4:
+                raise PSBTError("PSBT_IN_REQUIRED_TIME_LOCKTIME must be 4 bytes")
+            locktime = int.from_bytes(v, "little")
+            if locktime < LOCKTIME_THRESHOLD:
+                raise PSBTError(
+                    "Time-based locktime must be >= %d" % LOCKTIME_THRESHOLD
+                )
+            self.required_time_locktime = locktime
+
+        # PSBT_IN_REQUIRED_HEIGHT_LOCKTIME
+        elif k == b"\x12":
+            if version != 2:
+                raise PSBTError(
+                    "PSBT_IN_REQUIRED_HEIGHT_LOCKTIME not allowed in PSBTv0"
+                )
+            if self.required_height_locktime is not None:
+                raise PSBTError("Duplicated required height locktime")
+            if len(v) != 4:
+                raise PSBTError("PSBT_IN_REQUIRED_HEIGHT_LOCKTIME must be 4 bytes")
+            locktime = int.from_bytes(v, "little")
+            if locktime >= LOCKTIME_THRESHOLD or locktime == 0:
+                raise PSBTError(
+                    "Height-based locktime must be > 0 and < %d" % LOCKTIME_THRESHOLD
+                )
+            self.required_height_locktime = locktime
 
         # PSBT_IN_TAP_KEY_SIG
         elif k[0] == 0x13:
@@ -461,10 +733,10 @@ class InputScope(PSBTScope):
             pub = ec.PublicKey.from_xonly(k[1:])
             if pub not in self.taproot_bip32_derivations:
                 b = BytesIO(v)
-                num_leaf_hashes = compact.read_from(b)
-                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
-                if not all([len(leaf) == 32 for leaf in leaf_hashes]):
+                num_leaf_hashes = read_compact(b)
+                if num_leaf_hashes * 32 > len(v) - b.seek(0, 1):
                     raise PSBTError("Invalid length of taproot leaf hashes")
+                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
                 der = DerivationPath.read_from(b)
                 self.taproot_bip32_derivations[pub] = (leaf_hashes, der)
 
@@ -493,8 +765,9 @@ class InputScope(PSBTScope):
             r += ser_string(stream, b"\x02" + pub.serialize())
             r += ser_string(stream, self.partial_sigs[pub])
         if self.sighash_type is not None:
-            r += stream.write(b"\x01\x03")
-            r += ser_string(stream, self.sighash_type.to_bytes(4, "little"))
+            r += _ser_uint(
+                stream, b"\x03", self.sighash_type, 4, "PSBT_IN_SIGHASH_TYPE"
+            )
         if self.redeem_script is not None:
             r += stream.write(b"\x01\x04")
             r += self.redeem_script.write_to(stream)  # script serialization has length
@@ -513,14 +786,30 @@ class InputScope(PSBTScope):
 
         if version == 2:
             if self.txid is not None:
+                if len(self.txid) != 32:
+                    raise PSBTError("PSBT_IN_PREVIOUS_TXID must be 32 bytes")
                 r += ser_string(stream, b"\x0e")
                 r += ser_string(stream, bytes(reversed(self.txid)))
             if self.vout is not None:
-                r += ser_string(stream, b"\x0f")
-                r += ser_string(stream, self.vout.to_bytes(4, "little"))
+                r += _ser_uint(stream, b"\x0f", self.vout, 4, "PSBT_IN_OUTPUT_INDEX")
             if self.sequence is not None:
-                r += ser_string(stream, b"\x10")
-                r += ser_string(stream, self.sequence.to_bytes(4, "little"))
+                r += _ser_uint(stream, b"\x10", self.sequence, 4, "PSBT_IN_SEQUENCE")
+            if self.required_time_locktime is not None:
+                r += _ser_uint(
+                    stream,
+                    b"\x11",
+                    self.required_time_locktime,
+                    4,
+                    "PSBT_IN_REQUIRED_TIME_LOCKTIME",
+                )
+            if self.required_height_locktime is not None:
+                r += _ser_uint(
+                    stream,
+                    b"\x12",
+                    self.required_height_locktime,
+                    4,
+                    "PSBT_IN_REQUIRED_HEIGHT_LOCKTIME",
+                )
 
         # PSBT_IN_TAP_KEY_SIG
         if self.taproot_key_sig is not None:
@@ -567,24 +856,79 @@ class InputScope(PSBTScope):
             r += stream.write(b"\x00")
         return r
 
+    @classmethod
+    def read_from(cls, stream, compress=CompressMode.KEEP_ALL, vin=None, version=None):
+        res = cls({}, vin=vin, compress=compress)
+        # PSBT maps are unordered, so PSBTv2 input maps may provide the output
+        # index after the non-witness UTXO. Peek only at compact-sized keys and
+        # skip values to keep compressed parsing independent of key order.
+        res._prescan_vout = None
+        if version == 2 and compress:
+            try:
+                # Probe seekability BEFORE consuming anything: if we cannot rewind,
+                # a half-finished prescan would leave the cursor mid-map and corrupt
+                # the real parse below.
+                start_pos = stream.seek(0, 1)
+            except (AttributeError, OSError):
+                start_pos = None  # not seekable; OOM protection unavailable
+            if start_pos is not None:
+                while True:
+                    k = read_string(stream)
+                    if len(k) == 0:
+                        break
+                    if k == b"\x0f":
+                        v = read_string(stream)
+                        if len(v) == 4:
+                            res._prescan_vout = int.from_bytes(v, "little")
+                        # otherwise let the real parse raise the precise error
+                        break
+                    skip_string(stream)
+                stream.seek(start_pos)
+        # compress mode skips some values, so it can't rely on the
+        # per-field duplicate checks in read_value()
+        seen = set()
+        while True:
+            key = read_string(stream)
+            # separator
+            if len(key) == 0:
+                break
+            if key in seen:
+                raise PSBTError("Duplicated key")
+            seen.add(key)
+            res._read_value_checked(stream, key, version=version)
+        del res._prescan_vout
+        # compress mode checks this in read_vout, do the same for the full tx
+        if (
+            res.non_witness_utxo is not None
+            and res.vout is not None
+            and res.vout >= len(res.non_witness_utxo.vout)
+        ):
+            raise PSBTError("Invalid vout index %d" % res.vout)
+        return res
+
 
 class OutputScope(PSBTScope):
     V2_FIELDS = (b"\x03", b"\x04")
 
-    def __init__(self, unknown: dict = {}, vout=None, compress=CompressMode.KEEP_ALL):
+    def __init__(
+        self,
+        unknown: dict = None,
+        vout=None,
+        compress=CompressMode.KEEP_ALL,
+        version=None,
+    ):
         self.compress = compress
         self.value = None
         self.script_pubkey = None
         if vout is not None:
             self.value = vout.value
             self.script_pubkey = vout.script_pubkey
-        self.unknown = unknown
         self.redeem_script = None
         self.witness_script = None
         self.bip32_derivations = OrderedDict()
         self.taproot_bip32_derivations = OrderedDict()
         self.taproot_internal_key = None
-        self.parse_unknowns()
+        super().__init__(unknown, version=version)
 
     def clear_metadata(self, compress=CompressMode.CLEAR_ALL):
         """Removes metadata like derivations, utxos etc except final or partial sigs"""
@@ -605,13 +949,15 @@ class OutputScope(PSBTScope):
         self.witness_script = other.witness_script or self.witness_script
         self.bip32_derivations.update(other.bip32_derivations)
         self.taproot_bip32_derivations.update(other.taproot_bip32_derivations)
-        self.taproot_internal_key = other.taproot_internal_key
+        self.taproot_internal_key = (
+            other.taproot_internal_key or self.taproot_internal_key
+        )
 
     @property
     def vout(self):
         return TransactionOutput(self.value, self.script_pubkey)
 
-    def read_value(self, stream, k):
+    def read_value(self, stream, k, version=None):
         # separator
         if len(k) == 0:
             return
@@ -643,9 +989,23 @@ class OutputScope(PSBTScope):
             else:
                 self.bip32_derivations[pub] = DerivationPath.parse(v)
 
+        # PSBTv2 fields
         elif k == b"\x03":
+            if version != 2:
+                raise PSBTError("PSBT_OUT_AMOUNT not allowed in PSBTv0")
+            if len(v) != 8:
+                raise PSBTError("PSBT_OUT_AMOUNT must be 8 bytes")
+            if self.value is not None:
+                raise PSBTError("Duplicated PSBT_OUT_AMOUNT")
+            # BIP370: PSBT_OUT_AMOUNT is a signed int64, so the top half is negative
             self.value = int.from_bytes(v, "little")
+            if self.value >= 2**63:
+                raise PSBTError("PSBT_OUT_AMOUNT must be non-negative")
         elif k == b"\x04":
+            if version != 2:
+                raise PSBTError("PSBT_OUT_SCRIPT not allowed in PSBTv0")
+            if self.script_pubkey is not None:
+                raise PSBTError("Duplicated PSBT_OUT_SCRIPT")
             self.script_pubkey = Script(v)
 
         # PSBT_OUT_TAP_INTERNAL_KEY
@@ -657,10 +1017,10 @@ class OutputScope(PSBTScope):
             pub = ec.PublicKey.from_xonly(k[1:])
             if pub not in self.taproot_bip32_derivations:
                 b = BytesIO(v)
-                num_leaf_hashes = compact.read_from(b)
-                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
-                if not all([len(leaf) == 32 for leaf in leaf_hashes]):
+                num_leaf_hashes = read_compact(b)
+                if num_leaf_hashes * 32 > len(v) - b.seek(0, 1):
                     raise PSBTError("Invalid length of taproot leaf hashes")
+                leaf_hashes = [b.read(32) for i in range(num_leaf_hashes)]
                 der = DerivationPath.read_from(b)
                 self.taproot_bip32_derivations[pub] = (leaf_hashes, der)
 
@@ -683,8 +1043,10 @@ class OutputScope(PSBTScope):
 
         if version == 2:
             if self.value is not None:
-                r += ser_string(stream, b"\x03")
-                r += ser_string(stream, self.value.to_bytes(8, "little"))
+                # BIP-370: signed int64, the top half is not representable
+                if self.value >= 2**63:
+                    raise PSBTError("PSBT_OUT_AMOUNT must be non-negative")
+                r += _ser_uint(stream, b"\x03", self.value, 8, "PSBT_OUT_AMOUNT")
             if self.script_pubkey is not None:
                 r += ser_string(stream, b"\x04")
                 r += self.script_pubkey.write_to(stream)
@@ -714,6 +1076,41 @@ class OutputScope(PSBTScope):
             r += stream.write(b"\x00")
         return r
 
+    @classmethod
+    def read_from(cls, stream, compress=CompressMode.KEEP_ALL, vout=None, version=None):
+        res = cls({}, vout=vout, compress=compress)
+        seen = set()
+        while True:
+            key = read_string(stream)
+            # separator
+            if len(key) == 0:
+                break
+            if key in seen:
+                raise PSBTError("Duplicated key")
+            seen.add(key)
+            res._read_value_checked(stream, key, version=version)
+        return res
+
+
+class TxModifiable:
+    INPUTS = 0b00000001
+    OUTPUTS = 0b00000010
+    SIGHASH_SINGLE = 0b00000100
+
+
+def next_tx_modifiable(flags, inp_sighash: int) -> int:
+    """BIP-370: the PSBT_GLOBAL_TX_MODIFIABLE value after a signature using
+    ``inp_sighash`` is added. ``flags`` may be None (field absent)."""
+    flags = flags or 0
+    sighash_type = inp_sighash & 0x1F
+    if not inp_sighash & SIGHASH.ANYONECANPAY:
+        flags &= ~TxModifiable.INPUTS
+    if sighash_type != SIGHASH.NONE:
+        flags &= ~TxModifiable.OUTPUTS
+    if sighash_type == SIGHASH.SINGLE:
+        flags |= TxModifiable.SIGHASH_SINGLE
+    return flags
+
 
 class PSBT(EmbitBase):
     MAGIC = b"psbt\xff"
@@ -722,17 +1119,50 @@ class PSBT(EmbitBase):
     PSBTOUT_CLS = OutputScope
     TX_CLS = Transaction
 
-    def __init__(self, tx=None, unknown={}, version=None):
-        self.version = version  # None for v0
+    @classmethod
+    def _validate_v2_input(cls, inp, i):
+        """Check that a PSBTv2 input has all required fields.
+        Subclasses may override this to add extra validation."""
+        if inp.txid is None:
+            raise PSBTError(
+                "PSBTv2 input %d missing required PSBT_IN_PREVIOUS_TXID (0x0e)" % i
+            )
+        if inp.vout is None:
+            raise PSBTError(
+                "PSBTv2 input %d missing required PSBT_IN_OUTPUT_INDEX (0x0f)" % i
+            )
+
+    @classmethod
+    def _v2_output_has_amount(cls, out):
+        """Subclasses (e.g. PSET) may override to accept alternative amount fields."""
+        return out.value is not None
+
+    @classmethod
+    def _validate_v2_output(cls, out, i):
+        """Check that a PSBTv2 output has all required fields."""
+        if not cls._v2_output_has_amount(out):
+            raise PSBTError(
+                "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
+            )
+        if out.script_pubkey is None:
+            raise PSBTError(
+                "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
+            )
+
+    def __init__(self, tx=None, unknown=None, version=None):
+        self.version = version  # None for v0, 2 for v2
         self.inputs = []
         self.outputs = []
         self.tx_version = None
         self.locktime = None
+        self.tx_modifiable_flags = None
+        self._raw_input_count_from_global = None
+        self._raw_output_count_from_global = None
 
         if tx is not None:
             self.parse_tx(tx)
 
-        self.unknown = unknown
+        self.unknown = {} if unknown is None else unknown
         self.xpubs = OrderedDict()
         self.parse_unknowns()
 
@@ -742,11 +1172,59 @@ class PSBT(EmbitBase):
         self.inputs = [self.PSBTIN_CLS(vin=vin) for vin in tx.vin]
         self.outputs = [self.PSBTOUT_CLS(vout=vout) for vout in tx.vout]
 
+    @staticmethod
+    def _classify_locktimes(inputs):
+        """Classify inputs by locktime requirement type.
+
+        Returns a tuple of (height_locktimes, time_locktimes, inputs_with_requirements)
+        where the lists contain the respective locktime values and the count is the
+        number of inputs that express at least one locktime requirement.
+        """
+        height_locktimes = []
+        time_locktimes = []
+        inputs_with_requirements = 0
+        for inp in inputs:
+            has_requirement = False
+            if inp.required_height_locktime is not None:
+                height_locktimes.append(inp.required_height_locktime)
+                has_requirement = True
+            if inp.required_time_locktime is not None:
+                time_locktimes.append(inp.required_time_locktime)
+                has_requirement = True
+            if has_requirement:
+                inputs_with_requirements += 1
+        return height_locktimes, time_locktimes, inputs_with_requirements
+
+    def determine_locktime(self):
+        """
+        Determines the appropriate locktime according to PSBTv2 rules.
+        Returns the locktime that should be used for the transaction.
+        """
+        if self.version != 2:
+            return self.locktime or 0
+        return choose_locktime(
+            *self._classify_locktimes(self.inputs), fallback=self.locktime or 0
+        )
+
+    def _validate_locktime_compatibility(self, inputs):
+        """Return the locktime, rejecting incompatible input requirements."""
+        return choose_locktime(
+            *self._classify_locktimes(inputs), fallback=self.locktime or 0
+        )
+
     @property
     def tx(self):
+        if self.version == 2:
+            locktime = self.determine_locktime()
+        else:
+            locktime = self.locktime or 0
+
+        if self.version == 2 and self.tx_version is None:
+            raise PSBTError("PSBTv2 is missing required PSBT_GLOBAL_TX_VERSION")
+        tx_version = self.tx_version if self.tx_version is not None else 2
         return self.TX_CLS(
-            version=2 if self.tx_version is None else self.tx_version,
-            locktime=self.locktime or 0,
+            version=tx_version,
+            locktime=locktime,
             vin=[inp.vin for inp in self.inputs],
             vout=[out.vout for out in self.outputs],
         )
@@ -784,6 +1262,9 @@ class PSBT(EmbitBase):
         fee -= sum([out.value for out in self.tx.vout])
         return fee
 
+    def _write_extra_globals(self, stream) -> int:
+        return 0
+
     def write_to(self, stream) -> int:
         # magic bytes
         r = stream.write(self.MAGIC)
@@ -799,18 +1280,27 @@ class PSBT(EmbitBase):
             r += ser_string(stream, self.xpubs[xpub].serialize())
 
         if self.version == 2:
-            tx_version = 2 if self.tx_version is None else self.tx_version
-            r += ser_string(stream, b"\x02")
-            r += ser_string(stream, tx_version.to_bytes(4, "little"))
+            tx_version = self.tx_version if self.tx_version is not None else 2
+            r += _ser_uint(stream, b"\x02", tx_version, 4, "PSBT_GLOBAL_TX_VERSION")
             if self.locktime is not None:
-                r += ser_string(stream, b"\x03")
-                r += ser_string(stream, self.locktime.to_bytes(4, "little"))
+                r += _ser_uint(
+                    stream, b"\x03", self.locktime, 4, "PSBT_GLOBAL_FALLBACK_LOCKTIME"
+                )
             r += ser_string(stream, b"\x04")
             r += ser_string(stream, compact.to_bytes(len(self.inputs)))
             r += ser_string(stream, b"\x05")
             r += ser_string(stream, compact.to_bytes(len(self.outputs)))
-            r += ser_string(stream, b"\xfb")
-            r += ser_string(stream, self.version.to_bytes(4, "little"))
+            if self.tx_modifiable_flags is not None:
+                r += _ser_uint(
+                    stream,
+                    b"\x06",
+                    self.tx_modifiable_flags,
+                    1,
+                    "PSBT_GLOBAL_TX_MODIFIABLE",
+                )
+            r += _ser_uint(stream, b"\xfb", self.version, 4, "PSBT_GLOBAL_VERSION")
+
+        r += self._write_extra_globals(stream)
         # unknown
         for key in self.unknown:
             r += ser_string(stream, key)
@@ -824,6 +1314,14 @@ class PSBT(EmbitBase):
         for out in self.outputs:
             r += out.write_to(stream, version=self.version)
         return r
+
+    @classmethod
+    def parse(cls, s: bytes, *args, **kwargs):
+        stream = BytesIO(s)
+        res = cls.read_from(stream, *args, **kwargs)
+        if len(stream.read(1)) > 0:
+            raise PSBTError("Unexpected extra bytes")
+        return res
 
     @classmethod
     def from_base64(cls, b64, compress=CompressMode.KEEP_ALL):
@@ -853,91 +1351,196 @@ class PSBT(EmbitBase):
         without storing them in memory and save the utxo internally for signing.
         This helps against out-of-memory errors.
         """
-        tx = None
-        unknown = {}
-        version = None
-        # check magic
         if stream.read(len(cls.MAGIC)) != cls.MAGIC:
             raise PSBTError("Invalid PSBT magic")
+
+        global_kvs = OrderedDict()
         while True:
             key = read_string(stream)
-            # separator
-            if len(key) == 0:
+            if len(key) == 0:  # Separator
                 break
             _validate_global_key(key)
             value = read_string(stream)
-            # tx
-            if key == b"\x00":
-                if tx is None:
-                    tx = cls.TX_CLS.parse(value)
-                    # BIP-174: the global transaction must be unsigned
-                    for inp in tx.vin:
-                        if len(inp.script_sig.data) > 0:
-                            raise PSBTError(
-                                "Global transaction input has a non-empty scriptSig"
-                            )
-                else:
-                    raise PSBTError(
-                        "Failed to parse PSBT - duplicated transaction field"
-                    )
-            elif key == b"\xfb":
-                if version is not None:
-                    raise PSBTError("Duplicated global version")
-                if len(value) != 4:
-                    raise PSBTError("Global version must be 4 bytes")
-                version = int.from_bytes(value, "little")
-                if version not in [0, 2]:
-                    raise PSBTError("Unsupported PSBT version %d" % version)
-            else:
-                if key in unknown:
-                    raise PSBTError("Duplicated key")
-                unknown[key] = value
+            if key in global_kvs:
+                raise PSBTError("Duplicated global key: %s" % hexlify(key).decode())
+            global_kvs[key] = value
 
-        _validate_global_fields(version, tx is not None, unknown)
-        psbt = cls(tx, unknown, version=version)
-        # input scopes
-        for i, vin in enumerate(psbt.tx.vin):
-            psbt.inputs[i] = cls.PSBTIN_CLS.read_from(
-                stream, compress=compress, vin=vin, version=version
-            )
-        # output scopes
-        for i, vout in enumerate(psbt.tx.vout):
-            psbt.outputs[i] = cls.PSBTOUT_CLS.read_from(
-                stream, compress=compress, vout=vout, version=version
-            )
+        # Determine PSBT version from PSBT_GLOBAL_VERSION (0xfb)
+        version = None
+        if b"\xfb" in global_kvs:
+            if len(global_kvs[b"\xfb"]) != 4:
+                raise PSBTError("PSBT_GLOBAL_VERSION must be 4 bytes")
+            parsed_version = int.from_bytes(global_kvs[b"\xfb"], "little")
+            if parsed_version == 2:
+                version = 2
+            elif parsed_version == 0:
+                version = (
+                    None  # explicit PSBT_GLOBAL_VERSION=0 is valid for v0 per BIP174
+                )
+            else:
+                raise PSBTError(
+                    "Unsupported PSBT_GLOBAL_VERSION value: %d" % parsed_version
+                )
+
+        # Canonical-encoding, fixed-length, and required-field checks for every
+        # global key, shared with PSBTView.view()'s streaming parse.
+        _validate_global_fields(version, b"\x00" in global_kvs, global_kvs)
+
+        if version == 2:  # PSBTv2
+            # Pass all global KVs to unknown; __init__ calls parse_unknowns.
+            psbt = cls(tx=None, unknown=global_kvs, version=version)
+
+            # Validate that input/output counts were processed by parse_unknowns
+            if psbt._raw_input_count_from_global is None:
+                raise PSBTError(
+                    "PSBTv2 missing or invalid PSBT_GLOBAL_INPUT_COUNT (0x04)"
+                )
+            if psbt._raw_output_count_from_global is None:
+                raise PSBTError(
+                    "PSBTv2 missing or invalid PSBT_GLOBAL_OUTPUT_COUNT (0x05)"
+                )
+            if psbt.tx_version is None:
+                raise PSBTError("PSBTv2 missing required PSBT_GLOBAL_TX_VERSION (0x02)")
+        else:  # PSBTv0 (version is None or 0)
+            tx_bytes = global_kvs.pop(b"\x00")  # Remove so it's not in unknown
+            try:
+                # BIP-174: the unsigned tx is serialized without witness data,
+                # so a leading zero is an empty input list, not a segwit marker
+                tx_for_v0 = _parse_bounded(cls.TX_CLS, tx_bytes, segwit=False)
+            except _PARSE_ERRORS as e:
+                raise PSBTError("Invalid global transaction: %s" % e)
+            # BIP-174: the global transaction must be unsigned
+            for inp in tx_for_v0.vin:
+                if len(inp.script_sig.data) > 0:
+                    raise PSBTError(
+                        "Global transaction input has a non-empty scriptSig"
+                    )
+            psbt = cls(tx=tx_for_v0, unknown=global_kvs, version=version)
+
+        if version == 2:
+            num_inputs = psbt._raw_input_count_from_global
+            num_outputs = psbt._raw_output_count_from_global
+
+            # validate each map as it is parsed, so a huge declared count
+            # fails on the first bad map instead of after allocating them all
+            parsed_inputs = []
+            for i in range(num_inputs):
+                inp = cls.PSBTIN_CLS.read_from(
+                    stream, compress=compress, vin=None, version=version
+                )
+                cls._validate_v2_input(inp, i)
+                parsed_inputs.append(inp)
+            psbt.inputs = parsed_inputs
+
+            parsed_outputs = []
+            for i in range(num_outputs):
+                out = cls.PSBTOUT_CLS.read_from(
+                    stream, compress=compress, vout=None, version=version
+                )
+                cls._validate_v2_output(out, i)
+                parsed_outputs.append(out)
+            psbt.outputs = parsed_outputs
+        else:
+            temp_inputs = []
+            for i in range(len(psbt.inputs)):
+                temp_inputs.append(
+                    cls.PSBTIN_CLS.read_from(
+                        stream,
+                        compress=compress,
+                        vin=psbt.inputs[i].vin,
+                        version=version,
+                    )
+                )
+            psbt.inputs = temp_inputs
+
+            temp_outputs = []
+            for i in range(len(psbt.outputs)):
+                temp_outputs.append(
+                    cls.PSBTOUT_CLS.read_from(
+                        stream,
+                        compress=compress,
+                        vout=psbt.outputs[i].vout,
+                        version=version,
+                    )
+                )
+            psbt.outputs = temp_outputs
+
         return psbt
 
+    @staticmethod
+    def _parse_count(value):
+        try:
+            return compact.from_bytes(value)
+        except (ValueError, RuntimeError) as e:
+            raise PSBTError("Invalid global count: %s" % e)
+
     def parse_unknowns(self):
+        # Handle PSBT_GLOBAL_VERSION first
+        if b"\xfb" in self.unknown:
+            self.unknown.pop(b"\xfb", None)
+
+        if b"\x06" in self.unknown:
+            flags_bytes = self.unknown.pop(b"\x06")
+            if len(flags_bytes) != 1:
+                raise PSBTError("PSBT_GLOBAL_TX_MODIFIABLE must be 1 byte")
+            self.tx_modifiable_flags = flags_bytes[0]
+
         for k in list(self.unknown):
             # xpub field
             if k[0] == 0x01:
-                xpub = bip32.HDKey.parse(k[1:])
-                self.xpubs[xpub] = DerivationPath.parse(self.unknown.pop(k))
+                try:
+                    xpub = bip32.HDKey.parse(k[1:])
+                    self.xpubs[xpub] = DerivationPath.parse(self.unknown.pop(k))
+                except PSBTError:
+                    raise
+                except _PARSE_ERRORS as e:
+                    raise PSBTError("Invalid PSBT_GLOBAL_XPUB: %s" % e)
             elif k == b"\x02":
-                self.tx_version = int.from_bytes(self.unknown.pop(k), "little")
+                if self.version == 2:
+                    v = self.unknown.pop(k)
+                    if len(v) != 4:
+                        raise PSBTError("PSBT_GLOBAL_TX_VERSION must be 4 bytes")
+                    self.tx_version = int.from_bytes(v, "little")
             elif k == b"\x03":
-                self.locktime = int.from_bytes(self.unknown.pop(k), "little")
+                if self.version == 2:
+                    v = self.unknown.pop(k)
+                    if len(v) != 4:
+                        raise PSBTError("PSBT_GLOBAL_FALLBACK_LOCKTIME must be 4 bytes")
+                    self.locktime = int.from_bytes(v, "little")
             elif k == b"\x04":
-                if len(self.inputs) > 0:
-                    raise PSBTError("Inputs already initialized")
-                self.inputs = [
-                    self.PSBTIN_CLS()
-                    for _ in range(compact.from_bytes(self.unknown.pop(k)))
-                ]
+                if self.version == 2:
+                    if self._raw_input_count_from_global is not None:
+                        self.unknown.pop(k, None)
+                        continue
+                    self._raw_input_count_from_global = self._parse_count(
+                        self.unknown.pop(k)
+                    )
+                    # Store count only; do not pre-allocate objects to avoid
+                    # attacker-controlled memory exhaustion.
             elif k == b"\x05":
-                if len(self.outputs) > 0:
-                    raise PSBTError("Outputs already initialized")
-                self.outputs = [
-                    self.PSBTOUT_CLS()
-                    for _ in range(compact.from_bytes(self.unknown.pop(k)))
-                ]
+                if self.version == 2:
+                    if self._raw_output_count_from_global is not None:
+                        self.unknown.pop(k, None)
+                        continue
+                    self._raw_output_count_from_global = self._parse_count(
+                        self.unknown.pop(k)
+                    )
+                    # Store count only; do not pre-allocate objects to avoid
+                    # attacker-controlled memory exhaustion.
 
     def sighash(self, i, sighash=SIGHASH.ALL, **kwargs):
         inp = self.inputs[i]
+        if inp.utxo is None:
+            raise PSBTError("Missing previous utxo on input %d" % i)
 
         if inp.is_taproot:
-            values = [inp.utxo.value for inp in self.inputs]
-            scripts = [inp.utxo.script_pubkey for inp in self.inputs]
+            values = []
+            scripts = []
+            for j, other in enumerate(self.inputs):
+                if other.utxo is None:
+                    raise PSBTError("Missing previous utxo on input %d" % j)
+                values.append(other.utxo.value)
+                scripts.append(other.utxo.script_pubkey)
             return self.sighash_taproot(
                 i,
                 script_pubkeys=scripts,
@@ -969,6 +1572,22 @@ class PSBT(EmbitBase):
             h = self.sighash_legacy(i, sc, sighash=sighash)
         return h
 
+    def _sign_taproot_keypath(self, pk, input_index: int, inp, sighash) -> int:
+        """Store a BIP-341 key-path signature made with the already-tweaked pk.
+
+        Shared with subclasses that tweak the key differently (BIP-376 SP
+        spends) but encode and store the signature identically.
+        """
+        sig = pk.schnorr_sign(self.sighash(input_index, sighash=sighash))
+        sigdata = sig.serialize()
+        # append sighash if necessary
+        if sighash != SIGHASH.DEFAULT:
+            sigdata += bytes([sighash])
+        inp.taproot_key_sig = sigdata
+        inp.final_scriptwitness = Witness([sigdata])
+        self._update_tx_modifiable(sighash)
+        return 1
+
     def sign_input_with_tapkey(
         self,
         key: ec.PrivateKey,
@@ -984,18 +1603,8 @@ class PSBT(EmbitBase):
         # check if key is internal key
         pk = key.taproot_tweak(inp.taproot_merkle_root or b"")
         if pk.xonly() in inp.utxo.script_pubkey.data:
-            h = self.sighash(
-                input_index,
-                sighash=sighash,
-            )
-            sig = pk.schnorr_sign(h)
-            sigdata = sig.serialize()
-            if sighash != SIGHASH.DEFAULT:
-                sigdata += bytes([sighash])
-            inp.taproot_key_sig = sigdata
-            inp.final_scriptwitness = Witness([sigdata])
             # no need to sign anything else
-            return 1
+            return self._sign_taproot_keypath(pk, input_index, inp, sighash)
         counter = 0
         # negate if necessary
         pub = ec.PublicKey.from_xonly(key.xonly())
@@ -1021,6 +1630,7 @@ class PSBT(EmbitBase):
             if sighash != SIGHASH.DEFAULT:
                 sigdata += bytes([sighash])
             inp.taproot_sigs[(pub, leaf)] = sigdata
+            self._update_tx_modifiable(sighash)
             counter += 1
         return counter
 
@@ -1041,19 +1651,9 @@ class PSBT(EmbitBase):
                     counter += self.sign_with(k, sighash)
             return counter
 
-        # if WIF - fingerprint is None
-        fingerprint = None
-        # if descriptor key
-        if hasattr(root, "origin"):
-            if not root.is_private:  # pubkey can't sign
-                return 0
-            if root.is_extended:  # use fingerprint only for HDKey
-                fingerprint = root.fingerprint
-            else:
-                root = root.key  # WIF key
-        # if HDKey
-        if not fingerprint and hasattr(root, "my_fingerprint"):
-            fingerprint = root.my_fingerprint
+        fingerprint, can_sign, root = resolve_signing_root(root)
+        if not can_sign:
+            return 0
 
         rootpub = root.get_public_key()
         sec = rootpub.sec()
@@ -1089,7 +1689,7 @@ class PSBT(EmbitBase):
             if fingerprint:
                 # if taproot derivations are present add them
                 for pub in inp.taproot_bip32_derivations:
-                    (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
+                    _leafs, derivation = inp.taproot_bip32_derivations[pub]
                     if derivation.fingerprint == fingerprint:
                         # Add only if not already present
                         if (pub, derivation) not in bip32_derivations:
@@ -1105,17 +1705,10 @@ class PSBT(EmbitBase):
             # get derived keys for signing
             derived_keypairs = OrderedDict()  # (prv, pub)
             for pub, derivation in bip32_derivations:
-                der = derivation.derivation
-                # descriptor key has origin derivation that we take into account
-                if hasattr(root, "origin"):
-                    if root.origin:
-                        if root.origin.derivation != der[: len(root.origin.derivation)]:
-                            # derivation doesn't match - go to next input
-                            continue
-                        der = der[len(root.origin.derivation) :]
-                    hdkey = root.key.derive(der)
-                else:
-                    hdkey = root.derive(der)
+                hdkey = derive_hdkey(root, derivation)
+                if hdkey is None:
+                    # derivation doesn't match - go to next candidate
+                    continue
 
                 if hdkey.xonly() != pub.xonly():
                     raise PSBTError("Derivation path doesn't look right")
@@ -1127,7 +1720,7 @@ class PSBT(EmbitBase):
             if inp.is_taproot:
                 # try to sign with individual private key (WIF)
                 # or with root without derivations
-                counter += self.sign_input_with_tapkey(
+                tap_sigs = self.sign_input_with_tapkey(
                     root,
                     i,
                     inp,
@@ -1135,12 +1728,13 @@ class PSBT(EmbitBase):
                 )
                 # sign with all derived keys
                 for prv, pub in derived_keypairs:
-                    counter += self.sign_input_with_tapkey(
+                    tap_sigs += self.sign_input_with_tapkey(
                         prv,
                         i,
                         inp,
                         sighash=inp_sighash,
                     )
+                counter += tap_sigs
                 continue
 
             # hash can be reused
@@ -1150,13 +1744,98 @@ class PSBT(EmbitBase):
             # check if root itself is included in the script
             if sec in sc.data or pkh in sc.data:
                 sig = root.sign(h)
-                # sig plus sighash flag
                 inp.partial_sigs[rootpub] = sig.serialize() + bytes([inp_sighash])
                 counter += 1
+                self._update_tx_modifiable(inp_sighash)
 
             for prv, pub in derived_keypairs:
                 sig = prv.sign(h)
-                # sig plus sighash flag
                 inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
                 counter += 1
+                self._update_tx_modifiable(inp_sighash)
+
         return counter
+
+    def _update_tx_modifiable(self, inp_sighash: int) -> None:
+        """Update PSBT_GLOBAL_TX_MODIFIABLE after a signature is added."""
+        if self.version != 2:
+            return
+        self.tx_modifiable_flags = next_tx_modifiable(
+            self.tx_modifiable_flags, inp_sighash
+        )
+
+    def get_tx_modifiable(self):
+        return self.tx_modifiable_flags
+
+    def set_tx_modifiable(self, flags):
+        if self.version != 2:
+            raise PSBTError("GLOBAL_TX_MODIFIABLE only supported in PSBTv2")
+        self.tx_modifiable_flags = flags
+
+    def is_inputs_modifiable(self):
+        if self.version != 2:
+            return True
+        if self.tx_modifiable_flags is None:
+            return False
+        return bool(self.tx_modifiable_flags & TxModifiable.INPUTS)
+
+    def is_outputs_modifiable(self):
+        if self.version != 2:
+            return True
+        if self.tx_modifiable_flags is None:
+            return False
+        return bool(self.tx_modifiable_flags & TxModifiable.OUTPUTS)
+
+    def has_sighash_single(self):
+        if self.version != 2 or self.tx_modifiable_flags is None:
+            return False
+        return bool(self.tx_modifiable_flags & TxModifiable.SIGHASH_SINGLE)
+
+    @classmethod
+    def create_v2(cls, tx_version=2, fallback_locktime=None, tx_modifiable=None):
+        """Creator role convenience factory: initialise an empty PSBTv2.
+
+        BIP-370 Creator role: set PSBT_GLOBAL_VERSION=2, PSBT_GLOBAL_TX_VERSION,
+        and optionally PSBT_GLOBAL_FALLBACK_LOCKTIME and PSBT_GLOBAL_TX_MODIFIABLE
+        so the Constructor role can immediately begin adding inputs and outputs.
+        """
+        if tx_modifiable is None:
+            tx_modifiable = TxModifiable.INPUTS | TxModifiable.OUTPUTS
+        psbt = cls(tx=None, version=2)
+        psbt.tx_version = tx_version
+        psbt.locktime = fallback_locktime
+        psbt.tx_modifiable_flags = tx_modifiable
+        return psbt
+
+    def add_input(self, input_scope):
+        if not self.is_inputs_modifiable():
+            raise PSBTError("Inputs are not modifiable")
+        if self.version == 2:
+            self._validate_v2_input(input_scope, len(self.inputs))
+            if (
+                input_scope.required_height_locktime is not None
+                or input_scope.required_time_locktime is not None
+            ):
+                locktime = self._validate_locktime_compatibility(
+                    self.inputs + [input_scope]
+                )
+                # ANYONECANPAY permits adding inputs, but its signatures still
+                # commit to nLockTime. Finalized inputs may have dropped their
+                # partial signatures, so check their final scripts as well.
+                if locktime != self.determine_locktime() and any(
+                    inp.partial_sigs
+                    or inp.taproot_sigs
+                    or inp.taproot_key_sig is not None
+                    or inp.final_scriptsig is not None
+                    or inp.final_scriptwitness is not None
+                    for inp in self.inputs
+                ):
+                    raise PSBTError("Cannot change locktime with existing signatures")
+        self.inputs.append(input_scope)
+
+    def add_output(self, output_scope):
+        if not self.is_outputs_modifiable():
+            raise PSBTError("Outputs are not modifiable")
+        if self.version == 2:
+            self._validate_v2_output(output_scope, len(self.outputs))
+        self.outputs.append(output_scope)

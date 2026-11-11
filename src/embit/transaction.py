@@ -150,11 +150,14 @@ class Transaction(EmbitBase):
         return res, hashlib.sha256(h.digest()).digest()
 
     @classmethod
-    def read_from(cls, stream):
+    def read_from(cls, stream, segwit=True):
+        """segwit=False parses a transaction known to be serialized without
+        witness data (BIP-174's unsigned tx), where a leading zero is a real
+        input count and not the BIP-144 marker."""
         ver = int.from_bytes(_read_exact(stream, 4), "little")
         num_vin = compact.read_from(stream)
         # if num_vin is zero it is a segwit transaction
-        is_segwit = num_vin == 0
+        is_segwit = segwit and num_vin == 0
         if is_segwit:
             marker = stream.read(1)
             if marker != b"\x01":
@@ -240,7 +243,9 @@ class Transaction(EmbitBase):
         # data about this input
         h.update(bytes([2 * ext_flag + int(annex is not None)]))
         if anyonecanpay:
-            h.update(self.vin[input_index].serialize())
+            # BIP-341: outpoint (36 bytes), not the whole serialized input
+            h.update(bytes(reversed(self.vin[input_index].txid)))
+            h.update(self.vin[input_index].vout.to_bytes(4, "little"))
             h.update(values[input_index].to_bytes(8, "little"))
             h.update(script_pubkeys[input_index].serialize())
             h.update(self.vin[input_index].sequence.to_bytes(4, "little"))
@@ -249,7 +254,10 @@ class Transaction(EmbitBase):
         if annex is not None:
             h.update(hashes.sha256(compact.to_bytes(len(annex)) + annex))
         if sh == SIGHASH.SINGLE:
-            h.update(self.vout[input_index].serialize())
+            if input_index >= len(self.vout):
+                raise TransactionError("No corresponding output for SIGHASH_SINGLE")
+            # BIP-341: sha_single_output, the SHA256 of the output
+            h.update(hashes.sha256(self.vout[input_index].serialize()))
         if script is not None:
             h.update(
                 hashes.tagged_hash(
@@ -332,7 +340,7 @@ class Transaction(EmbitBase):
         # one output on the same index, others are empty
         elif sh == SIGHASH.SINGLE:
             h.update(compact.to_bytes(input_index + 1))
-            empty = TransactionOutput(0xFFFFFFFF, Script(b"")).serialize()
+            empty = TransactionOutput(0xFFFFFFFFFFFFFFFF, Script(b"")).serialize()
             # this way we commit to input index
             for i in range(input_index):
                 h.update(empty)

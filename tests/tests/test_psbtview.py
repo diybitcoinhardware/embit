@@ -132,7 +132,7 @@ class PSBTViewTest(TestCase):
                 psbtv.write_to(ser, extra_input_streams=[sigs_stream2])
                 for sc in psbt.inputs + psbt.outputs:
                     sc.clear_metadata(compress=compress)
-                self.assertEqual(len(ser.getvalue()), len(psbt.serialize()))
+                self.assertEqual(ser.getvalue(), psbt.serialize())
                 # check compress reduces the size of psbt
                 if compress != CompressMode.CLEAR_ALL:
                     sigs_stream2.seek(0)
