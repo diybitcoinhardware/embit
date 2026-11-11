@@ -255,8 +255,12 @@ class DescriptorTest(TestCase):
         for d in ["wpkh(%s)", "sh(wpkh(%s))"]:
             self.assertRaises(DescriptorError, Descriptor.from_string, d % U)
             Descriptor.from_string(d % C)
+        # wsh() is segwit v0 too, miniscript included
+        for d in ["wsh(pk(%s))", "sh(wsh(pk(%s)))", "wsh(multi(1,%s))"]:
+            self.assertRaises(DescriptorError, Descriptor.from_string, d % U)
+            Descriptor.from_string(d % C)
         # but are fine for legacy scripts
-        for d in ["pkh(%s)", "sh(pk(%s))", "wsh(pk(%s))"]:
+        for d in ["pkh(%s)", "sh(pk(%s))"]:
             Descriptor.from_string(d % U)
 
     def test_keys(self):
