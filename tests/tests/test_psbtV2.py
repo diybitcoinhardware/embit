@@ -1328,16 +1328,28 @@ class TestNonWitnessUtxoLength:
             if delta > 0:
                 # pad so the value itself is still present, the framing is off
                 bad += b"\x00" * delta
-            raw = raw.replace(good, b"\x01" + bad, 1)
-            with pytest.raises(PSBTError):
-                PSBT.parse(raw, compress=compress)
-            # the shifted framing is caught by the scope walk in view() or,
-            # when the framing happens to line up, by the value parse
-            with pytest.raises(PSBTError):
+            raw = raw.replace(good, b"\x01\x00" + bad, 1)
+            if delta > 0:
+                # the map framing is intact, so both parsers reach the
+                # transaction and find the bytes left after it
+                with pytest.raises(PSBTError, match="Trailing bytes in PSBT value"):
+                    PSBT.parse(raw, compress=compress)
                 view = PSBTView.view(BytesIO(raw), compress=compress)
-                view.input(0)
-                view.vin(0)
-                view.sighash(0)
+                with pytest.raises(PSBTError, match="Trailing bytes in PSBT value"):
+                    view.input(0)
+                continue
+            # a short length cuts the transaction and shifts the framing of the
+            # rest of the map, which the compressed PSBTv2 parse notices first,
+            # when it scans the map for the output index
+            if psbt.version == 2 and compress != CompressMode.KEEP_ALL:
+                error = "PSBT_IN_OUTPUT_INDEX unknown"
+            else:
+                error = "Read exceeds declared value length"
+            with pytest.raises(PSBTError, match=error):
+                PSBT.parse(raw, compress=compress)
+            # view() walks every map up front and finds the shifted framing
+            with pytest.raises(PSBTError, match="Unexpected extra bytes"):
+                PSBTView.view(BytesIO(raw), compress=compress)
 
 
 class TestTxModifiableAfterSigning:
