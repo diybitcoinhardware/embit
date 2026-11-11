@@ -327,7 +327,13 @@ class DescriptorTest(TestCase):
     def test_andor_requires_dissatisfiable_unit_left_child(self):
         key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
         for template in ("andor(%s,1,0)", "and_n(%s,1)"):
-            for left in ("1", "or_i(1,1)", "or_i(0,older(10))", "older(10)"):
+            for left in (
+                "1",
+                "or_i(1,1)",
+                "or_i(0,older(10))",
+                "dv:older(1)",
+                "older(10)",
+            ):
                 source = template % left
                 with self.subTest(source=source):
                     fragment = Miniscript.from_string(source)
@@ -340,10 +346,6 @@ class DescriptorTest(TestCase):
                 with self.subTest(source=source):
                     fragment = Miniscript.from_string(source)
                     fragment.verify()
-                    if left == "0":
-                        # These fragments have valid types but no satisfaction;
-                        # they are controls for bare verify(), not descriptors.
-                        continue
                     self.assertEqual(
                         Descriptor.from_string("wsh(%s)" % source).miniscript.compile(),
                         fragment.compile(),
