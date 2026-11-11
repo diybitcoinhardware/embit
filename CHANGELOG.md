@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
 - Validate the BIP32 seed length in `HDKey.from_seed()`, accepting 16 to 64 bytes
   and raising `HDError` for other lengths.
