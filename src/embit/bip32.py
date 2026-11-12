@@ -283,10 +283,17 @@ def detect_version(path, default="xprv", network=None) -> bytes:
 
 
 def _parse_der_item(e: str) -> int:
-    if e[-1] in {"h", "H", "'"}:
-        return int(e[:-1]) + HARDENED_INDEX
-    else:
-        return int(e)
+    if not e:
+        raise ValueError("Empty derivation index")
+    hardened = e[-1] in {"h", "H", "'"}
+    digits = e[:-1] if hardened else e
+    if not digits or any(c not in "0123456789" for c in digits):
+        raise ValueError("Invalid derivation index")
+    index = int(digits)
+    limit = HARDENED_INDEX if hardened else 2 * HARDENED_INDEX
+    if index >= limit:
+        raise ValueError("Derivation index out of range")
+    return index + HARDENED_INDEX if hardened else index
 
 
 def parse_path(path: str) -> list:
