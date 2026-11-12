@@ -372,6 +372,11 @@ class DescriptorTest(TestCase):
                 with self.subTest(source=source):
                     fragment = Miniscript.from_string(source)
                     fragment.verify()
+                    if left == "0":
+                        # Type-valid but unsatisfiable: Core rejects these as
+                        # descriptors. Until sanity checks (#144), only assert
+                        # verify(); pk() still covers descriptor parsing.
+                        continue
                     self.assertEqual(
                         Descriptor.from_string("wsh(%s)" % source).miniscript.compile(),
                         fragment.compile(),
