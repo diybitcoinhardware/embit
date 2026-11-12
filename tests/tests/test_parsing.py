@@ -5,15 +5,18 @@ from hashlib import sha256
 from io import BytesIO
 from unittest import TestCase
 
-from embit import compact
+from embit import compact, psbt as psbt_module
 from embit.base import EmbitError
 from embit.psbt import CompressMode, InputScope, PSBT, PSBTError
 from embit.psbtview import GlobalTransactionView, PSBTView
+from embit.liquid.pset import PSET
 from embit.liquid.psetview import GlobalLTransactionView
 from embit.liquid.transaction import (
     LTransaction,
     LTransactionInput,
     LTransactionOutput,
+    Proof,
+    TxInWitness,
 )
 from embit.script import Script, Witness
 from embit.transaction import (
@@ -109,8 +112,11 @@ class ParsingTest(TestCase):
         with self.assertRaises(RuntimeError):
             compact.read_from(BytesIO(b""))
         for prefix, width in ((253, 2), (254, 4), (255, 8)):
-            raw = bytes([prefix]) + b"\x01" + bytes(width - 1)
-            self.assertEqual(compact.from_bytes(raw), 1)  # Minimality is unchanged.
+            # non-minimal encodings are rejected like Bitcoin Core does
+            with self.assertRaises(ValueError):
+                compact.from_bytes(bytes([prefix]) + b"\x01" + bytes(width - 1))
+            raw = bytes([prefix]) + bytes(width - 1) + b"\x01"
+            self.assertEqual(compact.from_bytes(raw), 1 << (8 * (width - 1)))
             for count in range(width):
                 with self.assertRaises(RuntimeError):
                     compact.from_bytes(raw[: 1 + count])
@@ -250,12 +256,23 @@ class ParsingTest(TestCase):
         stream = TrackingStream(raw[:100])
         with self.assertRaises(PSBTError):
             _ = GlobalTransactionView(stream, 0, len(raw)).locktime
-        # Counts with extended encodings retain their actual offsets.
+        # Non-minimal counts are rejected rather than re-encoded to find offsets.
         raw = self.transaction().serialize()
-        extended = raw[:4] + b"\xfd\x01\x00" + raw[5:46] + b"\xfd\x01\x00" + raw[47:]
-        view = GlobalTransactionView(BytesIO(extended), 0, len(extended))
+        for extended in (
+            raw[:4] + b"\xfd\x01\x00" + raw[5:],
+            raw[:46] + b"\xfd\x01\x00" + raw[47:],
+        ):
+            with self.assertRaises(PSBTError):
+                _ = GlobalTransactionView(BytesIO(extended), 0, len(extended)).locktime
+        # Counts with extended encodings retain their actual offsets.
+        tx = self.transaction()
+        tx.vin = [TransactionInput(bytes(range(32)), i) for i in range(253)]
+        tx.vout = [TransactionOutput(i, Script(b"\x51")) for i in range(253)]
+        raw = tx.serialize()
+        view = GlobalTransactionView(BytesIO(raw), 0, len(raw))
         self.assertEqual(view.locktime, 0)
-        self.assertEqual(view.vout(0).value, 42)
+        self.assertEqual(view.vin(252).vout, 252)
+        self.assertEqual(view.vout(252).value, 252)
 
     def test_scope_reads_do_not_rescan_inputs(self):
         tx = self.transaction()
@@ -284,8 +301,7 @@ class ParsingTest(TestCase):
             self.assertTrue(stream.max_read <= 32)
             # Accessed fields still require complete reads after traversal.
             stream.short_at = view.vin0_offset
-            error = TransactionError if length is None else PSBTError
-            with self.assertRaises(error):
+            with self.assertRaises(PSBTError):
                 view.vin(0)
 
     def test_view_checks_unvisited_ranges_after_external_seek(self):
@@ -375,6 +391,41 @@ class ParsingTest(TestCase):
                 PSBT.parse(bytes(mutant))
             with self.assertRaises(PSBTError):
                 PSBTView.view(BytesIO(bytes(mutant)))
+
+    def test_nested_lengths_are_bounded_by_the_value(self):
+        # MicroPython allocates the requested size before reading, so a script
+        # or witness item length from corrupted bytes must be refused, never
+        # passed on to the stream holding the value.
+        huge = b"\xfe\xff\xff\xff\xff"
+        raw = self.transaction().serialize()
+        no_inputs = bytes(4) + b"\x00\x01" + bytes(8) + huge + bytes(4)
+        payloads = [self.global_psbt(no_inputs)]
+        for key, value in ((b"\x01", bytes(8) + huge), (b"\x08", b"\x01" + huge)):
+            payloads.append(
+                self.global_psbt(raw)[:-2]
+                + b"\x01"
+                + key
+                + compact.to_bytes(len(value))
+                + value
+                + b"\x00\x00"
+            )
+        streams = []
+
+        def tracked(data=b""):
+            streams.append(TrackingStream(data))
+            return streams[-1]
+
+        psbt_module.BytesIO = tracked
+        try:
+            for payload in payloads:
+                with self.assertRaises(PSBTError):
+                    PSBT.read_from(BytesIO(payload))
+        finally:
+            psbt_module.BytesIO = BytesIO
+        # the global transaction of every payload and the two input values
+        self.assertEqual(len(streams), len(payloads) + 2)
+        for stream in streams:
+            self.assertTrue(stream.max_read <= len(raw))
 
     def bit_flip_mutants(self, base):
         """Every single-bit flip, then fixed pseudo-random 2 and 3 bit flips."""
@@ -485,6 +536,61 @@ class ParsingTest(TestCase):
                     view = GlobalLTransactionView(BytesIO(raw), 0, len(raw))
                     with self.assertRaises(PSBTError):
                         access(view)
+
+    def liquid_transaction(self):
+        return LTransaction(
+            vin=[LTransactionInput(bytes(range(32)), 1)],
+            vout=[
+                LTransactionOutput(bytes([1]) + bytes(range(32)), 42, Script(b"\x51")),
+                LTransactionOutput(
+                    b"\x0a" + bytes(32),
+                    b"\x08" + bytes(32),
+                    Script(b"\x51"),
+                    b"\x02" + bytes(32),
+                ),
+            ],
+        )
+
+    def test_liquid_fixed_fields(self):
+        raw = self.liquid_transaction().serialize()
+        # Version, witness flag, input txid, output index, sequence, explicit
+        # asset, value and empty nonce, confidential asset, value and nonce,
+        # locktime.
+        fields = [(0, 4), (4, 1), (6, 32), (38, 4), (43, 4), (48, 33), (81, 9)]
+        fields += [(90, 1), (93, 33), (126, 33), (159, 33), (194, 4)]
+        for offset, width in fields:
+            for reader in (
+                LTransaction.read_from,
+                lambda s: LTransaction.read_from(s, segwit=False),
+                lambda s: LTransaction.read_vout(s, 0),
+            ):
+                with self.assertRaises(TransactionError):
+                    reader(SequentialStream(raw, offset))
+                for count in range(width):
+                    with self.assertRaises(TransactionError):
+                        reader(BytesIO(raw[: offset + count]))
+        # A cut locktime used to parse as a PSET with a different locktime.
+        payload = b"pset" + self.global_psbt(raw[:-1])[4:]
+        with self.assertRaises(PSBTError):
+            PSET.parse(payload)
+
+    def test_liquid_witness_flag(self):
+        tx = self.liquid_transaction()
+        raw = tx.serialize()
+        self.assertEqual(LTransaction.parse(raw, segwit=False).serialize(), raw)
+        for flag in (b"\x02", b"\xff"):
+            for reader in (
+                LTransaction.read_from,
+                lambda s: LTransaction.read_vout(s, 0),
+            ):
+                with self.assertRaises(TransactionError):
+                    reader(BytesIO(raw[:4] + flag + raw[5:]))
+        tx.vin[0].witness = TxInWitness(Proof(b"\x01"))
+        raw = tx.serialize()
+        self.assertEqual(LTransaction.parse(raw).serialize(), raw)
+        # BIP-174's unsigned transaction is serialized without witness data
+        with self.assertRaises(TransactionError):
+            LTransaction.parse(raw, segwit=False)
 
     def test_bounded_view_short_reads_and_output_length(self):
         raw = self.transaction().serialize()

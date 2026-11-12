@@ -4,6 +4,7 @@ from .. import compact
 from ..script import Script, Witness
 from .. import hashes
 from ..transaction import *
+from ..transaction import _read_exact
 from ..base import EmbitBase
 import hashlib
 
@@ -119,7 +120,7 @@ class Proof(EmbitBase):
     @classmethod
     def read_from(cls, stream):
         l = compact.read_from(stream)
-        data = stream.read(l)
+        data = _read_exact(stream, l)
         return cls(data)
 
 
@@ -255,11 +256,8 @@ class LTransaction(Transaction):
     def read_vout(cls, stream, idx):
         """Returns a tuple TransactionOutput, tx_hash without storing the whole tx in memory"""
         h = hashlib.sha256()
-        h.update(stream.read(4))
-        has_witness = False
-        flag = stream.read(1)
-        if flag == b"\x01":
-            has_witness = True
+        h.update(_read_exact(stream, 4))
+        has_witness = cls._read_witness_flag(stream)
         h.update(b"\x00")
         num_vin = compact.read_from(stream)
         h.update(compact.to_bytes(num_vin))
@@ -278,7 +276,7 @@ class LTransaction(Transaction):
             if idx == i:
                 res = vout
             h.update(vout.serialize())
-        h.update(stream.read(4))
+        h.update(_read_exact(stream, 4))
         if has_witness:
             for i in range(num_vin):
                 TxInWitness.read_from(stream)
@@ -286,12 +284,21 @@ class LTransaction(Transaction):
                 TxOutWitness.read_from(stream)
         return res, hashlib.sha256(h.digest()).digest()
 
+    @staticmethod
+    def _read_witness_flag(stream):
+        flag = _read_exact(stream, 1)
+        if flag not in (b"\x00", b"\x01"):
+            raise TransactionError("Invalid witness flag")
+        return flag == b"\x01"
+
     @classmethod
-    def read_from(cls, stream):
-        ver = int.from_bytes(stream.read(4), "little")
-        has_witness = False
-        if stream.read(1) == b"\x01":
-            has_witness = True
+    def read_from(cls, stream, segwit=True):
+        """segwit=False parses a transaction known to be serialized without
+        witness data (BIP-174's unsigned tx), so a set witness flag is an error."""
+        ver = int.from_bytes(_read_exact(stream, 4), "little")
+        has_witness = cls._read_witness_flag(stream)
+        if has_witness and not segwit:
+            raise TransactionError("Unexpected witness data")
         num_vin = compact.read_from(stream)
         vin = []
         for i in range(num_vin):
@@ -300,7 +307,7 @@ class LTransaction(Transaction):
         vout = []
         for i in range(num_vout):
             vout.append(LTransactionOutput.read_from(stream))
-        locktime = int.from_bytes(stream.read(4), "little")
+        locktime = int.from_bytes(_read_exact(stream, 4), "little")
         # something more
         if has_witness:
             for inp in vin:
@@ -461,10 +468,10 @@ class LTransactionInput(TransactionInput):
 
     @classmethod
     def read_from(cls, stream):
-        txid = bytes(reversed(stream.read(32)))
-        vout = int.from_bytes(stream.read(4), "little")
+        txid = bytes(reversed(_read_exact(stream, 32)))
+        vout = int.from_bytes(_read_exact(stream, 4), "little")
         script_sig = Script.read_from(stream)
-        sequence = int.from_bytes(stream.read(4), "little")
+        sequence = int.from_bytes(_read_exact(stream, 4), "little")
         is_pegin = False
         asset_issuance = None
         if vout != 0xFFFFFFFF:
@@ -539,16 +546,16 @@ class LTransactionOutput(TransactionOutput):
 
     @classmethod
     def read_from(cls, stream):
-        asset = stream.read(33)
+        asset = _read_exact(stream, 33)
         blinded = False
         ecdh_pubkey = None
-        c = stream.read(1)
+        c = _read_exact(stream, 1)
         if c != b"\x01":
-            value = c + stream.read(32)
+            value = c + _read_exact(stream, 32)
         else:
-            value = int.from_bytes(stream.read(8), "big")
-        c = stream.read(1)
+            value = int.from_bytes(_read_exact(stream, 8), "big")
+        c = _read_exact(stream, 1)
         if c != b"\x00":
-            ecdh_pubkey = c + stream.read(32)
+            ecdh_pubkey = c + _read_exact(stream, 32)
         script_pubkey = Script.read_from(stream)
         return cls(asset, value, script_pubkey, ecdh_pubkey)
