@@ -1,7 +1,7 @@
-from embit import script
-from embit import ec
+from binascii import hexlify, unhexlify
+
+from embit import ec, script
 from embit.networks import NETWORKS
-from binascii import unhexlify, hexlify
 
 
 def main():
