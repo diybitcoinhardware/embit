@@ -1,3 +1,4 @@
+from binascii import unhexlify
 from unittest import TestCase
 
 from embit.bip32 import HDKey, parse_path
@@ -48,6 +49,6 @@ class Bip32PathTest(TestCase):
                 parse_path(path)
 
     def test_derive_rejects_negative_hardened_index(self):
-        root = HDKey.from_seed(bytes.fromhex("000102030405060708090a0b0c0d0e0f"))
+        root = HDKey.from_seed(unhexlify("000102030405060708090a0b0c0d0e0f"))
         with self.assertRaises(ValueError):
             root.derive("m/-10h")
