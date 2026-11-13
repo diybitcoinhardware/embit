@@ -95,7 +95,13 @@ Run tests with desktop python:
 pytest
 ```
 
-Run tests with micropython:
+Run tests with micropython (builds MicroPython 1.11 with the `hashlib` and `secp256k1` modules on first run, needs `git`, `make`, `python3` and a C compiler):
+
+```sh
+tools/micropython_tests.sh
+```
+
+With your own build:
 
 ```sh
 cd tests
