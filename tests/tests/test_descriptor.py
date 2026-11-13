@@ -1,5 +1,5 @@
 from unittest import TestCase
-from binascii import hexlify
+from binascii import hexlify, unhexlify
 from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
 from embit.descriptor.miniscript import Miniscript, OPERATORS, WRAPPERS
@@ -287,6 +287,39 @@ class DescriptorTest(TestCase):
         # but are fine for legacy scripts
         for d in ["pkh(%s)", "sh(pk(%s))"]:
             Descriptor.from_string(d % U)
+
+    def test_tr_uncompressed_key(self):
+        U = (
+            "04c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee51ae"
+            "168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52a"
+        )
+        UWIF = "5HpjE2Hs7vjU4SN3YyPQCdhzCu92WoEeuE6PWNuiPyTu3ESGnzn"
+        C = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        X = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        # BIP 386: uncompressed keys are not allowed in tr()
+        for d in [
+            "tr(%s)" % U,
+            "tr(%s)" % UWIF,
+            "tr(%s,pk(%s))" % (C, U),
+            "tr(%s,multi_a(1,%s))" % (C, U),
+            "tr(%s,{pk(%s),pk(%s)})" % (C, C, U),
+            "tr(%s,{pk(%s),{pk(%s),multi_a(1,%s)}})" % (C, C, C, U),
+        ]:
+            self.assertRaises(DescriptorError, Descriptor.from_string, d)
+
+        # direct construction with uncompressed key must also fail
+        ukey = Key(ec.PublicKey.parse(unhexlify(U)))
+        self.assertRaises(DescriptorError, Descriptor, key=ukey, taproot=True)
+
+        # compressed and x-only keys are valid
+        for d in [
+            "tr(%s)" % C,
+            "tr(%s)" % X,
+            "tr(%s,pk(%s))" % (C, C),
+            "tr(%s,multi_a(1,%s))" % (C, C),
+            "tr(%s,{pk(%s),pk(%s)})" % (C, C, X),
+        ]:
+            Descriptor.from_string(d)
 
     def test_keys(self):
         keys = [
