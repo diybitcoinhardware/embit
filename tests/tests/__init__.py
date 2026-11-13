@@ -12,6 +12,7 @@ from .test_descriptor import *
 from .test_ecc import *
 from .test_finalizer import *
 from .test_liquid import *
+from .test_miniscript_compile import *
 from .test_parsing import ParsingTest as ParsingTest
 from .test_psbt import *
 from .test_psbt_versions import *
