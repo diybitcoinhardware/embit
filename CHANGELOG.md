@@ -93,6 +93,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tr()` accepted tapscript leaves that are not valid miniscript, such as
   `and_v(pk(A),1)`. A leaf is now type-checked and must be of type `B`, as a
   `wsh()` script is.
+- Reject incorrect or malformed descriptor checksum suffixes in
+  `Descriptor.from_string()` while continuing to accept descriptors without a checksum.
 
 ## [0.8.2] - 2026-08-08
 
