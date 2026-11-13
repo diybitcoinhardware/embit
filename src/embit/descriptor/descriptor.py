@@ -46,6 +46,8 @@ class Descriptor(DescriptorBase):
         # make sure all keys are either taproot or not
         for k in self.keys:
             k.taproot = taproot
+            if self.taproot and not getattr(k.key, "compressed", True):
+                raise DescriptorError("Uncompressed keys are not allowed in tr()")
 
     @property
     def script_len(self):
@@ -334,6 +336,9 @@ class Descriptor(DescriptorBase):
         if taproot:
             miniscript = None
             key = Key.read_from(s, taproot=True)
+            # BIP 386: tr() only accepts compressed or x-only public keys
+            if not getattr(key.key, "compressed", True):
+                raise DescriptorError("Uncompressed keys are not allowed in tr()")
             nbrackets = 1
             c = s.read(1)
             # TODO: should it be ok to pass just taptree without a key?
@@ -342,6 +347,11 @@ class Descriptor(DescriptorBase):
                 s.seek(-1, 1)
             else:
                 taptree = TapTree.read_from(s)
+                for k in taptree.keys:
+                    if not getattr(k.key, "compressed", True):
+                        raise DescriptorError(
+                            "Uncompressed keys are not allowed in tr()"
+                        )
         elif is_miniscript:
             miniscript = Miniscript.read_from(s)
             key = None
