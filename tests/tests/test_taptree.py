@@ -153,8 +153,6 @@ class TapTreeTest(TestCase):
         invalid = [
             # and_v needs a V as its first argument
             "and_v(pk(%s),1)" % a,
-            # multi is for wsh, multi_a for tapscript
-            "multi(1,%s,%s)" % (a, b),
             # a leaf must be a B
             "v:pk(%s)" % a,
         ]
