@@ -1,7 +1,9 @@
 from unittest import TestCase
 from embit.descriptor import Descriptor
 from embit.networks import NETWORKS
-from embit.descriptor.errors import MiniscriptError
+from embit.descriptor.errors import DescriptorError, MiniscriptError
+from embit.descriptor.miniscript import Miniscript
+from embit.descriptor.taptree import TapLeaf
 
 NETWORK = NETWORKS["test"]
 
@@ -144,3 +146,37 @@ class TapTreeTest(TestCase):
         Descriptor.from_string("wsh(sortedmulti(1,%s,%s,%s))" % keys)
         Descriptor.from_string("tr(%s,multi_a(1,%s,%s))" % keys)
         Descriptor.from_string("tr(%s,sortedmulti_a(1,%s,%s))" % keys)
+
+    def test_leaf_miniscript_is_type_checked(self):
+        """Tapscript leaves go through the same type rules as wsh scripts"""
+        root, a, b = PUBKEYS[:3]
+        invalid = [
+            # and_v needs a V as its first argument
+            "and_v(pk(%s),1)" % a,
+            # a leaf must be a B
+            "v:pk(%s)" % a,
+        ]
+        for leaf in invalid:
+            for tree in (leaf, "{%s,pk(%s)}" % (leaf, b), "{pk(%s),%s}" % (b, leaf)):
+                with self.assertRaises(DescriptorError):
+                    Descriptor.from_string("tr(%s,%s)" % (root, tree))
+        # a leaf that is not a B raises the same error as a wsh script
+        for desc in ("wsh(v:pk(%s))" % a, "tr(%s,v:pk(%s))" % (root, a)):
+            with self.assertRaises(DescriptorError) as exc:
+                Descriptor.from_string(desc)
+            self.assertIs(type(exc.exception), DescriptorError)
+        # a leaf built in code is checked too
+        with self.assertRaises(MiniscriptError):
+            TapLeaf(Miniscript.from_string("and_v(pk(%s),1)" % a, taproot=True))
+        TapLeaf(None)
+        valid = [
+            "pk(%s)" % a,
+            "multi_a(2,%s,%s)" % (a, b),
+            "and_v(v:pk(%s),older(10))" % a,
+            # d: is u in tapscript, so dv:older(10) is allowed as a condition
+            "andor(dv:older(10),pk(%s),pk(%s))" % (a, b),
+            "and_n(pk(%s),pk(%s))" % (a, b),
+        ]
+        for leaf in valid:
+            desc = Descriptor.from_string("tr(%s,%s)" % (root, leaf))
+            self.assertEqual(str(desc), "tr(%s,%s)" % (root, leaf))
