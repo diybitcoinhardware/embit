@@ -61,6 +61,17 @@ jobs:
       - name: Tests
         run: pytest
 
+  micropython:
+    name: Tests (MicroPython 1.11)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build MicroPython and run tests
+        run: tools/micropython_tests.sh
+
   package:
     name: Build and verify artifacts
     runs-on: ubuntu-latest
@@ -68,6 +79,7 @@ jobs:
       - actionlint
       - action-pin-policy
       - tests
+      - micropython
     permissions:
       contents: read
     steps:
