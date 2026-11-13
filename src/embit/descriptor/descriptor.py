@@ -46,6 +46,9 @@ class Descriptor(DescriptorBase):
         # make sure all keys are either taproot or not
         for k in self.keys:
             k.taproot = taproot
+            # BIP-386: uncompressed keys are not allowed in tr()
+            if self.taproot and not getattr(k.key, "compressed", True):
+                raise DescriptorError("Uncompressed keys are not allowed in tr()")
 
     @property
     def script_len(self):
