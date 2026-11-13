@@ -90,6 +90,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PSBTView.sign_with()` with a descriptor holding several private keys
   repeated an input's existing signatures in the signature stream, so
   `write_to()` failed with a duplicated key.
+- `tr()` accepted tapscript leaves that are not valid miniscript, such as
+  `and_v(pk(A),1)`. A leaf is now type-checked and must be of type `B`, as a
+  `wsh()` script is.
 
 ## [0.8.2] - 2026-08-08
 

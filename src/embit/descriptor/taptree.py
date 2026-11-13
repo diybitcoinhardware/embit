@@ -1,4 +1,4 @@
-from .errors import MiniscriptError
+from .errors import DescriptorError, MiniscriptError
 from .base import DescriptorBase
 from .miniscript import Miniscript
 from ..hashes import tagged_hash
@@ -7,6 +7,11 @@ from ..script import Script
 
 class TapLeaf(DescriptorBase):
     def __init__(self, miniscript=None, version=0xC0):
+        if miniscript is not None:
+            # will raise if can't verify
+            miniscript.verify()
+            if miniscript.type != "B":
+                raise DescriptorError("Top level miniscript should be 'B'")
         self.miniscript = miniscript
         self.version = version
 
