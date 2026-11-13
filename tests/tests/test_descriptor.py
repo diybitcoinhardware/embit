@@ -251,9 +251,11 @@ class DescriptorTest(TestCase):
     def test_sh_script_size(self):
         """A P2SH redeem script is limited to 520 bytes, as in Bitcoin Core"""
         secrets = [(i + 1).to_bytes(32, "big") for i in range(16)]
-        compressed = [ec.PrivateKey(k).get_public_key().sec().hex() for k in secrets]
+        compressed = [
+            hexlify(ec.PrivateKey(k).get_public_key().sec()).decode() for k in secrets
+        ]
         uncompressed = [
-            ec.PrivateKey(k, compressed=False).get_public_key().sec().hex()
+            hexlify(ec.PrivateKey(k, compressed=False).get_public_key().sec()).decode()
             for k in secrets
         ]
         # 15 compressed keys: 513 bytes, 16: 547 bytes
@@ -266,17 +268,16 @@ class DescriptorTest(TestCase):
                 (uncompressed[:8], False),
             ):
                 d = "%s(2,%s)" % (name, ",".join(keys))
-                with self.subTest(name=name, nkeys=len(keys), key=keys[0][:2]):
-                    if ok:
-                        desc = Descriptor.from_string("sh(%s)" % d)
-                        self.assertLessEqual(len(desc.redeem_script().data), 520)
-                    else:
-                        with self.assertRaises(DescriptorError):
-                            Descriptor.from_string("sh(%s)" % d)
-                    if keys[0][:2] != "04":
-                        # the limit is for the redeem script, not the witness script
-                        Descriptor.from_string("wsh(%s)" % d)
-                        Descriptor.from_string("sh(wsh(%s))" % d)
+                if ok:
+                    desc = Descriptor.from_string("sh(%s)" % d)
+                    self.assertTrue(len(desc.redeem_script().data) <= 520)
+                else:
+                    with self.assertRaises(DescriptorError):
+                        Descriptor.from_string("sh(%s)" % d)
+                if keys[0][:2] != "04":
+                    # the limit is for the redeem script, not the witness script
+                    Descriptor.from_string("wsh(%s)" % d)
+                    Descriptor.from_string("sh(wsh(%s))" % d)
 
     def test_keys(self):
         keys = [
