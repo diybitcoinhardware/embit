@@ -158,15 +158,13 @@ class TapTreeTest(TestCase):
         ]
         for leaf in invalid:
             for tree in (leaf, "{%s,pk(%s)}" % (leaf, b), "{pk(%s),%s}" % (b, leaf)):
-                with self.subTest(tree=tree):
-                    with self.assertRaises(DescriptorError):
-                        Descriptor.from_string("tr(%s,%s)" % (root, tree))
+                with self.assertRaises(DescriptorError):
+                    Descriptor.from_string("tr(%s,%s)" % (root, tree))
         # a leaf that is not a B raises the same error as a wsh script
         for desc in ("wsh(v:pk(%s))" % a, "tr(%s,v:pk(%s))" % (root, a)):
-            with self.subTest(desc=desc):
-                with self.assertRaises(DescriptorError) as exc:
-                    Descriptor.from_string(desc)
-                self.assertIs(type(exc.exception), DescriptorError)
+            with self.assertRaises(DescriptorError) as exc:
+                Descriptor.from_string(desc)
+            self.assertIs(type(exc.exception), DescriptorError)
         # a leaf built in code is checked too
         with self.assertRaises(MiniscriptError):
             TapLeaf(Miniscript.from_string("and_v(pk(%s),1)" % a, taproot=True))
@@ -180,6 +178,5 @@ class TapTreeTest(TestCase):
             "and_n(pk(%s),pk(%s))" % (a, b),
         ]
         for leaf in valid:
-            with self.subTest(leaf=leaf):
-                desc = Descriptor.from_string("tr(%s,%s)" % (root, leaf))
-                self.assertEqual(str(desc), "tr(%s,%s)" % (root, leaf))
+            desc = Descriptor.from_string("tr(%s,%s)" % (root, leaf))
+            self.assertEqual(str(desc), "tr(%s,%s)" % (root, leaf))
