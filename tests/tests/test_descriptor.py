@@ -248,6 +248,37 @@ class DescriptorTest(TestCase):
         with self.assertRaises(DescriptorError):
             Descriptor.from_string(d)
 
+    def test_sh_script_size(self):
+        """A P2SH redeem script is limited to 520 bytes, as in Bitcoin Core"""
+        secrets = [(i + 1).to_bytes(32, "big") for i in range(16)]
+        compressed = [
+            hexlify(ec.PrivateKey(k).get_public_key().sec()).decode() for k in secrets
+        ]
+        uncompressed = [
+            hexlify(ec.PrivateKey(k, compressed=False).get_public_key().sec()).decode()
+            for k in secrets
+        ]
+        # 15 compressed keys: 513 bytes, 16: 547 bytes
+        # 7 uncompressed keys: 465 bytes, 8: 531 bytes
+        for name in ("multi", "sortedmulti"):
+            for keys, ok in (
+                (compressed[:15], True),
+                (compressed[:16], False),
+                (uncompressed[:7], True),
+                (uncompressed[:8], False),
+            ):
+                d = "%s(2,%s)" % (name, ",".join(keys))
+                if ok:
+                    desc = Descriptor.from_string("sh(%s)" % d)
+                    self.assertTrue(len(desc.redeem_script().data) <= 520)
+                else:
+                    with self.assertRaises(DescriptorError):
+                        Descriptor.from_string("sh(%s)" % d)
+                if keys[0][:2] != "04":
+                    # the limit is for the redeem script, not the witness script
+                    Descriptor.from_string("wsh(%s)" % d)
+                    Descriptor.from_string("sh(wsh(%s))" % d)
+
     def test_keys(self):
         keys = [
             "[f45912ab/44h/12/32h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA",

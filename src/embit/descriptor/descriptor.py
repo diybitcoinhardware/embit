@@ -7,6 +7,9 @@ from .miniscript import Miniscript, Multi, Sortedmulti
 from .arguments import Key
 from .taptree import TapTree
 
+# a P2SH redeem script is pushed in the scriptSig, where a push is limited
+MAX_P2SH_SCRIPT_SIZE = 520
+
 
 class Descriptor(DescriptorBase):
     def __init__(
@@ -36,6 +39,13 @@ class Descriptor(DescriptorBase):
             branches = {k.num_branches for k in miniscript.keys}
             if len(branches) > 1:
                 raise DescriptorError("All branches should have the same length")
+            if sh and not wsh:
+                size = len(miniscript.compile())
+                if size > MAX_P2SH_SCRIPT_SIZE:
+                    raise DescriptorError(
+                        "P2SH script is too large, %d bytes is larger than %d bytes"
+                        % (size, MAX_P2SH_SCRIPT_SIZE)
+                    )
         self.sh = sh
         self.wsh = wsh
         self.key = key
