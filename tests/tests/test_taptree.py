@@ -1,7 +1,7 @@
 from unittest import TestCase
 from embit.descriptor import Descriptor
 from embit.networks import NETWORKS
-from embit.descriptor.errors import MiniscriptError
+from embit.descriptor.errors import DescriptorError, MiniscriptError
 from embit.descriptor.miniscript import Miniscript
 from embit.descriptor.taptree import TapLeaf
 
@@ -161,8 +161,14 @@ class TapTreeTest(TestCase):
         for leaf in invalid:
             for tree in (leaf, "{%s,pk(%s)}" % (leaf, b), "{pk(%s),%s}" % (b, leaf)):
                 with self.subTest(tree=tree):
-                    with self.assertRaises(MiniscriptError):
+                    with self.assertRaises(DescriptorError):
                         Descriptor.from_string("tr(%s,%s)" % (root, tree))
+        # a leaf that is not a B raises the same error as a wsh script
+        for desc in ("wsh(v:pk(%s))" % a, "tr(%s,v:pk(%s))" % (root, a)):
+            with self.subTest(desc=desc):
+                with self.assertRaises(DescriptorError) as exc:
+                    Descriptor.from_string(desc)
+                self.assertIs(type(exc.exception), DescriptorError)
         # a leaf built in code is checked too
         with self.assertRaises(MiniscriptError):
             TapLeaf(Miniscript.from_string("and_v(pk(%s),1)" % a, taproot=True))
