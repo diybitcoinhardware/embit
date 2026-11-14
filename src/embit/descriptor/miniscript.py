@@ -71,7 +71,8 @@ class Miniscript(DescriptorBase):
             wrappers, op = op.split(":")
         # handle boolean literals: 0 or 1
         if op in ("0", "1"):
-            miniscript = JustOne() if op == "1" else JustZero()
+            literal = JustOne if op == "1" else JustZero
+            miniscript = literal(taproot=taproot)
             return wrapped(miniscript)
         if char != b"(":
             raise MiniscriptError("Missing operator")
@@ -130,7 +131,7 @@ class Miniscript(DescriptorBase):
 
 class JustZero(Miniscript):
     TYPE = "B"
-    PROPS = "zud"
+    PROPS = "zuds"
 
     def inner_compile(self):
         return Number(0).compile()
@@ -168,7 +169,7 @@ class PkK(OneArg):
     NAME = "pk_k"
     ARGCLS = Key
     TYPE = "K"
-    PROPS = "ondu"
+    PROPS = "ondus"
 
     def inner_compile(self):
         return self.carg
@@ -182,7 +183,7 @@ class PkH(OneArg):
     NAME = "pk_h"
     ARGCLS = KeyHash
     TYPE = "K"
-    PROPS = "ndu"
+    PROPS = "ndus"
 
     def inner_compile(self):
         return b"\x76\xa9" + self.carg + b"\x88"
@@ -285,7 +286,7 @@ class AndOr(Miniscript):
 
     @property
     def properties(self):
-        # props: z=zXzYzZ; o=zXoYoZ or oXzYzZ; u=uYuZ; d=dZ
+        # props: z=zXzYzZ; o=zXoYoZ or oXzYzZ; u=uYuZ; d=dZ; s=sZ(sX or sY)
         props = ""
         px, py, pz = [arg.properties for arg in self.args]
         if "z" in px and "z" in py and "z" in pz:
@@ -298,6 +299,8 @@ class AndOr(Miniscript):
             props += "u"
         if "d" in pz:
             props += "d"
+        if "s" in pz and ("s" in px or "s" in py):
+            props += "s"
         return props
 
     def inner_compile(self):
@@ -341,7 +344,7 @@ class AndV(Miniscript):
 
     @property
     def properties(self):
-        # z=zXzY; o=zXoY or zYoX; n=nX or zXnY; u=uY
+        # z=zXzY; o=zXoY or zYoX; n=nX or zXnY; u=uY; s=sX or sY
         px, py = [arg.properties for arg in self.args]
         props = ""
         if "z" in px and "z" in py:
@@ -352,6 +355,8 @@ class AndV(Miniscript):
             props += "n"
         if "u" in py:
             props += "u"
+        if "s" in px or "s" in py:
+            props += "s"
         return props
 
 
@@ -378,7 +383,7 @@ class AndB(Miniscript):
 
     @property
     def properties(self):
-        # z=zXzY; o=zXoY or zYoX; n=nX or zXnY; d=dXdY; u
+        # z=zXzY; o=zXoY or zYoX; n=nX or zXnY; d=dXdY; u; s=sX or sY
         px, py = [arg.properties for arg in self.args]
         props = ""
         if "z" in px and "z" in py:
@@ -390,6 +395,8 @@ class AndB(Miniscript):
         if "d" in px and "d" in py:
             props += "d"
         props += "u"
+        if "s" in px or "s" in py:
+            props += "s"
         return props
 
 
@@ -431,10 +438,10 @@ class AndN(Miniscript):
 
     @property
     def properties(self):
-        # props: z=zXzYzZ; o=zXoYoZ or oXzYzZ; u=uYuZ; d=dZ
+        # props: z=zXzYzZ; o=zXoYoZ or oXzYzZ; u=uYuZ; d=dZ; s=sZ(sX or sY)
         props = ""
         px, py = [arg.properties for arg in self.args]
-        pz = "zud"
+        pz = "zuds"
         if "z" in px and "z" in py and "z" in pz:
             props += "z"
         if ("z" in px and "o" in py and "o" in pz) or (
@@ -445,6 +452,8 @@ class AndN(Miniscript):
             props += "u"
         if "d" in pz:
             props += "d"
+        if "s" in pz and ("s" in px or "s" in py):
+            props += "s"
         return props
 
 
@@ -475,7 +484,7 @@ class OrB(Miniscript):
 
     @property
     def properties(self):
-        # z=zXzZ; o=zXoZ or zZoX; d; u
+        # z=zXzZ; o=zXoZ or zZoX; d; u; s=sXsZ
         props = ""
         px, pz = [arg.properties for arg in self.args]
         if "z" in px and "z" in pz:
@@ -483,6 +492,8 @@ class OrB(Miniscript):
         if ("z" in px and "o" in pz) or ("z" in pz and "o" in px):
             props += "o"
         props += "du"
+        if "s" in px and "s" in pz:
+            props += "s"
         return props
 
 
@@ -512,13 +523,15 @@ class OrC(Miniscript):
 
     @property
     def properties(self):
-        # z=zXzZ; o=oXzZ
+        # z=zXzZ; o=oXzZ; s=sXsZ
         props = ""
         px, pz = [arg.properties for arg in self.args]
         if "z" in px and "z" in pz:
             props += "z"
         if "o" in px and "z" in pz:
             props += "o"
+        if "s" in px and "s" in pz:
+            props += "s"
         return props
 
 
@@ -548,7 +561,7 @@ class OrD(Miniscript):
 
     @property
     def properties(self):
-        # z=zXzZ; o=oXzZ; d=dZ; u=uZ
+        # z=zXzZ; o=oXzZ; d=dZ; u=uZ; s=sXsZ
         props = ""
         px, pz = [arg.properties for arg in self.args]
         if "z" in px and "z" in pz:
@@ -559,6 +572,8 @@ class OrD(Miniscript):
             props += "d"
         if "u" in pz:
             props += "u"
+        if "s" in px and "s" in pz:
+            props += "s"
         return props
 
 
@@ -594,7 +609,7 @@ class OrI(Miniscript):
 
     @property
     def properties(self):
-        # o=zXzZ; u=uXuZ; d=dX or dZ
+        # o=zXzZ; u=uXuZ; d=dX or dZ; s=sXsZ
         props = ""
         px, pz = [arg.properties for arg in self.args]
         if "z" in px and "z" in pz:
@@ -603,6 +618,8 @@ class OrI(Miniscript):
             props += "u"
         if "d" in px or "d" in pz:
             props += "d"
+        if "s" in px and "s" in pz:
+            props += "s"
         return props
 
 
@@ -646,7 +663,7 @@ class Thresh(Miniscript):
 
     @property
     def properties(self):
-        # z=all are z; o=all are z except one is o; d; u
+        # z=all are z; o=all are z except one is o; d; u; s=at least n-k+1 are s
         props = ""
         parr = [arg.properties for arg in self.args[1:]]
         zarr = ["z" for p in parr if "z" in p]
@@ -656,6 +673,8 @@ class Thresh(Miniscript):
         if len(noz) == 1 and "o" in noz[0]:
             props += "o"
         props += "du"
+        if len([p for p in parr if "s" in p]) >= len(parr) - self.args[0].num + 1:
+            props += "s"
         return props
 
 
@@ -665,7 +684,7 @@ class Multi(Miniscript):
     NARGS = None
     ARGCLS = (Number, Key)
     TYPE = "B"
-    PROPS = "ndu"
+    PROPS = "ndus"
     _expected_taproot = False
 
     def __init__(self, *args, **kwargs):
@@ -744,7 +763,7 @@ class Pk(OneArg):
     NAME = "pk"
     ARGCLS = Key
     TYPE = "B"
-    PROPS = "ondu"
+    PROPS = "ondus"
 
     def inner_compile(self):
         return self.carg + b"\xac"
@@ -758,7 +777,7 @@ class Pkh(OneArg):
     NAME = "pkh"
     ARGCLS = KeyHash
     TYPE = "B"
-    PROPS = "ndu"
+    PROPS = "ndus"
 
     def inner_compile(self):
         return b"\x76\xa9" + self.carg + b"\x88\xac"
@@ -835,6 +854,8 @@ class A(Wrapper):
             props += "d"
         if "u" in px:
             props += "u"
+        if "s" in px:
+            props += "s"
         return props
 
 
@@ -863,6 +884,8 @@ class S(Wrapper):
             props += "d"
         if "u" in px:
             props += "u"
+        if "s" in px:
+            props += "s"
         return props
 
 
@@ -888,7 +911,7 @@ class C(Wrapper):
         for p in ["o", "n", "d"]:
             if p in px:
                 props += p
-        props += "u"
+        props += "us"
         return props
 
 
@@ -921,6 +944,8 @@ class T(Wrapper):
             props += "n"
         if "u" in py:
             props += "u"
+        if "s" in px:
+            props += "s"
         return props
 
 
@@ -951,6 +976,8 @@ class D(Wrapper):
         px = self.arg.properties
         if "z" in px:
             props += "o"
+        if "s" in px:
+            props += "s"
         return props
 
 
@@ -973,7 +1000,7 @@ class V(Wrapper):
     def properties(self):
         props = ""
         px = self.arg.properties
-        for p in ["z", "o", "n"]:
+        for p in ["z", "o", "n", "s"]:
             if p in px:
                 props += p
         return props
@@ -997,7 +1024,7 @@ class J(Wrapper):
     def properties(self):
         props = "nd"
         px = self.arg.properties
-        for p in ["o", "u"]:
+        for p in ["o", "u", "s"]:
             if p in px:
                 props += p
         return props
@@ -1022,7 +1049,7 @@ class N(Wrapper):
     def properties(self):
         props = "u"
         px = self.arg.properties
-        for p in ["z", "o", "n", "d"]:
+        for p in ["z", "o", "n", "d", "s"]:
             if p in px:
                 props += p
         return props
@@ -1046,13 +1073,15 @@ class L(Wrapper):
 
     @property
     def properties(self):
-        # o=zXzZ; u=uXuZ; d=dX or dZ
+        # o=zXzZ; u=uXuZ; d=dX or dZ; s=sXsZ
         props = "d"
         pz = self.arg.properties
         if "z" in pz:
             props += "o"
         if "u" in pz:
             props += "u"
+        if "s" in pz:
+            props += "s"
         return props
 
 

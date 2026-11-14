@@ -180,3 +180,62 @@ class TapTreeTest(TestCase):
         for leaf in valid:
             desc = Descriptor.from_string("tr(%s,%s)" % (root, leaf))
             self.assertEqual(str(desc), "tr(%s,%s)" % (root, leaf))
+
+    def test_leaf_needs_signature(self):
+        """A leaf some witness satisfies without a signature is rejected, as in Core"""
+        root, a, b = PUBKEYS[:3]
+        h = "00" * 32
+        invalid = [
+            "1",
+            "older(10)",
+            "sha256(%s)" % h,
+            "or_d(pk(%s),older(10))" % a,
+            "or_i(pk(%s),sha256(%s))" % (a, h),
+            "andor(pk(%s),older(10),sha256(%s))" % (a, h),
+            "thresh(1,pk(%s),sln:older(10))" % a,
+        ]
+        for leaf in invalid:
+            for tree in (leaf, "{%s,pk(%s)}" % (leaf, b)):
+                with self.assertRaises(DescriptorError):
+                    Descriptor.from_string("tr(%s,%s)" % (root, tree))
+        valid = [
+            "and_v(v:pk(%s),older(10))" % a,
+            "andor(pk(%s),older(10),pk(%s))" % (a, b),
+            "or_d(pk(%s),and_v(v:pk(%s),older(10)))" % (a, b),
+            "thresh(2,pk(%s),s:pk(%s),sln:older(10))" % (a, b),
+        ]
+        for leaf in valid:
+            Descriptor.from_string("tr(%s,%s)" % (root, leaf))
+
+    def test_leaf_keys_are_distinct(self):
+        """A leaf that repeats a key is rejected, as in Core"""
+        root, a, b = PUBKEYS[:3]
+        xpub = TPUBS[0]
+        invalid = [
+            "and_v(v:pk(%s),pk(%s))" % (a, a),
+            "and_v(v:pk(%s),multi_a(1,%s,%s))" % (a, b, a),
+            # Core compares keys at index 0 of their first branch
+            "and_v(v:pk(%s/<0;1>/*),pk(%s/0/*))" % (xpub, xpub),
+        ]
+        for leaf in invalid:
+            with self.assertRaises(DescriptorError):
+                Descriptor.from_string("tr(%s,%s)" % (root, leaf))
+        valid = [
+            "and_v(v:pk(%s/0/*),pk(%s/1/*))" % (xpub, xpub),
+            # a key may repeat across leaves and in the internal key
+            "{pk(%s),pk(%s)}" % (a, a),
+            "pk(%s)" % root,
+            # Core parses a whole-leaf multi_a() apart and does not check it
+            "multi_a(1,%s,%s)" % (a, a),
+        ]
+        for leaf in valid:
+            Descriptor.from_string("tr(%s,%s)" % (root, leaf))
+
+    def test_leaf_needs_taproot_miniscript(self):
+        """A leaf built in code must use tapscript rules"""
+        a, b = PUBKEYS[:2]
+        for ms in ("multi(1,%s,%s)" % (a, b), "pk(%s)" % a):
+            with self.assertRaises(DescriptorError):
+                TapLeaf(Miniscript.from_string(ms))
+        TapLeaf(Miniscript.from_string("pk(%s)" % a, taproot=True))
+        self.assertTrue(Miniscript.from_string("1", taproot=True).taproot)
