@@ -12,34 +12,36 @@ from embit import ec
 class DescriptorTest(TestCase):
     def test_legacy_multisig_key_limit(self):
         keys = [
-            ec.PrivateKey(i.to_bytes(32, "big")).get_public_key().sec().hex()
+            hexlify(
+                ec.PrivateKey(i.to_bytes(32, "big")).get_public_key().sec()
+            ).decode()
             for i in range(1, 22)
         ]
         for operator in ("multi", "sortedmulti"):
-            with self.subTest(operator=operator):
-                valid = "%s(2,%s)" % (operator, ",".join(keys[:20]))
-                miniscript = Miniscript.from_string(valid)
-                miniscript.verify()
-                self.assertEqual(miniscript.compile()[-1:], b"\xae")
+            valid = "%s(2,%s)" % (operator, ",".join(keys[:20]))
+            miniscript = Miniscript.from_string(valid)
+            miniscript.verify()
+            self.assertEqual(miniscript.compile()[-1:], b"\xae")
 
-                invalid = "%s(2,%s)" % (operator, ",".join(keys))
-                with self.assertRaises(MiniscriptError):
-                    Miniscript.from_string(invalid).verify()
-                with self.assertRaises(MiniscriptError):
-                    Descriptor.from_string("wsh(%s)" % invalid)
+            invalid = "%s(2,%s)" % (operator, ",".join(keys))
+            with self.assertRaises(MiniscriptError):
+                Miniscript.from_string(invalid).verify()
+            with self.assertRaises(MiniscriptError):
+                Descriptor.from_string("wsh(%s)" % invalid)
 
     def test_taproot_multisig_can_exceed_twenty_keys(self):
         keys = [
-            ec.PrivateKey(i.to_bytes(32, "big")).get_public_key().xonly().hex()
+            hexlify(
+                ec.PrivateKey(i.to_bytes(32, "big")).get_public_key().xonly()
+            ).decode()
             for i in range(1, 22)
         ]
         for operator in ("multi_a", "sortedmulti_a"):
-            with self.subTest(operator=operator):
-                miniscript = Miniscript.from_string(
-                    "%s(2,%s)" % (operator, ",".join(keys)), taproot=True
-                )
-                miniscript.verify()
-                self.assertEqual(miniscript.compile()[-1:], b"\x9c")
+            miniscript = Miniscript.from_string(
+                "%s(2,%s)" % (operator, ",".join(keys)), taproot=True
+            )
+            miniscript.verify()
+            self.assertEqual(miniscript.compile()[-1:], b"\x9c")
 
     def test_desc_checksum(self):
         """Tests descriptor checksums"""
@@ -253,7 +255,6 @@ class DescriptorTest(TestCase):
 
         for d in keys:
             Descriptor.from_string(d)
-
 
         # invalid
         keys = [
