@@ -276,7 +276,7 @@ class AndOr(Miniscript):
         if self.args[0].type != "B":
             raise MiniscriptError("andor: X should be 'B'")
         px = self.args[0].properties
-        if "d" not in px and "u" not in px:
+        if "d" not in px or "u" not in px:
             raise MiniscriptError("andor: X should be 'du'")
         if self.args[1].type != self.args[2].type:
             raise MiniscriptError("andor: Y and Z should have the same types")
@@ -424,7 +424,7 @@ class AndN(Miniscript):
         if self.args[0].type != "B":
             raise MiniscriptError("and_n: X should be 'B'")
         px = self.args[0].properties
-        if "d" not in px and "u" not in px:
+        if "d" not in px or "u" not in px:
             raise MiniscriptError("and_n: X should be 'du'")
         if self.args[1].type != "B":
             raise MiniscriptError("and_n: Y should be B")

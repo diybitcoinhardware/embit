@@ -2,7 +2,7 @@ from unittest import TestCase
 from binascii import hexlify
 from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
-from embit.descriptor.miniscript import OPERATORS, WRAPPERS
+from embit.descriptor.miniscript import Miniscript, OPERATORS, WRAPPERS
 from embit.descriptor.errors import MiniscriptError
 from embit.descriptor.checksum import add_checksum, DescriptorError
 from embit.networks import NETWORKS
@@ -249,7 +249,6 @@ class DescriptorTest(TestCase):
         for d in keys:
             Descriptor.from_string(d)
 
-
         # invalid
         keys = [
             # # LIANA_MINISCRIPT_DESCRIPTOR
@@ -350,6 +349,36 @@ class DescriptorTest(TestCase):
         ]
         for desc in invalid_descs:
             self.assertRaises(MiniscriptError, Descriptor.from_string, desc)
+
+    def test_andor_requires_dissatisfiable_unit_left_child(self):
+        key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        for template in ("andor(%s,1,0)", "and_n(%s,1)"):
+            for left in (
+                "1",
+                "or_i(1,1)",
+                "or_i(0,older(10))",
+                "dv:older(1)",
+                "older(10)",
+            ):
+                source = template % left
+                fragment = Miniscript.from_string(source)
+                with self.assertRaises(MiniscriptError):
+                    fragment.verify()
+                with self.assertRaises(MiniscriptError):
+                    Descriptor.from_string("wsh(%s)" % source)
+            for left in ("0", "pk(%s)" % key):
+                source = template % left
+                fragment = Miniscript.from_string(source)
+                fragment.verify()
+                if left == "0":
+                    # Type-valid but unsatisfiable: Core rejects these as
+                    # descriptors. Until sanity checks (#144), only assert
+                    # verify(); pk() still covers descriptor parsing.
+                    continue
+                self.assertEqual(
+                    Descriptor.from_string("wsh(%s)" % source).miniscript.compile(),
+                    fragment.compile(),
+                )
 
     def test_len(self):
         """Checks that len(miniscript) returns correct length"""
