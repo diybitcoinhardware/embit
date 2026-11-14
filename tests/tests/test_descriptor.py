@@ -335,26 +335,24 @@ class DescriptorTest(TestCase):
                 "older(10)",
             ):
                 source = template % left
-                with self.subTest(source=source):
-                    fragment = Miniscript.from_string(source)
-                    with self.assertRaises(MiniscriptError):
-                        fragment.verify()
-                    with self.assertRaises(MiniscriptError):
-                        Descriptor.from_string("wsh(%s)" % source)
+                fragment = Miniscript.from_string(source)
+                with self.assertRaises(MiniscriptError):
+                    fragment.verify()
+                with self.assertRaises(MiniscriptError):
+                    Descriptor.from_string("wsh(%s)" % source)
             for left in ("0", "pk(%s)" % key):
                 source = template % left
-                with self.subTest(source=source):
-                    fragment = Miniscript.from_string(source)
-                    fragment.verify()
-                    if left == "0":
-                        # Type-valid but unsatisfiable: Core rejects these as
-                        # descriptors. Until sanity checks (#144), only assert
-                        # verify(); pk() still covers descriptor parsing.
-                        continue
-                    self.assertEqual(
-                        Descriptor.from_string("wsh(%s)" % source).miniscript.compile(),
-                        fragment.compile(),
-                    )
+                fragment = Miniscript.from_string(source)
+                fragment.verify()
+                if left == "0":
+                    # Type-valid but unsatisfiable: Core rejects these as
+                    # descriptors. Until sanity checks (#144), only assert
+                    # verify(); pk() still covers descriptor parsing.
+                    continue
+                self.assertEqual(
+                    Descriptor.from_string("wsh(%s)" % source).miniscript.compile(),
+                    fragment.compile(),
+                )
 
     def test_len(self):
         """Checks that len(miniscript) returns correct length"""
