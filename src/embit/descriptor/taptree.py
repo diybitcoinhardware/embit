@@ -1,12 +1,30 @@
-from .errors import MiniscriptError
+from .errors import DescriptorError, MiniscriptError
 from .base import DescriptorBase
-from .miniscript import Miniscript
+from .miniscript import Miniscript, Multi
 from ..hashes import tagged_hash
 from ..script import Script
 
 
+def _key_id(key):
+    # Bitcoin Core compares keys at index 0 of their first branch
+    if key.can_derive:
+        key = key.derive(0)
+    pub = key.get_public_key()
+    # pkh() also takes a bare hash
+    return pub if isinstance(pub, str) else pub.sec()
+
+
 class TapLeaf(DescriptorBase):
     def __init__(self, miniscript=None, version=0xC0):
+        if miniscript is not None:
+            if not miniscript.taproot:
+                raise DescriptorError("Tapscript leaf should use taproot miniscript")
+            # will raise if can't verify
+            miniscript.verify()
+            if miniscript.type != "B":
+                raise DescriptorError("Top level miniscript should be 'B'")
+            if "s" not in miniscript.properties:
+                raise DescriptorError("Tapscript leaf is spendable without a signature")
         self.miniscript = miniscript
         self.version = version
 
@@ -16,7 +34,15 @@ class TapLeaf(DescriptorBase):
     @classmethod
     def read_from(cls, s):
         ms = Miniscript.read_from(s, taproot=True)
-        return cls(ms)
+        leaf = cls(ms)
+        # Only when parsing, as in Core: keys that differ at index 0 can be
+        # equal at another index. Core parses a whole-leaf multi_a() apart,
+        # without this check.
+        if not isinstance(ms, Multi):
+            ids = [_key_id(k) for k in ms.keys]
+            if len(set(ids)) != len(ids):
+                raise DescriptorError("Tapscript leaf has duplicate keys")
+        return leaf
 
     def serialize(self):
         if self.miniscript is None:
