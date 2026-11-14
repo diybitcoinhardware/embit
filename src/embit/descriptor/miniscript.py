@@ -687,6 +687,8 @@ class Multi(Miniscript):
 
     def verify(self):
         super().verify()
+        if not self.taproot and len(self.args) - 1 > 20:
+            raise MiniscriptError("%s: at most 20 public keys are allowed" % self.NAME)
         if self.args[0].num < 1 or self.args[0].num > (len(self.args) - 1):
             raise MiniscriptError(
                 "multi: 1 <= k <= %d, got %d" % ((len(self.args) - 1), self.args[0].num)
