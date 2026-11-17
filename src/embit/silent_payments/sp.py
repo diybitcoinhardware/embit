@@ -250,6 +250,29 @@ def _p2sh_redeem_script(inp, i):
     return redeem
 
 
+def _single_key_hash(inp, script, i):
+    """HASH160(pubkey) of a non-taproot input's one key, or None when it is
+    not a single-key input.
+
+    A segwit v0 or legacy signature commits to the script it signs - the
+    witness script, else the redeem script, else the scriptPubKey, as in
+    PSBT.sighash() - and not to the scriptPubKey. Both have to name the same
+    key. Otherwise we sign for one key while a_sum holds another (or none),
+    and the recipient, who reads the key from the witness, never finds the
+    payment.
+    """
+    if script.script_type() == "p2sh":
+        _p2sh_redeem_script(inp, i)
+    pkh = pubkey_hash_from_script(script, inp.redeem_script)
+    signed = inp.witness_script or inp.redeem_script or script
+    if pubkey_hash_from_script(signed) != pkh:
+        raise SPValidationError(
+            "Input {} declares a redeem or witness script whose key does not "
+            "match its scriptPubKey".format(i)
+        )
+    return pkh
+
+
 def _proves_nums_commitment(inp, script):
     """Whether this P2TR input provably commits to H as its internal key.
 
@@ -283,13 +306,10 @@ def get_eligible_inputs(inputs):
             raise SPValidationError(
                 "Input {} has no UTXO; cannot determine SP eligibility".format(i)
             )
-        stype = script.script_type()
-        if stype in ("p2pkh", "p2wpkh"):
-            eligible.append(i)
-        elif stype == "p2sh":
-            if _p2sh_redeem_script(inp, i).script_type() == "p2wpkh":
+        if script.script_type() != "p2tr":
+            if _single_key_hash(inp, script, i) is not None:
                 eligible.append(i)
-        elif stype == "p2tr":
+        else:
             # BIP-352: "For each taproot output spent the sending wallet MUST
             # have access to the private key corresponding to the taproot
             # output key, unless H is used as the internal public key." H is

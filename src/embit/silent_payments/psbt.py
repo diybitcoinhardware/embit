@@ -388,6 +388,26 @@ class SilentPaymentsPSBT(PSBT):
         # BIP-375: "If any input is spending an output with script using
         # Segwit version > 1, the Signer must fail."
         for i, inp in enumerate(self.inputs):
+            # Eligibility is read from the UTXO, and PSBTInput.utxo prefers
+            # witness_utxo, which nothing authenticates. A host lying there
+            # drops the input from the BIP-352 input set. Bind both copies to
+            # the txid-verified previous tx whenever it is present. A compressed
+            # parse keeps only its hash (_txhash) and the spent output (_utxo).
+            prev = inp.non_witness_utxo
+            if prev is not None or inp._txhash is not None:
+                try:
+                    ok = inp.verify() and (prev is None or inp.vout < len(prev.vout))
+                except PSBTError:
+                    ok = False
+                if not ok:
+                    raise SPValidationError(
+                        "Input %d non_witness_utxo does not match its prevout" % i
+                    )
+                spent = inp._utxo or prev.vout[inp.vout]
+                if inp.witness_utxo is not None and inp.witness_utxo != spent:
+                    raise SPValidationError(
+                        "Input %d witness_utxo disagrees with non_witness_utxo" % i
+                    )
             script = inp.script_pubkey
             if script is None:
                 raise SPValidationError(

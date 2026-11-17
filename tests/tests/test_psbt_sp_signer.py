@@ -38,7 +38,7 @@ from embit.silent_payments import (
     SilentPaymentData,
     get_eligible_inputs,
 )
-from embit.script import Script, p2sh, p2wpkh, p2tr
+from embit.script import Script, p2pkh, p2sh, p2wpkh, p2wsh, p2tr
 from embit.transaction import Transaction, TransactionInput, TransactionOutput
 from binascii import unhexlify
 
@@ -493,6 +493,87 @@ class TestInputEligibility(unittest.TestCase):
 
         with self.assertRaises(SPValidationError):
             psbt.sign_with(root)
+
+
+class TestPrevoutConsistency(unittest.TestCase):
+    """Eligibility is read from the UTXO, so a host that lies in
+    PSBT_IN_WITNESS_UTXO can drop an input from the BIP-352 input set and make
+    the signer derive an output the recipient never finds."""
+
+    FAKE = Script(b"\x00\x20" + bytes(32))  # P2WSH: ineligible
+
+    def _psbt(self):
+        root = _root()
+        scan_pub, spend_pub = _sp_keys(
+            TestInputEligibility.SCAN_HEX, TestInputEligibility.SPEND_HEX
+        )
+        psbt = PSBT.create_v2()
+        for i, value in enumerate([100_000, 50_000]):
+            pub = root.derive([0, i]).get_public_key()
+            prev = Transaction(
+                vin=[TransactionInput(bytes([0xA0 + i] * 32), 0)],
+                vout=[TransactionOutput(value=value, script_pubkey=p2wpkh(pub))],
+            )
+            inp = InputScope()
+            inp.txid = prev.txid()
+            inp.vout = 0
+            inp.sequence = 0xFFFFFFFD
+            inp.non_witness_utxo = prev
+            inp.witness_utxo = prev.vout[0]
+            inp.bip32_derivations[pub] = DerivationPath(root.my_fingerprint, [0, i])
+            psbt.add_input(inp)
+        out = OutputScope()
+        out.value = 145_000
+        out.sp_data = SilentPaymentData(scan_pub, spend_pub)
+        psbt.add_output(out)
+        return root, psbt
+
+    def test_witness_utxo_disagreeing_with_prev_tx_is_refused(self):
+        root, honest = self._psbt()
+        self.assertEqual(honest.sign_with(root), 2)
+
+        root, psbt = self._psbt()
+        psbt.inputs[0].witness_utxo = TransactionOutput(100_000, self.FAKE)
+        with self.assertRaises(SPValidationError):
+            psbt.sign_with(root)
+        self.assertIsNone(psbt.outputs[0].script_pubkey)
+
+    def test_forged_prev_tx_backing_the_lie_is_refused(self):
+        """A host can forge the previous tx to agree with the lie, so the
+        cross-check only counts once the tx hashes to the input's txid."""
+        root, psbt = self._psbt()
+        forged = psbt.inputs[0].non_witness_utxo
+        forged.vout[0] = TransactionOutput(100_000, self.FAKE)
+        psbt.inputs[0].witness_utxo = forged.vout[0]
+        with self.assertRaises(SPValidationError):
+            psbt.sign_with(root)
+
+    def test_lie_without_prev_tx_is_refused(self):
+        """The host decides whether the previous tx is sent at all, so dropping
+        it must not bring the lie back. A witness script for our own key makes
+        the signature valid for the real P2WPKH coin: BIP-143 commits to the
+        script we sign and the amount, not to the scriptPubKey."""
+        root, psbt = self._psbt()
+        inp = psbt.inputs[0]
+        inp.non_witness_utxo = None
+        inp.witness_script = p2pkh(root.derive([0, 0]).get_public_key())
+        inp.witness_utxo = TransactionOutput(100_000, p2wsh(inp.witness_script))
+        psbt = PSBT.parse(psbt.serialize())
+        with self.assertRaises(SPValidationError):
+            psbt.sign_with(root)
+        self.assertEqual(len(psbt.inputs[0].partial_sigs), 0)
+        self.assertIsNone(psbt.outputs[0].script_pubkey)
+
+    def test_forged_prev_tx_in_compressed_parse_is_refused(self):
+        """A compressed parse keeps only the hash of the previous tx."""
+        root, psbt = self._psbt()
+        psbt.inputs[0].witness_utxo = None
+        psbt.inputs[0].non_witness_utxo.vout[0] = TransactionOutput(100_000, self.FAKE)
+        psbt = PSBT.parse(psbt.serialize(), compress=CompressMode.CLEAR_ALL)
+        self.assertIsNone(psbt.inputs[0].non_witness_utxo)
+        with self.assertRaises(SPValidationError):
+            psbt.sign_with(root)
+        self.assertEqual(len(psbt.inputs[1].partial_sigs), 0)
 
 
 class TestSignerBIP375Constraints(unittest.TestCase):
