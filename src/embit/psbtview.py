@@ -13,8 +13,10 @@ where SD card MCU can trick you to sign a wrong transactions.
 
 Makes sense to run gc.collect() after processing of each scope to free memory.
 """
+
 # TODO: refactor, a lot of code is duplicated here from transaction.py
 from collections import OrderedDict
+from binascii import hexlify
 import hashlib
 from . import compact
 from . import ec
@@ -26,12 +28,16 @@ from .psbt import (
     CompressMode,
     InputScope,
     OutputScope,
+    LOCKTIME_THRESHOLD,
+    choose_locktime,
+    derive_hdkey,
+    next_tx_modifiable,
     read_string,
+    resolve_signing_root,
     ser_string,
     skip_string,
     _GLOBAL_COUNT_FIELDS,
     _GLOBAL_FIXED_VALUE_LENGTHS,
-    _GLOBAL_V2_FIELDS,
     _validate_global_fields,
     _validate_global_key,
 )
@@ -259,6 +265,7 @@ class PSBTView:
         tx_offset=None,
         compress=CompressMode.KEEP_ALL,
         tx_length=None,
+        global_kvs=None,
     ):
         if version != 2 and tx_offset is None:
             raise PSBTError("Global tx is not found, but PSBT version is %d" % version)
@@ -275,7 +282,35 @@ class PSBTView:
         self.compress = compress
         self._tx_version = self.tx.version if self.tx else None
         self._locktime = self.tx.locktime if self.tx else None
+        # For PSBTv2: dict of all global key→value pairs (excluding the \x00 global tx).
+        # This is the single source of truth for every global field, including
+        # PSBT_GLOBAL_TX_MODIFIABLE (\x06). A value is either bytes or, for keys
+        # this class doesn't interpret, an (offset, length) pair into the stream.
+        # None for PSBTv0 where the global scope is streamed verbatim.
+        self._global_kvs = global_kvs
         self.clear_cache()
+
+    @property
+    def tx_modifiable_flags(self):
+        """PSBT_GLOBAL_TX_MODIFIABLE byte (PSBTv2 only). None when absent or for PSBTv0."""
+        if self._global_kvs is None:
+            return None
+        v = self._global_kvs.get(b"\x06")
+        if v is None:
+            return None
+        if len(v) != 1:
+            raise PSBTError("Invalid PSBT_GLOBAL_TX_MODIFIABLE length")
+        return int.from_bytes(v, "little")
+
+    @tx_modifiable_flags.setter
+    def tx_modifiable_flags(self, value):
+        """Setting to None removes the field; ignored for PSBTv0."""
+        if self._global_kvs is None:
+            return
+        if value is None:
+            self._global_kvs.pop(b"\x06", None)
+        else:
+            self._global_kvs[b"\x06"] = bytes([value])
 
     def clear_cache(self):
         # cache for digests
@@ -302,7 +337,12 @@ class PSBTView:
         num_outputs = None
         tx_offset = None
         tx_len = None
-        global_fields = {}
+        # Fixed-size global fields (version, counts, ...) are read into this dict.
+        # Anything else (xpubs, proprietary, ...) is only skipped here: PSBTv0
+        # streams its global scope verbatim, so per-key state would grow with
+        # untrusted input for nothing. PSBTv2 gets those keys back in a second
+        # pass below.
+        global_kvs = {}
         while True:
             # read key and update cursor
             key = read_string(stream)
@@ -311,28 +351,13 @@ class PSBTView:
             if len(key) == 0:
                 break
             _validate_global_key(key)
-            if key == b"\xfb" or key in _GLOBAL_V2_FIELDS:
-                value, value_size = _read_global_value(stream, key)
-                cur += value_size
-                if key == b"\xfb":
-                    if version is not None:
-                        raise PSBTError("Duplicated global version")
-                    if len(value) != 4:
-                        raise PSBTError("Global version must be 4 bytes")
-                    version = int.from_bytes(value, "little")
-                    if version not in [0, 2]:
-                        raise PSBTError("Unsupported PSBT version %d" % version)
-                else:
-                    if key in global_fields:
-                        raise PSBTError("Duplicated global field")
-                    global_fields[key] = value
-            elif key == b"\x00":
-                # we found global transaction
+            if key == b"\x00":
+                # we found global transaction; defer version==2 check until after the loop
+                # so that PSBT_GLOBAL_UNSIGNED_TX is rejected even when it appears before
+                # PSBT_GLOBAL_VERSION (key order is not guaranteed).
                 if tx_offset is not None:
-                    raise PSBTError("Duplicated global transaction")
-                if version == 2:
-                    raise PSBTError("Global transaction with version 2 PSBT")
-                if b"\x04" in global_fields or b"\x05" in global_fields:
+                    raise PSBTError("Duplicate global transaction")
+                if b"\x04" in global_kvs or b"\x05" in global_kvs:
                     raise PSBTError("Invalid global transaction")
                 tx_len = compact.read_from(stream)
                 cur += len(compact.to_bytes(tx_len))
@@ -343,19 +368,55 @@ class PSBTView:
                 # seek to the end of transaction
                 stream.seek(tx_offset + tx_len)
                 cur += tx_len
+            elif key in _GLOBAL_FIXED_VALUE_LENGTHS or key in _GLOBAL_COUNT_FIELDS:
+                if key in global_kvs:
+                    raise PSBTError("Duplicate global key: %s" % hexlify(key).decode())
+                value, value_size = _read_global_value(stream, key)
+                cur += value_size
+                global_kvs[key] = value
+                if key == b"\xfb":
+                    version = int.from_bytes(value, "little")
             else:
                 cur += skip_string(stream)
         first_scope = cur
-        # the check inside the loop only fires if 0xfb was seen before 0x00,
-        # so repeat it here to stay independent of the global map key order
+        if version not in (None, 0, 2):
+            raise PSBTError("Unsupported PSBT_GLOBAL_VERSION value: %d" % version)
+        if version == 0:
+            version = None
+        # PSBTv2 must not have a global unsigned transaction, regardless of key order
         if tx_offset is not None and version == 2:
             raise PSBTError("Global transaction with version 2 PSBT")
-        _validate_global_fields(version, tx_offset is not None, global_fields)
+        # Canonical-encoding, fixed-length, and required-field checks for every
+        # global key, shared with PSBT.read_from's two-pass parse.
+        _validate_global_fields(version, tx_offset is not None, global_kvs)
         if tx_offset is None:
-            num_inputs = compact.from_bytes(global_fields[b"\x04"])
-            num_outputs = compact.from_bytes(global_fields[b"\x05"])
+            num_inputs = compact.from_bytes(global_kvs[b"\x04"])
+            num_outputs = compact.from_bytes(global_kvs[b"\x05"])
         if None in [version or tx_offset, num_inputs, num_outputs]:
             raise PSBTError("Missing something important in PSBT")
+        if version == 2:
+            # PSBTv2 rebuilds its global scope on write, so now (and only now)
+            # we need the keys skipped above. Their values stay in the stream,
+            # only (offset, length) is kept: a huge unknown global costs a tuple.
+            pos = offset + len(cls.MAGIC)
+            stream.seek(pos)
+            while True:
+                key = read_string(stream)
+                pos += len(key) + len(compact.to_bytes(len(key)))
+                if len(key) == 0:
+                    break
+                value_len = compact.read_from(stream)
+                pos += len(compact.to_bytes(value_len))
+                if key not in _GLOBAL_FIXED_VALUE_LENGTHS and (
+                    key not in _GLOBAL_COUNT_FIELDS
+                ):
+                    if key in global_kvs:
+                        raise PSBTError(
+                            "Duplicate global key: %s" % hexlify(key).decode()
+                        )
+                    global_kvs[key] = (pos, value_len)
+                stream.seek(value_len, 1)
+                pos += value_len
         return cls(
             stream,
             num_inputs,
@@ -366,6 +427,7 @@ class PSBTView:
             tx_offset,
             compress,
             tx_len,
+            global_kvs=global_kvs if version == 2 else None,
         )
 
     def _skip_scope(self):
@@ -380,6 +442,20 @@ class PSBTView:
             # not separator - skip value as well
             off += skip_string(self.stream)
         return off
+
+    def _scan_scope_values(self, keys):
+        """Reads the scope at the current cursor and returns {key: value} for the
+        requested (exact-match) keys. Leaves the cursor at the next scope."""
+        found = {}
+        while True:
+            key = read_string(self.stream)
+            # separator - end of scope
+            if len(key) == 0:
+                return found
+            if key in keys and key not in found:
+                found[key] = read_string(self.stream)
+            else:
+                skip_string(self.stream)
 
     def seek_to_scope(self, n):
         """
@@ -437,14 +513,30 @@ class PSBTView:
 
         self.seek_to_scope(i)
         v = self.get_value(b"\x0e", from_current=True)
+        if v is None:
+            raise PSBTError(
+                "PSBTv2 input %d missing required PSBT_IN_PREVIOUS_TXID (0x0e)" % i
+            )
+        if len(v) != 32:
+            raise PSBTError("PSBT_IN_PREVIOUS_TXID must be 32 bytes")
         txid = bytes(reversed(v))
 
         self.seek_to_scope(i)
         v = self.get_value(b"\x0f", from_current=True)
+        if v is None:
+            raise PSBTError(
+                "PSBTv2 input %d missing required PSBT_IN_OUTPUT_INDEX (0x0f)" % i
+            )
+        if len(v) != 4:
+            raise PSBTError("PSBT_IN_OUTPUT_INDEX must be 4 bytes")
         vout = int.from_bytes(v, "little")
 
         self.seek_to_scope(i)
-        v = self.get_value(b"\x10", from_current=True) or b"\xFF\xFF\xFF\xFF"
+        v = self.get_value(b"\x10", from_current=True)
+        if v is None:
+            v = b"\xff\xff\xff\xff"
+        elif len(v) != 4:
+            raise PSBTError("PSBT_IN_SEQUENCE must be 4 bytes")
         sequence = int.from_bytes(v, "little")
 
         return TransactionInput(txid, vout, sequence=sequence)
@@ -458,10 +550,23 @@ class PSBTView:
 
         self.seek_to_scope(self.num_inputs + i)
         v = self.get_value(b"\x03", from_current=True)
+        if v is None:
+            raise PSBTError(
+                "PSBTv2 output %d missing required PSBT_OUT_AMOUNT (0x03)" % i
+            )
+        if len(v) != 8:
+            raise PSBTError("PSBT_OUT_AMOUNT must be 8 bytes")
+        # BIP370: PSBT_OUT_AMOUNT is a signed int64, so the top half is negative
         value = int.from_bytes(v, "little")
+        if value >= 2**63:
+            raise PSBTError("PSBT_OUT_AMOUNT must be non-negative")
 
         self.seek_to_scope(self.num_inputs + i)
         v = self.get_value(b"\x04", from_current=True)
+        if v is None:
+            raise PSBTError(
+                "PSBTv2 output %d missing required PSBT_OUT_SCRIPT (0x04)" % i
+            )
         script_pubkey = Script(v)
 
         return TransactionOutput(value, script_pubkey)
@@ -469,15 +574,81 @@ class PSBTView:
     @property
     def locktime(self):
         if self._locktime is None:
-            v = self.get_value(b"\x03")
-            self._locktime = int.from_bytes(v, "little") if v is not None else 0
+            if self.version == 2:
+                self._locktime = self._determine_locktime_v2()
+            else:
+                v = self.get_value(b"\x03")
+                self._locktime = int.from_bytes(v, "little") if v is not None else 0
         return self._locktime
+
+    def _determine_locktime_v2(self):
+        """BIP370 locktime determination for PSBTv2.
+
+        Derives the transaction locktime from per-input required locktime fields.
+        Falls back to PSBT_GLOBAL_FALLBACK_LOCKTIME (or 0) when no input imposes
+        a requirement.
+        """
+        v = self.get_value(b"\x03")
+        if v is not None:
+            if len(v) != 4:
+                raise PSBTError("PSBT_GLOBAL_FALLBACK_LOCKTIME must be 4 bytes")
+            fallback = int.from_bytes(v, "little")
+        else:
+            fallback = 0
+
+        height_locktimes = []
+        time_locktimes = []
+        inputs_with_requirements = 0
+
+        # One sequential pass: _scan_scope_values() stops on the scope separator,
+        # which is where the next scope begins, so no O(n^2) re-seeking per input.
+        self.seek_to_scope(0)
+        for _ in range(self.num_inputs):
+            found = self._scan_scope_values((b"\x11", b"\x12"))
+            v_height = found.get(b"\x12")
+            v_time = found.get(b"\x11")
+
+            has_requirement = False
+            if v_height is not None:
+                if len(v_height) != 4:
+                    raise PSBTError("PSBT_IN_REQUIRED_HEIGHT_LOCKTIME must be 4 bytes")
+                height_locktime = int.from_bytes(v_height, "little")
+                if height_locktime == 0 or height_locktime >= LOCKTIME_THRESHOLD:
+                    raise PSBTError(
+                        "Height-based locktime must be > 0 and < %d"
+                        % LOCKTIME_THRESHOLD
+                    )
+                height_locktimes.append(height_locktime)
+                has_requirement = True
+            if v_time is not None:
+                if len(v_time) != 4:
+                    raise PSBTError("PSBT_IN_REQUIRED_TIME_LOCKTIME must be 4 bytes")
+                time_locktime = int.from_bytes(v_time, "little")
+                if time_locktime < LOCKTIME_THRESHOLD:
+                    raise PSBTError(
+                        "Time-based locktime must be >= %d" % LOCKTIME_THRESHOLD
+                    )
+                time_locktimes.append(time_locktime)
+                has_requirement = True
+            if has_requirement:
+                inputs_with_requirements += 1
+
+        return choose_locktime(
+            height_locktimes, time_locktimes, inputs_with_requirements, fallback
+        )
 
     @property
     def tx_version(self):
         if self._tx_version is None:
             v = self.get_value(b"\x02")
-            self._tx_version = int.from_bytes(v, "little") if v is not None else 0
+            if v is None:
+                if self.version == 2:
+                    raise PSBTError("Missing PSBT_GLOBAL_TX_VERSION in PSBTv2")
+                self._tx_version = 0
+            else:
+                if len(v) != 4:
+                    raise PSBTError("Invalid PSBT_GLOBAL_TX_VERSION length")
+                self._tx_version = int.from_bytes(v, "little")
         return self._tx_version
 
     def seek_to_value(self, key_start, from_current=False):
@@ -789,6 +960,13 @@ class PSBTView:
             counter += 1
         return counter
 
+    def _update_tx_modifiable(self, inp_sighash: int) -> None:
+        if self.version != 2:
+            return
+        self.tx_modifiable_flags = next_tx_modifiable(
+            self.tx_modifiable_flags, inp_sighash
+        )
+
     def sign_input(
         self, i, root, sig_stream, sighash=SIGHASH.DEFAULT, extra_scope_data=None
     ) -> int:
@@ -803,19 +981,9 @@ class PSBTView:
         if i < 0 or i >= self.num_inputs:
             raise PSBTError("Invalid input number")
 
-        # if WIF - fingerprint is None
-        fingerprint = None
-        # if descriptor key
-        if hasattr(root, "origin"):
-            if not root.is_private:  # pubkey can't sign
-                return 0
-            if root.is_extended:  # use fingerprint only for HDKey
-                fingerprint = root.fingerprint
-            else:
-                root = root.key  # WIF key
-        # if HDKey
-        if not fingerprint and hasattr(root, "my_fingerprint"):
-            fingerprint = root.my_fingerprint
+        fingerprint, can_sign, root = resolve_signing_root(root)
+        if not can_sign:
+            return 0
 
         rootpub = root.get_public_key()
         sec = rootpub.sec()
@@ -852,7 +1020,7 @@ class PSBTView:
         if fingerprint:
             # if taproot derivations are present add them
             for pub in inp.taproot_bip32_derivations:
-                (_leafs, derivation) = inp.taproot_bip32_derivations[pub]
+                _leafs, derivation = inp.taproot_bip32_derivations[pub]
                 if derivation.fingerprint == fingerprint:
                     # Add only if not already present
                     if (pub, derivation) not in bip32_derivations:
@@ -868,17 +1036,10 @@ class PSBTView:
         # get derived keys for signing
         derived_keypairs = OrderedDict()  # (prv, pub)
         for pub, derivation in bip32_derivations:
-            der = derivation.derivation
-            # descriptor key has origin derivation that we take into account
-            if hasattr(root, "origin"):
-                if root.origin:
-                    if root.origin.derivation != der[: len(root.origin.derivation)]:
-                        # derivation doesn't match - go to next input
-                        continue
-                    der = der[len(root.origin.derivation) :]
-                hdkey = root.key.derive(der)
-            else:
-                hdkey = root.derive(der)
+            hdkey = derive_hdkey(root, derivation)
+            if hdkey is None:
+                # derivation doesn't match - go to next candidate
+                continue
 
             if hdkey.xonly() != pub.xonly():
                 raise PSBTError("Derivation path doesn't look right")
@@ -912,6 +1073,8 @@ class PSBTView:
             for pub, leaf in inp.taproot_sigs:
                 ser_string(sig_stream, b"\x14" + pub.xonly() + leaf)
                 ser_string(sig_stream, inp.taproot_sigs[(pub, leaf)])
+            if counter > 0:
+                self._update_tx_modifiable(inp_sighash)
             return counter
 
         h = self.sighash(i, sighash=inp_sighash, input_scope=inp)
@@ -923,11 +1086,13 @@ class PSBTView:
             # sig plus sighash flag
             inp.partial_sigs[rootpub] = sig.serialize() + bytes([inp_sighash])
             counter += 1
+            self._update_tx_modifiable(inp_sighash)
         for prv, pub in derived_keypairs:
             sig = prv.sign(h)
             # sig plus sighash flag
             inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
             counter += 1
+            self._update_tx_modifiable(inp_sighash)
         for pub in inp.partial_sigs:
             ser_string(sig_stream, b"\x02" + pub.serialize())
             ser_string(sig_stream, inp.partial_sigs[pub])
@@ -978,15 +1143,39 @@ class PSBTView:
             compress = self.compress
 
         # first we write global scope
-        self.stream.seek(self.offset)
-        res = read_write(self.stream, writable_stream, self.first_scope - self.offset)
+        if self._global_kvs is not None:
+            # PSBTv2: reconstruct global scope from the materialised key-value dict.
+            # This sidesteps byte-level injection and gives deterministic key ordering.
+            writable_stream.write(self.MAGIC)
+            res = len(self.MAGIC)
+            for k in sorted(self._global_kvs.keys()):
+                res += ser_string(writable_stream, k)
+                v = self._global_kvs[k]
+                if isinstance(v, tuple):
+                    # value not in RAM: copy it over from the source stream
+                    v_off, v_len = v
+                    self.stream.seek(v_off)
+                    res += writable_stream.write(compact.to_bytes(v_len))
+                    if read_write(self.stream, writable_stream, v_len) != v_len:
+                        raise PSBTError("Failed to read %d bytes" % v_len)
+                    res += v_len
+                else:
+                    res += ser_string(writable_stream, v)
+            writable_stream.write(b"\x00")  # global scope separator
+            res += 1
+        else:
+            # PSBTv0: stream global scope directly from source (includes global tx).
+            self.stream.seek(self.offset)
+            res = read_write(
+                self.stream, writable_stream, self.first_scope - self.offset
+            )
 
         # write all inputs
         for i in range(self.num_inputs):
             inp = self.input(i)
             # add extra data from extra input streams
             for s in extra_input_streams:
-                extra = InputScope.read_from(s)
+                extra = InputScope.read_from(s, version=self.version)
                 inp.update(extra)
             if compress:
                 inp.clear_metadata(compress=compress)
@@ -997,7 +1186,7 @@ class PSBTView:
             out = self.output(i)
             # add extra data from extra input streams
             for s in extra_output_streams:
-                extra = OutputScope.read_from(s)
+                extra = OutputScope.read_from(s, version=self.version)
                 out.update(extra)
             if compress:
                 out.clear_metadata(compress=compress)

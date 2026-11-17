@@ -253,6 +253,19 @@ class PrivateKey(EmbitKey):
         # just to unify the API
         return cls(stream.read(32))
 
+    def sp_spend_tweak(self, tweak: bytes):
+        """BIP-352/376: tweak a private key for SP spend: sk' = sk + tweak."""
+        if len(tweak) != 32 or not secp256k1.ec_seckey_verify(tweak):
+            raise EmbitError("Invalid silent payment tweak")
+        sec = secp256k1.ec_privkey_add(self._secret, tweak)
+        return PrivateKey(sec)
+
+    def even_y(self):
+        """Return a copy of this key with even Y coordinate (negate if odd)."""
+        if self.sec()[0] == 0x03:
+            return PrivateKey(secp256k1.ec_privkey_negate(self._secret))
+        return self
+
     @property
     def is_private(self) -> bool:
         return True

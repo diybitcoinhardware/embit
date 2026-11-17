@@ -225,12 +225,15 @@ class MuSigKey(DescriptorBase):
 
 def musig_combine_privs(privs, sort=True):
     keys = [
-        [b"" + prv, secp256k1.ec_pubkey_serialize(secp256k1.ec_pubkey_create(prv))]
+        [
+            bytearray(prv),
+            secp256k1.ec_pubkey_serialize(secp256k1.ec_pubkey_create(prv)),
+        ]
         for prv in privs
     ]
     for karr in keys:
         if karr[1][0] == 0x03:
-            secp256k1.ec_privkey_negate(karr[0])
+            karr[0] = bytearray(secp256k1.ec_privkey_negate(karr[0]))
         # x only
         karr[1] = karr[1][1:]
     if sort:
@@ -238,7 +241,7 @@ def musig_combine_privs(privs, sort=True):
     secs = [k[1] for k in keys]
     ll = sha256(b"".join(secs))
     coefs = [
-        tagged_hash("MuSig coefficient", ll + i.to_bytes(4, "little"))
+        bytearray(tagged_hash("MuSig coefficient", ll + i.to_bytes(4, "little")))
         for i in range(len(keys))
     ]
     # tweak them all
@@ -249,15 +252,15 @@ def musig_combine_privs(privs, sort=True):
         s = secp256k1.ec_privkey_add(s, c)
     pub = secp256k1.ec_pubkey_create(s)
     if secp256k1.ec_pubkey_serialize(pub)[0] == 0x03:
-        secp256k1.ec_privkey_negate(s)
+        s = secp256k1.ec_privkey_negate(s)
     return s
 
 
 def musig_combine_pubs(pubs, sort=True):
-    keys = [[pub, secp256k1.ec_pubkey_serialize(pub)] for pub in pubs]
+    keys = [[bytearray(pub), secp256k1.ec_pubkey_serialize(pub)] for pub in pubs]
     for karr in keys:
         if karr[1][0] == 0x03:
-            secp256k1.ec_pubkey_negate(karr[0])
+            karr[0] = bytearray(secp256k1.ec_pubkey_negate(karr[0]))
         # x only
         karr[1] = karr[1][1:]
     if sort:
