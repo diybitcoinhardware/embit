@@ -1,3 +1,4 @@
+from binascii import unhexlify
 from io import BytesIO
 from unittest import TestCase
 
@@ -102,6 +103,36 @@ class PSBTVersionTest(TestCase):
             view = PSBTView.view(BytesIO(invalid))
             with self.assertRaises(PSBTError):
                 getattr(view, scope)(0)
+
+    def test_taproot_fields_reject_malformed_keys(self):
+        # BIP 371: no key data for these types, and a 32-byte merkle root
+        raw = psbt_v0()
+        xonly = unhexlify(
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        )
+        invalid = [
+            (b"\x17\x01", xonly, -2, "input"),
+            (b"\x18\x01", bytes(32), -2, "input"),
+            (b"\x18", bytes(31), -2, "input"),
+            (b"\x18", bytes(33), -2, "input"),
+            (b"\x05\x01", xonly, -1, "output"),
+        ]
+        for key, value, offset, scope in invalid:
+            data = raw[:offset] + key_value(key, value) + raw[offset:]
+            with self.assertRaises(PSBTError):
+                PSBT.parse(data)
+            view = PSBTView.view(BytesIO(data))
+            with self.assertRaises(PSBTError):
+                getattr(view, scope)(0)
+
+        valid = [
+            (b"\x17", xonly, -2),
+            (b"\x18", bytes(32), -2),
+            (b"\x05", xonly, -1),
+        ]
+        for key, value, offset in valid:
+            data = raw[:offset] + key_value(key, value) + raw[offset:]
+            self.assertEqual(PSBT.parse(data).serialize(), data)
 
     def assertRejected(self, raw):
         with self.assertRaises(PSBTError):

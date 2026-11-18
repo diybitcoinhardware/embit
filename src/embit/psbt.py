@@ -742,10 +742,16 @@ class InputScope(PSBTScope):
 
         # PSBT_IN_TAP_INTERNAL_KEY
         elif k[0] == 0x17:
+            if len(k) != 1:
+                raise PSBTError("Invalid taproot internal key key")
             self.taproot_internal_key = ec.PublicKey.from_xonly(v)
 
         # PSBT_IN_TAP_MERKLE_ROOT
         elif k[0] == 0x18:
+            if len(k) != 1:
+                raise PSBTError("Invalid taproot merkle root key")
+            if len(v) != 32:
+                raise PSBTError("Invalid taproot merkle root length")
             self.taproot_merkle_root = v
 
         else:
@@ -1010,6 +1016,8 @@ class OutputScope(PSBTScope):
 
         # PSBT_OUT_TAP_INTERNAL_KEY
         elif k[0] == 0x05:
+            if len(k) != 1:
+                raise PSBTError("Invalid taproot internal key key")
             self.taproot_internal_key = ec.PublicKey.from_xonly(v)
 
         # PSBT_OUT_TAP_BIP32_DERIVATION
