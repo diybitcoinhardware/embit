@@ -1,12 +1,33 @@
 from unittest import TestCase
-from binascii import hexlify
+from binascii import hexlify, unhexlify
 from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
 from embit.descriptor.miniscript import Miniscript, OPERATORS, WRAPPERS
 from embit.descriptor.errors import MiniscriptError
 from embit.descriptor.checksum import add_checksum, DescriptorError
 from embit.networks import NETWORKS
-from embit import ec
+from embit import bip32, ec
+from embit.psbt import OutputScope, DerivationPath
+
+
+def _account(seed_byte, path):
+    root = bip32.HDKey.from_seed(
+        bytes([seed_byte] * 32), version=NETWORKS["test"]["xprv"]
+    )
+    xpub = root.derive(path).to_public()
+    return "[%s%s]%s" % (hexlify(root.my_fingerprint).decode(), path[1:], xpub)
+
+
+def _scope(desc, idx, branch_index=0):
+    derived = desc.derive(idx, branch_index=branch_index)
+    scope = OutputScope()
+    scope.script_pubkey = derived.script_pubkey()
+    scope.redeem_script = derived.redeem_script()
+    scope.witness_script = derived.witness_script()
+    for k in derived.keys:
+        der = DerivationPath(k.origin.fingerprint, k.origin.derivation)
+        scope.bip32_derivations[k.get_public_key()] = der
+    return scope
 
 
 class DescriptorTest(TestCase):
@@ -410,47 +431,97 @@ class DescriptorTest(TestCase):
             w = wr(o)
             self.assertEqual(len(w), len(w.compile()))
 
+    def test_singlesig(self):
+        key = ec.PrivateKey(bytes([1] * 32)).to_public()
+        cases = [
+            # desc, scriptpubkey_type, is_legacy, is_wrapped, is_segwit, is_taproot
+            ("pkh(%s)" % key, "p2pkh", True, False, False, False),
+            ("sh(wpkh(%s))" % key, "p2sh-p2wpkh", False, True, True, False),
+            ("wpkh(%s)" % key, "p2wpkh", False, False, True, False),
+            ("tr(%s)" % key, "p2tr", False, False, True, True),
+        ]
+
+        for dstr, spk_type, is_legacy, is_wrapped, is_segwit, is_taproot in cases:
+            d = Descriptor.from_string(dstr)
+            self.assertEqual(d.scriptpubkey_type(), spk_type, msg=dstr)
+            self.assertEqual(d.is_legacy, is_legacy, msg=dstr)
+            self.assertEqual(d.is_wrapped, is_wrapped, msg=dstr)
+            self.assertEqual(d.is_segwit, is_segwit, msg=dstr)
+            self.assertEqual(d.is_taproot, is_taproot, msg=dstr)
+
+        # p2sh-p2wpkh tests
+        acc = _account(1, "m/49h/1h/0h")
+        d = Descriptor.from_string("sh(wpkh(%s/<0;1>/*))" % acc)
+        self.assertTrue(d.owns(_scope(d, 3, branch_index=1)))
+
+        # same key and path under another script type is not owned
+        for other in ("pkh(%s/<0;1>/*)", "wpkh(%s/<0;1>/*)"):
+            other_d = Descriptor.from_string(other % acc)
+            self.assertFalse(d.owns(_scope(other_d, 3, branch_index=1)), msg=other)
+
+        # another account is not owned too
+        other_d = Descriptor.from_string(
+            "sh(wpkh(%s/<0;1>/*))" % _account(2, "m/49h/1h/0h")
+        )
+        self.assertFalse(d.owns(_scope(other_d, 3, branch_index=1)))
+
     def test_multisig(self):
         keys = tuple([ec.PrivateKey(bytes([i + 1] * 32)).to_public() for i in range(4)])
         descriptors = [
-            # descriptor: str, is_basic_multisig: bool, is_sorted: bool
+            # descriptor, is_basic_multisig, is_sorted, num_branches, scriptpubkey_type
+            ("sh(multi(1,%s,%s))" % keys[:2], True, False, 1, "p2sh"),
+            ("sh(sortedmulti(2,%s,%s,%s))" % keys[:3], True, True, 1, "p2sh"),
+            ("sh(wsh(multi(2,%s,%s,%s)))" % keys[:3], True, False, 1, "p2sh-p2wsh"),
+            (
+                "sh(wsh(sortedmulti(2,%s,%s,%s)))" % keys[:3],
+                True,
+                True,
+                1,
+                "p2sh-p2wsh",
+            ),
+            (
+                "sh(wsh(c:andor(multi(1,%s,%s),pk_k(%s),pk_k(%s))))" % keys,
+                False,
+                False,
+                1,
+                "p2sh-p2wsh",
+            ),
             (
                 "wsh(c:andor(multi(1,%s,%s),pk_k(%s),pk_k(%s)))" % keys,
                 False,
                 False,
-                1
+                1,
+                "p2wsh",
             ),
-            (
-                "wsh(multi(2,%s,%s,%s,%s))" % keys,
-                True,
-                False,
-                1
-            ),
-            (
-                "wsh(sortedmulti(2,%s,%s,%s,%s))" % keys,
-                True,
-                True,
-                1
-            ),
-            (
-                "tr(%s,multi_a(2,%s,%s,%s))" % keys,
-                False,
-                False,
-                1
-            ),
-            (
-                "tr(%s,sortedmulti_a(2,%s,%s,%s))" % keys,
-                False,
-                False,
-                1
-            ),
+            ("wsh(multi(2,%s,%s,%s,%s))" % keys, True, False, 1, "p2wsh"),
+            ("wsh(sortedmulti(2,%s,%s,%s,%s))" % keys, True, True, 1, "p2wsh"),
+            ("tr(%s,multi_a(2,%s,%s,%s))" % keys, False, False, 1, "p2tr"),
+            ("tr(%s,sortedmulti_a(2,%s,%s,%s))" % keys, False, False, 1, "p2tr"),
         ]
-        for dstr, is_basic, is_sorted, n_branches in descriptors:
+        for dstr, is_basic, is_sorted, n_branches, script_type in descriptors:
             d = Descriptor.from_string(dstr)
-            self.assertEqual(d.is_basic_multisig, is_basic)
-            self.assertEqual(d.is_sorted, is_sorted)
+            self.assertEqual(d.scriptpubkey_type(), script_type, msg=dstr)
+            self.assertEqual(d.is_basic_multisig, is_basic, msg=dstr)
+            self.assertEqual(d.is_sorted, is_sorted, msg=dstr)
+            self.assertEqual(d.num_branches, n_branches, msg=dstr)
 
-            assert n_branches == d.num_branches
+        # p2sh and p2sh-p2wsh: owns() on 2-of-3 accounts (BIP45 and BIP48/1h paths)
+        templates = (
+            "sh(sortedmulti(2,%s,%s,%s))",
+            "sh(wsh(sortedmulti(2,%s,%s,%s)))",
+            "wsh(sortedmulti(2,%s,%s,%s))",
+        )
+        for tpl, path in zip(templates[:2], ("m/45h", "m/48h/1h/0h/1h")):
+            cosigners = tuple(_account(i, path) + "/<0;1>/*" for i in (1, 2, 3))
+            d = Descriptor.from_string(tpl % cosigners)
+            self.assertTrue(d.owns(_scope(d, 5, branch_index=1)), msg=tpl)
+            # same cosigners and paths under another script type: not owned
+            for other in templates:
+                if other == tpl:
+                    continue
+                other_d = Descriptor.from_string(other % cosigners)
+                scope = _scope(other_d, 5, branch_index=1)
+                self.assertFalse(d.owns(scope), msg="%s owns %s" % (tpl, other))
 
 
 # test that:
