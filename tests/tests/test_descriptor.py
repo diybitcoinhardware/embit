@@ -2,7 +2,7 @@ from unittest import TestCase
 from binascii import hexlify
 from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
-from embit.descriptor.miniscript import OPERATORS, WRAPPERS
+from embit.descriptor.miniscript import Miniscript, OPERATORS, WRAPPERS
 from embit.descriptor.errors import MiniscriptError
 from embit.descriptor.checksum import add_checksum, DescriptorError
 from embit import ec
@@ -132,6 +132,65 @@ class DescriptorTest(TestCase):
             schex = hexlify(scc.data).decode()
             self.assertEqual(schex, a)
             self.assertEqual(str(sc), d)
+
+    def test_older_takes_only_positive_bip68_locks(self):
+        """older(n) takes a positive block count or a positive time count.
+
+        With the disable flag (bit 31) clear, BIP 68 interprets only the
+        type flag (bit 22) and the low 16 bits, so older(65536) imposes no
+        relative delay. A time lock of zero (0x400000) has no ignored bits, but is
+        refused as well: that is embit's own policy, not a BIP 68 rule.
+        """
+        key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        xonly = key[2:]
+
+        def verify_taproot_leaf(fragment):
+            # tr() parsing does not yet verify leaves on this branch.
+            desc = Descriptor.from_string(
+                "tr(%s,and_v(v:pk(%s),%s))" % (xonly, xonly, fragment)
+            )
+            desc.taptree.tree.miniscript.verify()
+
+        def parse_all(fragment):
+            Miniscript.from_string(fragment).verify()
+            Descriptor.from_string("wsh(and_v(v:pk(%s),%s))" % (key, fragment))
+            verify_taproot_leaf(fragment)
+
+        def refused(fragment):
+            with self.assertRaises(MiniscriptError):
+                Miniscript.from_string(fragment).verify()
+            with self.assertRaises(MiniscriptError):
+                Descriptor.from_string("wsh(and_v(v:pk(%s),%s))" % (key, fragment))
+            with self.assertRaises(MiniscriptError):
+                verify_taproot_leaf(fragment)
+
+        for n in (
+            1,
+            65535,  # most blocks
+            0x400001,  # 512 seconds
+            0x40FFFF,  # most time
+        ):
+            parse_all("older(%d)" % n)
+        for n in (
+            0,
+            0x10000,  # no delay, bit 16 ignored
+            0x10001,  # 1 block, bit 16 ignored
+            0x3FFFFF,  # 65535 blocks, bits 16 to 21 ignored
+            0x400000,  # zero time: refused by policy
+            0x410000,  # zero time, bit 16 ignored
+            0x800001,  # 1 block, bit 23 ignored
+            0xC00001,  # 512 seconds, bit 23 ignored
+            0x7FFFFFFF,
+            0x80000000,  # disable flag
+        ):
+            refused("older(%d)" % n)
+        # after() reads n as an absolute height or time and keeps its range
+        for n in (1, 0x10000, 500000000, 0x7FFFFFFF):
+            parse_all("after(%d)" % n)
+        for n in (0, 0x80000000):
+            refused("after(%d)" % n)
+        self.assertEqual(Miniscript.from_string("older(1)").compile(), b"\x51\xb2")
+        self.assertEqual(Miniscript.from_string("after(1)").compile(), b"\x51\xb1")
 
     def test_keys(self):
         keys = [
