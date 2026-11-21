@@ -2,8 +2,12 @@
 # https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki#Test_Vectors
 
 from binascii import hexlify, unhexlify
+from io import BytesIO
+from embit import bip32, ec, script
 from embit.bip32 import HDKey
-from embit.psbt import PSBT
+from embit.psbt import PSBT, DerivationPath
+from embit.psbtview import PSBTView
+from embit.transaction import Transaction, TransactionInput, TransactionOutput
 from unittest import TestCase
 
 INVALID_VECTORS = [
@@ -121,3 +125,91 @@ class PSBTTest(TestCase):
                         hexlify(act_sig).decode("utf-8"),
                         exp_partial_sigs[i][act_pub_str],
                     )
+
+
+class KeyOriginTest(TestCase):
+    """Which key origins of an input sign_with() takes signing keys from."""
+
+    ROOT = HDKey.from_seed(bytes(range(32)))
+    PATH = "m/84h/1h/5h/0/0"
+    SCRIPT_TYPES = ("p2wpkh", "p2sh-p2wpkh", "p2pkh", "p2wsh")
+
+    def key(self):
+        return self.ROOT.derive(self.PATH).key
+
+    def psbt(self, script_type, version, taproot_origin):
+        """One input of the given type that pays to itself, as raw bytes.
+
+        The key origin goes into bip32_derivations, or with `taproot_origin`
+        only into taproot_bip32_derivations.
+        """
+        pub = self.key().get_public_key()
+        redeem_script = None
+        witness_script = None
+        if script_type == "p2wpkh":
+            spk = script.p2wpkh(pub)
+        elif script_type == "p2sh-p2wpkh":
+            redeem_script = script.p2wpkh(pub)
+            spk = script.p2sh(redeem_script)
+        elif script_type == "p2pkh":
+            spk = script.p2pkh(pub)
+        else:
+            witness_script = script.multisig(1, [pub])
+            spk = script.p2wsh(witness_script)
+        previous = Transaction(
+            vin=[TransactionInput(bytes(32), 0)],
+            vout=[TransactionOutput(10000, spk)],
+        )
+        psbt = PSBT(
+            Transaction(
+                vin=[TransactionInput(previous.txid(), 0)],
+                vout=[TransactionOutput(9000, spk)],
+            ),
+            version=version,
+        )
+        inp = psbt.inputs[0]
+        inp.non_witness_utxo = previous
+        inp.redeem_script = redeem_script
+        inp.witness_script = witness_script
+        origin = DerivationPath(self.ROOT.my_fingerprint, bip32.parse_path(self.PATH))
+        if taproot_origin:
+            xonly = ec.PublicKey.from_xonly(pub.xonly())
+            inp.taproot_bip32_derivations[xonly] = ([], origin)
+        else:
+            inp.bip32_derivations[pub] = origin
+        return psbt.serialize()
+
+    def cases(self, taproot_origin):
+        for script_type in self.SCRIPT_TYPES:
+            for version in (None, 2):
+                label = "%s, version %r" % (script_type, version)
+                yield self.psbt(script_type, version, taproot_origin), label
+
+    def test_key_origin_signs(self):
+        pub = self.key().get_public_key()
+        for raw, label in self.cases(taproot_origin=False):
+            psbt = PSBT.parse(raw)
+            self.assertEqual(psbt.sign_with(self.ROOT), 1, label)
+            sig = psbt.inputs[0].partial_sigs[pub]
+            self.assertTrue(
+                pub.verify(ec.Signature.parse(sig[:-1]), psbt.sighash(0)), label
+            )
+            sigs = BytesIO()
+            view = PSBTView.view(BytesIO(raw))
+            self.assertEqual(view.sign_with(self.ROOT, sigs), 1, label)
+
+    def test_taproot_key_origin_does_not_sign_other_inputs(self):
+        # A taproot key origin says nothing about an input that is not
+        # taproot: a caller checking the paths of such an input reads
+        # bip32_derivations and would never see this one.
+        for raw, label in self.cases(taproot_origin=True):
+            psbt = PSBT.parse(raw)
+            self.assertEqual(len(psbt.inputs[0].taproot_bip32_derivations), 1, label)
+            self.assertEqual(psbt.sign_with(self.ROOT), 0, label)
+            self.assertEqual(len(psbt.inputs[0].partial_sigs), 0, label)
+            self.assertEqual(psbt.serialize(), raw, label)
+            sigs = BytesIO()
+            view = PSBTView.view(BytesIO(raw))
+            self.assertEqual(view.sign_with(self.ROOT, sigs), 0, label)
+            # only the separator that ends the input
+            self.assertEqual(sigs.getvalue(), b"\x00", label)

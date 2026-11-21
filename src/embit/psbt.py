@@ -1695,13 +1695,15 @@ class PSBT(EmbitBase):
             # get all possible derivations with matching fingerprint
             bip32_derivations = OrderedDict()  # OrderedDict to keep order
             if fingerprint:
-                # if taproot derivations are present add them
-                for pub in inp.taproot_bip32_derivations:
-                    _leafs, derivation = inp.taproot_bip32_derivations[pub]
-                    if derivation.fingerprint == fingerprint:
-                        # Add only if not already present
-                        if (pub, derivation) not in bip32_derivations:
-                            bip32_derivations[(pub, derivation)] = True
+                # taproot key origins only say something about a taproot input,
+                # a caller checking the paths of any other input never sees them
+                if inp.is_taproot:
+                    for pub in inp.taproot_bip32_derivations:
+                        _leafs, derivation = inp.taproot_bip32_derivations[pub]
+                        if derivation.fingerprint == fingerprint:
+                            # Add only if not already present
+                            if (pub, derivation) not in bip32_derivations:
+                                bip32_derivations[(pub, derivation)] = True
 
                 # segwit and legacy derivations
                 for pub in inp.bip32_derivations:
