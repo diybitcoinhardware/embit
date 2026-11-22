@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `write_to()` as before, but are no longer repeated in the stream.
 - Validate the BIP32 seed length in `HDKey.from_seed()`, accepting 16 to 64 bytes
   and raising `HDError` for other lengths.
+- **Breaking**: `Descriptor.scriptpubkey_type()` returns `"p2sh-p2wpkh"` or
+  `"p2sh-p2wsh"` for `sh(wpkh(...))` / `sh(wsh(...))` instead of `"p2sh"`
+  (legacy `sh(...)` is still `"p2sh"`). `Script.script_type()` still returns
+  `"p2sh"` for both, so map the nested names back before comparing them, as
+  `Descriptor.owns()` does. `Descriptor.owns()` results are unchanged.
+- `Descriptor.is_wrapped` and `Descriptor.is_segwit` return `True`/`False`
+  instead of the matched key or miniscript object.
 
 ### Fixed
 
