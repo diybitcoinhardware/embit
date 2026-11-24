@@ -15,6 +15,7 @@ from .test_liquid import *
 from .test_miniscript_compile import *
 from .test_parsing import ParsingTest as ParsingTest
 from .test_psbt import *
+from .test_psbt_scripts import *
 from .test_psbt_versions import *
 from .test_psbtview import *
 from .test_psetview import *

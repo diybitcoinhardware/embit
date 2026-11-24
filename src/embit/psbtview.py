@@ -1001,6 +1001,11 @@ class PSBTView:
         if inp.utxo is None:
             raise PSBTError("Missing previous utxo on input %d" % i)
 
+        # redeem_script and witness_script are what a legacy or segwit v0
+        # signature is made over, so the spent output must commit to them.
+        # A taproot output commits to neither and is refused with one.
+        inp.verify_scripts()
+
         if inp.is_taproot:
             values, scripts = self._utxo_values_and_scripts()
             return self.sighash_taproot(
@@ -1248,6 +1253,8 @@ class PSBTView:
 
         The sig_stream holds the signatures made here, not the ones the inputs
         already have: write_to() keeps those when it merges the stream.
+        If an input makes this raise, the signatures of the inputs before it
+        are already in the sig_stream, which then has to be discarded.
 
         The sig_stream only carries per-input fields. For PSBTv2 the signer
         also has to update PSBT_GLOBAL_TX_MODIFIABLE (BIP-370); that update is
