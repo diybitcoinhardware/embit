@@ -1749,6 +1749,14 @@ class PSBT(EmbitBase):
                 self._update_tx_modifiable(inp_sighash)
 
             for prv, pub in derived_keypairs:
+                # A derivation record is the PSBT creator's claim. As for the
+                # root key above, sign only where the script uses the key.
+                derived_sec = prv.get_public_key().sec()
+                if (
+                    derived_sec not in sc.data
+                    and hashes.hash160(derived_sec) not in sc.data
+                ):
+                    continue
                 sig = prv.sign(h)
                 inp.partial_sigs[pub] = sig.serialize() + bytes([inp_sighash])
                 counter += 1

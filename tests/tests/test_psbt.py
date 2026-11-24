@@ -2,8 +2,12 @@
 # https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki#Test_Vectors
 
 from binascii import hexlify, unhexlify
+from io import BytesIO
+from embit import bip32, ec, script
 from embit.bip32 import HDKey
-from embit.psbt import PSBT
+from embit.psbt import PSBT, DerivationPath
+from embit.psbtview import PSBTView
+from embit.transaction import Transaction, TransactionInput, TransactionOutput
 from unittest import TestCase
 
 INVALID_VECTORS = [
@@ -121,3 +125,84 @@ class PSBTTest(TestCase):
                         hexlify(act_sig).decode("utf-8"),
                         exp_partial_sigs[i][act_pub_str],
                     )
+
+
+class KeyInScriptTest(TestCase):
+    """sign_with() signs with a derived key only where the input's script uses it."""
+
+    ROOT = HDKey.from_seed(bytes(range(32)))
+    PATH = "m/84h/1h/0h/0/0"
+    SCRIPT_TYPES = ("p2wpkh", "p2sh-p2wpkh", "p2pkh", "p2wsh")
+
+    def ours(self):
+        return self.ROOT.derive(self.PATH).key.get_public_key()
+
+    def psbt(self, script_type, version, pays):
+        """One input of the given type paying `pays`, as raw bytes, with the
+        root's key at PATH named in its bip32_derivations either way."""
+        redeem_script = None
+        witness_script = None
+        if script_type == "p2wpkh":
+            spk = script.p2wpkh(pays)
+        elif script_type == "p2sh-p2wpkh":
+            redeem_script = script.p2wpkh(pays)
+            spk = script.p2sh(redeem_script)
+        elif script_type == "p2pkh":
+            spk = script.p2pkh(pays)
+        else:
+            witness_script = script.multisig(1, [pays])
+            spk = script.p2wsh(witness_script)
+        previous = Transaction(
+            vin=[TransactionInput(bytes(32), 0)],
+            vout=[TransactionOutput(10000, spk)],
+        )
+        psbt = PSBT(
+            Transaction(
+                vin=[TransactionInput(previous.txid(), 0)],
+                vout=[TransactionOutput(9000, spk)],
+            ),
+            version=version,
+        )
+        inp = psbt.inputs[0]
+        inp.non_witness_utxo = previous
+        inp.redeem_script = redeem_script
+        inp.witness_script = witness_script
+        inp.bip32_derivations[self.ours()] = DerivationPath(
+            self.ROOT.my_fingerprint, bip32.parse_path(self.PATH)
+        )
+        return psbt.serialize()
+
+    def cases(self, pays):
+        for script_type in self.SCRIPT_TYPES:
+            for version in (None, 2):
+                label = "%s, version %r" % (script_type, version)
+                yield self.psbt(script_type, version, pays), label
+
+    def test_key_in_script_signs(self):
+        pub = self.ours()
+        for raw, label in self.cases(pays=pub):
+            psbt = PSBT.parse(raw)
+            self.assertEqual(psbt.sign_with(self.ROOT), 1, label)
+            sig = psbt.inputs[0].partial_sigs[pub]
+            self.assertTrue(
+                pub.verify(ec.Signature.parse(sig[:-1]), psbt.sighash(0)), label
+            )
+            sigs = BytesIO()
+            view = PSBTView.view(BytesIO(raw))
+            self.assertEqual(view.sign_with(self.ROOT, sigs), 1, label)
+
+    def test_key_not_in_script_does_not_sign(self):
+        # The derivation record names a key the root derives, but the script
+        # pays someone else. The signature could never satisfy that script,
+        # and signing would accept a claim the input itself contradicts.
+        theirs = ec.PrivateKey(b"\x11" * 32).get_public_key()
+        for raw, label in self.cases(pays=theirs):
+            psbt = PSBT.parse(raw)
+            self.assertEqual(psbt.sign_with(self.ROOT), 0, label)
+            self.assertEqual(len(psbt.inputs[0].partial_sigs), 0, label)
+            self.assertEqual(psbt.serialize(), raw, label)
+            sigs = BytesIO()
+            view = PSBTView.view(BytesIO(raw))
+            self.assertEqual(view.sign_with(self.ROOT, sigs), 0, label)
+            # only the separator that ends the input
+            self.assertEqual(sigs.getvalue(), b"\x00", label)
