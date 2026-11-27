@@ -44,13 +44,15 @@ class Descriptor(DescriptorBase):
         self.wpkh = wpkh
         self.taproot = taproot
         self.taptree = taptree or TapTree()
-        # BIP 382: segwit v0 only accepts compressed public keys
-        segwit_v0 = not taproot and (wsh if miniscript is not None else wpkh)
+        # BIP 382 and BIP 386: segwit v0 and tr() only accept compressed
+        # (or, in tr(), x-only) public keys
+        context = "tr()" if taproot else "segwit v0"
+        compressed_only = taproot or (wsh if miniscript is not None else wpkh)
         # make sure all keys are either taproot or not
         for k in self.keys:
             k.taproot = taproot
-            if segwit_v0 and not getattr(k.key, "compressed", True):
-                raise DescriptorError("Uncompressed keys are not allowed in segwit v0")
+            if compressed_only and not getattr(k.key, "compressed", True):
+                raise DescriptorError("Uncompressed keys are not allowed in " + context)
 
     @property
     def script_len(self):
