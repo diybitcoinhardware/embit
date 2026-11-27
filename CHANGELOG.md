@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reject conflicting witness and non-witness UTXOs during verification, in
   both full and compressed parsing, so verified fee calculations cannot use
   an unauthenticated amount or script.
+- Check that an input's `redeem_script` and `witness_script` are the scripts
+  its scriptPubKey commits to, in `InputScope.verify()` and before `PSBT` and
+  `PSBTView` compute a signature hash, and raise `PSBTError` otherwise. A
+  signature could be made over a script unrelated to the output the input
+  declares. The check is also available on its own as
+  `InputScope.verify_scripts()`.
 - Validate PSBTv2 count fields canonically and raise `PSBTError` instead of
   `RuntimeError`/`ValueError` on malformed values in both parse paths.
 - `PSBTView` matched PSBTv2 prevout and output fields by key prefix, so a

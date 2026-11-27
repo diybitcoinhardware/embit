@@ -412,13 +412,15 @@ class InputScope(PSBTScope):
             self._utxo = None
             self._txhash = None
             self._utxo_vout = None
-        # merged prevout or utxo data has not been through verify()
+        # merged prevout, utxo or script data has not been through verify()
         if (
             other.txid
             or other.vout is not None
             or other.non_witness_utxo
             or other.witness_utxo
             or other._utxo
+            or other.redeem_script
+            or other.witness_script
         ):
             self._verified = False
         self.partial_sigs.update(other.partial_sigs)
@@ -481,12 +483,54 @@ class InputScope(PSBTScope):
         utxo = self.utxo
         return utxo is not None and utxo.script_pubkey.script_type() == "p2tr"
 
+    def verify_scripts(self):
+        """Checks that redeem_script and witness_script are the scripts
+        the scriptPubKey of the spent output commits to.
+
+        A signature is made over witness_script or redeem_script when the
+        input has one, and a segwit v0 signature hash does not cover the
+        scriptPubKey. Without this check a signer can be handed a script
+        that has nothing to do with the output the input declares, and
+        whatever it concludes from that output (type, owner, policy) says
+        nothing about the script it signs.
+
+        Raises PSBTError on a mismatch. Returns False if the scriptPubKey
+        is unknown, True otherwise. A script the input does not carry is
+        not an error here.
+        """
+        script_pubkey = self.script_pubkey
+        if script_pubkey is None:
+            return False
+        is_p2sh = script_pubkey.script_type() == "p2sh"
+        if self.redeem_script is not None:
+            if not is_p2sh or script.p2sh(self.redeem_script) != script_pubkey:
+                raise PSBTError("Redeem script doesn't match scriptPubKey")
+        if self.witness_script is not None:
+            program = script.p2wsh(self.witness_script)
+            if self.redeem_script is not None:
+                # nested segwit: checked above that scriptPubKey commits to
+                # the redeem script
+                committed = self.redeem_script
+            elif is_p2sh:
+                # nested segwit without the redeem script, which can only
+                # be the witness program itself
+                committed = script_pubkey
+                program = script.p2sh(program)
+            else:
+                committed = script_pubkey
+            if program != committed:
+                raise PSBTError("Witness script doesn't match scriptPubKey")
+        return True
+
     def verify(self, ignore_missing=False):
         """Verifies the hash of previous transaction provided in non_witness_utxo.
         We must verify on a hardware wallet even on segwit transactions to avoid
         miner fee attack described here:
         https://blog.trezor.io/details-of-firmware-updates-for-trezor-one-version-1-9-1-and-trezor-model-t-version-2-3-1-1eba8f60f2dd
         For legacy txs we need to verify it to calculate fee.
+
+        Also checks that redeem_script and witness_script match the spent
+        output, see `verify_scripts()`.
         """
         self._verified = False
         if self.non_witness_utxo or self._txhash:
@@ -514,12 +558,14 @@ class InputScope(PSBTScope):
                 # the authenticated output, so both representations must agree.
                 if self.witness_utxo is not None and self.witness_utxo != utxo:
                     raise PSBTError("Witness utxo doesn't match non_witness_utxo")
+                self.verify_scripts()
                 self._verified = True
                 return True
             else:
                 raise PSBTError("Previous txid doesn't match non_witness_utxo txid")
         if not ignore_missing:
             raise PSBTError("Missing non_witness_utxo")
+        self.verify_scripts()
         return False
 
     def read_value(self, stream, k, version=None):
@@ -1540,6 +1586,11 @@ class PSBT(EmbitBase):
         inp = self.inputs[i]
         if inp.utxo is None:
             raise PSBTError("Missing previous utxo on input %d" % i)
+
+        # redeem_script and witness_script are what a legacy or segwit v0
+        # signature is made over, so the spent output must commit to them.
+        # A taproot output commits to neither and is refused with one.
+        inp.verify_scripts()
 
         if inp.is_taproot:
             values = []
