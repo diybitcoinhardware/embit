@@ -321,6 +321,15 @@ class DescriptorTest(TestCase):
         ]:
             Descriptor.from_string(d)
 
+    def test_taproot_remains_false_for_uncompressed_key_misused_in_tr_descriptor(self):
+        U = (
+            "04c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee51ae"
+            "168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52a"
+        )
+        ukey = Key(ec.PublicKey.parse(unhexlify(U)))
+        self.assertRaises(DescriptorError, Descriptor, key=ukey, taproot=True)
+        self.assertFalse(ukey.taproot)
+
     def test_keys(self):
         keys = [
             "[f45912ab/44h/12/32h]xpub6F6wWxm8F64iBHNhyaoh3QKCuuMUY5pfPPr1H1WuZXUXeXtZ21qjFN5ykaqnLL1jtPEFB9d94CyZrcYWKVdSiJKQ6mLGEB5sfrGFBpg6wgA",
