@@ -1,3 +1,4 @@
+from binascii import unhexlify
 from io import BytesIO
 from unittest import TestCase
 
@@ -107,6 +108,50 @@ class PSBTVersionTest(TestCase):
             view = PSBTView.view(BytesIO(invalid))
             with self.assertRaises(PSBTError):
                 getattr(view, scope)(0)
+
+    def test_taproot_fields_reject_malformed_keys(self):
+        # BIP 371: no key data for these types, and a 32-byte merkle root
+        raw = psbt_v0()
+        xonly = unhexlify(
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        )
+        invalid = [
+            (b"\x17\x01", xonly, -2, "input"),
+            (b"\x18\x01", bytes(32), -2, "input"),
+            (b"\x18", bytes(31), -2, "input"),
+            (b"\x18", bytes(33), -2, "input"),
+            (b"\x05\x01", xonly, -1, "output"),
+            # BIP 371: 64 or 65-byte signatures, a 33 + 32m-byte control block
+            # and a non-empty leaf script
+            (b"\x13", bytes(63), -2, "input"),
+            (b"\x13", bytes(66), -2, "input"),
+            (b"\x14" + xonly + bytes(32), bytes(63), -2, "input"),
+            (b"\x14" + xonly + bytes(32), bytes(66), -2, "input"),
+            (b"\x15\xc0" + xonly[1:], b"\x51\xc0", -2, "input"),
+            (b"\x15\xc0" + xonly + bytes(1), b"\x51\xc0", -2, "input"),
+            (b"\x15\xc0" + xonly, b"", -2, "input"),
+        ]
+        for key, value, offset, scope in invalid:
+            data = raw[:offset] + key_value(key, value) + raw[offset:]
+            with self.assertRaises(PSBTError):
+                PSBT.parse(data)
+            view = PSBTView.view(BytesIO(data))
+            with self.assertRaises(PSBTError):
+                getattr(view, scope)(0)
+
+        valid = [
+            (b"\x17", xonly, -2),
+            (b"\x18", bytes(32), -2),
+            (b"\x05", xonly, -1),
+            (b"\x13", bytes(64), -2),
+            (b"\x13", bytes(65), -2),
+            (b"\x14" + xonly + bytes(32), bytes(64), -2),
+            (b"\x15\xc0" + xonly, b"\x51\xc0", -2),
+            (b"\x15\xc0" + xonly + bytes(32), b"\x51\xc0", -2),
+        ]
+        for key, value, offset in valid:
+            data = raw[:offset] + key_value(key, value) + raw[offset:]
+            self.assertEqual(PSBT.parse(data).serialize(), data)
 
     def assertRejected(self, raw):
         with self.assertRaises(PSBTError):
