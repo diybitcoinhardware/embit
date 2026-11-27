@@ -121,6 +121,15 @@ class PSBTVersionTest(TestCase):
             (b"\x18", bytes(31), -2, "input"),
             (b"\x18", bytes(33), -2, "input"),
             (b"\x05\x01", xonly, -1, "output"),
+            # BIP 371: 64 or 65-byte signatures, a 33 + 32m-byte control block
+            # and a non-empty leaf script
+            (b"\x13", bytes(63), -2, "input"),
+            (b"\x13", bytes(66), -2, "input"),
+            (b"\x14" + xonly + bytes(32), bytes(63), -2, "input"),
+            (b"\x14" + xonly + bytes(32), bytes(66), -2, "input"),
+            (b"\x15\xc0" + xonly[1:], b"\x51\xc0", -2, "input"),
+            (b"\x15\xc0" + xonly + bytes(1), b"\x51\xc0", -2, "input"),
+            (b"\x15\xc0" + xonly, b"", -2, "input"),
         ]
         for key, value, offset, scope in invalid:
             data = raw[:offset] + key_value(key, value) + raw[offset:]
@@ -134,6 +143,11 @@ class PSBTVersionTest(TestCase):
             (b"\x17", xonly, -2),
             (b"\x18", bytes(32), -2),
             (b"\x05", xonly, -1),
+            (b"\x13", bytes(64), -2),
+            (b"\x13", bytes(65), -2),
+            (b"\x14" + xonly + bytes(32), bytes(64), -2),
+            (b"\x15\xc0" + xonly, b"\x51\xc0", -2),
+            (b"\x15\xc0" + xonly + bytes(32), b"\x51\xc0", -2),
         ]
         for key, value, offset in valid:
             data = raw[:offset] + key_value(key, value) + raw[offset:]

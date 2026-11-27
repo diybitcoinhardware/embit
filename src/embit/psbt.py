@@ -437,6 +437,8 @@ class InputScope(PSBTScope):
                 raise PSBTError("Invalid taproot key signature key")
             if self.taproot_key_sig is not None:
                 raise PSBTError("Duplicated taproot key signature")
+            if len(v) not in (64, 65):
+                raise PSBTError("Invalid taproot key signature length")
             self.taproot_key_sig = v
 
         # PSBT_IN_TAP_SCRIPT_SIG
@@ -447,13 +449,19 @@ class InputScope(PSBTScope):
             leaf = k[33:]
             if (pub, leaf) in self.taproot_sigs:
                 raise PSBTError("Duplicated taproot sig")
+            if len(v) not in (64, 65):
+                raise PSBTError("Invalid taproot sig length")
             self.taproot_sigs[(pub, leaf)] = v
 
         # PSBT_IN_TAP_LEAF_SCRIPT
         elif k[0] == 0x15:
             control_block = k[1:]
+            if len(control_block) < 33 or (len(control_block) - 33) % 32:
+                raise PSBTError("Invalid control block length")
             if control_block in self.taproot_scripts:
                 raise PSBTError("Duplicated taproot script")
+            if not v:
+                raise PSBTError("Empty taproot script")
             self.taproot_scripts[control_block] = v
 
         # PSBT_IN_TAP_BIP32_DERIVATION
