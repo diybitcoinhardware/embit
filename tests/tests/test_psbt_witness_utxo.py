@@ -2,8 +2,6 @@
 A witness_utxo must agree with the previous transaction it claims to spend.
 
 Written with unittest, so tests/run_tests.py runs it on MicroPython as well.
-The same check is covered for CPython in test_psbt_verification.py, which
-needs pytest.
 """
 
 from io import BytesIO
