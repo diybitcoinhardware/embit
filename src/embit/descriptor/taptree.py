@@ -79,8 +79,13 @@ class TapTree(DescriptorBase):
     def __init__(self, tree=None):
         """tree can be None, TapLeaf or a tuple (taptree, taptree)"""
         self.tree = tree
+        keys = self.keys
+        # check before flipping, so a refused tree leaves caller keys unchanged
+        for k in keys:
+            if not getattr(k.key, "compressed", True):
+                raise DescriptorError("Uncompressed keys are not allowed in tr()")
         # make sure all keys are taproot
-        for k in self.keys:
+        for k in keys:
             k.taproot = True
 
     def __bool__(self):

@@ -3,6 +3,7 @@ from binascii import hexlify, unhexlify
 from embit.descriptor import Descriptor, Key
 from embit.descriptor.arguments import KeyHash, Number
 from embit.descriptor.miniscript import Miniscript, OPERATORS, WRAPPERS
+from embit.descriptor.taptree import TapTree, TapLeaf
 from embit.descriptor.errors import MiniscriptError
 from embit.descriptor.checksum import add_checksum, DescriptorError
 from embit.networks import NETWORKS
@@ -329,6 +330,10 @@ class DescriptorTest(TestCase):
         ukey = Key(ec.PublicKey.parse(unhexlify(U)))
         self.assertRaises(DescriptorError, Descriptor, key=ukey, taproot=True)
         self.assertFalse(ukey.taproot)
+        # same for an uncompressed key in a taptree leaf
+        leaf = Miniscript.from_string("pk(%s)" % U)
+        self.assertRaises(DescriptorError, TapTree, TapLeaf(leaf))
+        self.assertFalse(leaf.keys[0].taproot)
 
     def test_keys(self):
         keys = [
